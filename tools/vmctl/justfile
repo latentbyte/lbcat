@@ -1,0 +1,43 @@
+# vmctl justfile -- build Go binaries for the native messaging bridge
+
+default:
+    @just --list
+
+# build all three Go binaries
+build:
+    go build -o bin/vmctl ./cmd/vmctl
+    go build -o bin/vmhost ./cmd/vmhost
+    go build -o bin/vmhost-shim ./cmd/vmhost-shim
+
+# build, copy to ~/.local/bin, and register native host manifests
+install: build
+    mkdir -p ~/.local/bin
+    cp bin/vmctl bin/vmhost bin/vmhost-shim ~/.local/bin/
+    # re-sign after copy so macOS code signing monitor doesn't kill them
+    codesign --sign - --force ~/.local/bin/vmctl ~/.local/bin/vmhost ~/.local/bin/vmhost-shim
+    ~/.local/bin/vmctl install --dev
+
+# run Go tests
+test:
+    go test ./...
+
+# run all static analysis (go vet)
+check:
+    go vet ./...
+
+alias lint := check
+
+# format Go code
+fmt:
+    gofumpt -w . || gofmt -w .
+
+alias format := fmt
+alias fix := fmt
+
+# start the daemon in foreground (ctrl+c to stop)
+dev: build
+    ./bin/vmhost
+
+# clean Go build artifacts
+clean:
+    rm -rf bin/
