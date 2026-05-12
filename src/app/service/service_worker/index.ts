@@ -21,6 +21,7 @@ import { FaviconDAO } from "@App/app/repo/favicon";
 import { onRegularUpdateCheckAlarm } from "./regular_updatecheck";
 import { cacheInstance } from "@App/app/cache";
 import { InfoNotification } from "./utils";
+import { initNativeMessaging } from "./native-messaging";
 
 // service worker的管理器
 export default class ServiceWorkerManager {
@@ -101,6 +102,7 @@ export default class ServiceWorkerManager {
       faviconDAO
     );
     system.init();
+    initNativeMessaging(script);
 
     const regularScriptUpdateCheck = async () => {
       const res = await onRegularUpdateCheckAlarm(systemConfig, script, subscribe);

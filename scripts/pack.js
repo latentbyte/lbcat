@@ -12,7 +12,7 @@ import semver from "semver";
 
 // 目前 ScriptCat MV3 未正式支持 Firefox，
 // 测试人员可修改 PACK_FIREFOX 为 true 作个人测试用途
-const PACK_FIREFOX = false;
+const PACK_FIREFOX = true;
 
 // ============================================================================
 
@@ -131,33 +131,34 @@ await Promise.all([
 // 添加ts.worker.js名字为gz
 firefox.file("src/ts.worker.js.gz", await fs.readFile("./dist/ext/src/ts.worker.js", { encoding: "utf8" }));
 
-// 导出zip包
-chrome
-  .generateNodeStream({
-    type: "nodebuffer",
-    streamFiles: true,
-    compression: "DEFLATE",
-  })
-  .pipe(createWriteStream(`./dist/${packageInfo.name}-v${packageInfo.version}-chrome.zip`));
-
-PACK_FIREFOX &&
-  firefox
-    .generateNodeStream({
-      type: "nodebuffer",
-      streamFiles: true,
-      compression: "DEFLATE",
-    })
-    .pipe(createWriteStream(`./dist/${packageInfo.name}-v${packageInfo.version}-firefox.zip`));
-
-// 处理crx
-const crx = new ChromeExtension({
-  privateKey: await fs.readFile("./dist/scriptcat.pem", { encoding: "utf8" }),
-});
-
-await crx
-  .load("./dist/ext")
-  .then((crxFile) => crxFile.pack())
-  .then((crxBuffer) => fs.writeFile(`./dist/${packageInfo.name}-v${packageInfo.version}-chrome.crx`, crxBuffer))
-  .catch((err) => {
-    console.error(err);
+// promisify stream writes so zips finish before the process exits
+const writeZip = (zip, outPath) =>
+  new Promise((resolve, reject) => {
+    zip
+      .generateNodeStream({ type: "nodebuffer", streamFiles: true, compression: "DEFLATE" })
+      .pipe(createWriteStream(outPath))
+      .on("finish", resolve)
+      .on("error", reject);
   });
+
+// 导出zip包
+await writeZip(chrome, `./dist/${packageInfo.name}-v${packageInfo.version}-chrome.zip`);
+console.log(`wrote chrome zip`);
+
+if (PACK_FIREFOX) {
+  await writeZip(firefox, `./dist/${packageInfo.name}-v${packageInfo.version}-firefox.zip`);
+  console.log(`wrote firefox zip`);
+}
+
+// 处理crx (skip when pem is missing)
+try {
+  const crx = new ChromeExtension({
+    privateKey: await fs.readFile("./dist/scriptcat.pem", { encoding: "utf8" }),
+  });
+  await crx
+    .load("./dist/ext")
+    .then((crxFile) => crxFile.pack())
+    .then((crxBuffer) => fs.writeFile(`./dist/${packageInfo.name}-v${packageInfo.version}-chrome.crx`, crxBuffer));
+} catch (err) {
+  console.warn(`skipping crx build: ${err.message}`);
+}
