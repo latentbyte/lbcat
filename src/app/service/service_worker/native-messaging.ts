@@ -18,6 +18,7 @@ let scriptService: ScriptService | null = null;
 
 let port: chrome.runtime.Port | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let shouldReconnect = false;
 
 // active tab event subscriptions keyed by chrome.tabs event name
 const tabSubscriptions: Record<string, (...args: unknown[]) => void> = {};
@@ -182,8 +183,8 @@ const handlers: Record<string, Handler> = {
     const results = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId },
-        // eval runs in page context, not extension SW - avoids MV3 CSP
-
+        world: "MAIN",
+        // eval runs in page context, not extension SW
         func: (c: string) => eval(c),
         args: [code],
       }),
@@ -219,6 +220,7 @@ const handlers: Record<string, Handler> = {
           scrollHeight: document.documentElement.scrollHeight,
           viewportWidth: window.innerWidth,
           viewportHeight: window.innerHeight,
+          dpr: window.devicePixelRatio || 1,
         }),
       });
       const dims = dimsResult.result as {
@@ -226,6 +228,7 @@ const handlers: Record<string, Handler> = {
         scrollHeight: number;
         viewportWidth: number;
         viewportHeight: number;
+        dpr: number;
       };
 
       if (dims.scrollHeight <= dims.viewportHeight) {
@@ -234,17 +237,20 @@ const handlers: Record<string, Handler> = {
       }
 
       const captures: { y: number; dataUrl: string }[] = [];
-      let y = 0;
-      while (y < dims.scrollHeight) {
-        await chrome.scripting.executeScript({
+      for (let y = 0; y < dims.scrollHeight; y += dims.viewportHeight) {
+        const [scrollResult] = await chrome.scripting.executeScript({
           target: { tabId },
-          func: (scrollY: number) => window.scrollTo(0, scrollY),
+          func: (scrollY: number) => {
+            window.scrollTo(0, scrollY);
+            return window.scrollY;
+          },
           args: [y],
         });
         await new Promise((resolve) => setTimeout(resolve, 100));
+        const actualY = scrollResult.result ?? y;
+        if (captures.at(-1)?.y === actualY) break;
         const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId!, captureOpts);
-        captures.push({ y, dataUrl });
-        y += dims.viewportHeight;
+        captures.push({ y: actualY, dataUrl });
       }
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -259,11 +265,12 @@ const handlers: Record<string, Handler> = {
           totalHeight: number,
           vpWidth: number,
           vpHeight: number,
+          dpr: number,
           mime: string
         ) => {
           const canvas = document.createElement("canvas");
-          canvas.width = vpWidth;
-          canvas.height = totalHeight;
+          canvas.width = Math.round(vpWidth * dpr);
+          canvas.height = Math.round(totalHeight * dpr);
           const ctx = canvas.getContext("2d")!;
           for (const capture of capturesList) {
             const img = new Image();
@@ -273,11 +280,21 @@ const handlers: Record<string, Handler> = {
               img.onerror = rej;
             });
             const sliceH = Math.min(vpHeight, totalHeight - capture.y);
-            ctx.drawImage(img, 0, 0, vpWidth, sliceH, 0, capture.y, vpWidth, sliceH);
+            ctx.drawImage(
+              img,
+              0,
+              0,
+              Math.round(vpWidth * dpr),
+              Math.round(sliceH * dpr),
+              0,
+              Math.round(capture.y * dpr),
+              Math.round(vpWidth * dpr),
+              Math.round(sliceH * dpr)
+            );
           }
           return canvas.toDataURL(mime);
         },
-        args: [captures, dims.scrollHeight, dims.viewportWidth, dims.viewportHeight, mimeType],
+        args: [captures, dims.scrollHeight, dims.viewportWidth, dims.viewportHeight, dims.dpr, mimeType],
       });
       return { data: { dataUrl: stitchResult.result, width: dims.viewportWidth, height: dims.scrollHeight } };
     }
@@ -391,9 +408,9 @@ const handlers: Record<string, Handler> = {
     if (!scriptService) throw new Error("scriptService not initialized");
     const code = args["code"] as string | undefined;
     if (!code) throw new Error("code is required");
-    const { script } = await prepareScriptByCode(code, "vmctl");
+    const { script, oldScript } = await prepareScriptByCode(code, "vmctl");
     await scriptService.installScript({ script, code, upsertBy: "user" });
-    return { data: { uuid: script.uuid, isNew: true } };
+    return { data: { uuid: script.uuid, isNew: !oldScript } };
   },
 
   async "script.update"(args) {
@@ -453,6 +470,7 @@ const handlers: Record<string, Handler> = {
 
 function connect() {
   if (port) return;
+  shouldReconnect = true;
   try {
     port = chrome.runtime.connectNative(HOST_NAME);
   } catch (e: unknown) {
@@ -466,6 +484,7 @@ function connect() {
 }
 
 export function disconnect() {
+  shouldReconnect = false;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
@@ -478,7 +497,7 @@ export function disconnect() {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer) return;
+  if (!shouldReconnect || reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     connect();
@@ -490,7 +509,7 @@ function onDisconnect() {
   log.warn("disconnected: " + (err?.message || "unknown reason"));
   port = null;
   clearTabSubscriptions();
-  scheduleReconnect();
+  if (shouldReconnect) scheduleReconnect();
 }
 
 interface Envelope {
