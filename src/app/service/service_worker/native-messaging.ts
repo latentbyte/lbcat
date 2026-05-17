@@ -140,6 +140,15 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 type HandlerResult = { data: unknown };
 type Handler = (args: Record<string, unknown>) => HandlerResult | Promise<HandlerResult>;
 
+export async function focusNativeTab(tabId: number, requestedWindowId?: number) {
+  const tab = await chrome.tabs.update(tabId, { active: true });
+  const windowId = typeof requestedWindowId === "number" ? requestedWindowId : tab?.windowId;
+  if (typeof windowId === "number") {
+    await chrome.windows.update(windowId, { focused: true });
+  }
+  return { tabId, windowId };
+}
+
 const handlers: Record<string, Handler> = {
   // --- tabs ---
 
@@ -187,6 +196,13 @@ const handlers: Record<string, Handler> = {
         windowId: tab.windowId,
       },
     };
+  },
+
+  async "tabs.focus"(args) {
+    const tabId = args["tabId"] as number | undefined;
+    const requestedWindowId = args["windowId"] as number | undefined;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    return { data: await focusNativeTab(tabId, requestedWindowId) };
   },
 
   "tabs.subscribe"(args) {

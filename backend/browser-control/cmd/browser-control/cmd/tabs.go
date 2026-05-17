@@ -131,6 +131,66 @@ var tabsGetCmd = &cobra.Command{
 	},
 }
 
+var tabsFocusCmd = &cobra.Command{
+	Use:   "focus <tab-id>",
+	Short: "Focus an existing tab",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tabID, err := strconv.Atoi(args[0])
+		if err != nil {
+			return fmt.Errorf("invalid tab ID: %w", err)
+		}
+		windowID, _ := cmd.Flags().GetInt("window")
+
+		c, err := cli.Connect()
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+
+		target, err := resolveBrowser(c.Peers())
+		if err != nil {
+			return err
+		}
+
+		focusArgs := map[string]any{"tabId": tabID}
+		if windowID > 0 {
+			focusArgs["windowId"] = windowID
+		}
+
+		resp, err := c.Request(target, cli.ExtCommand{
+			Cmd:  "tabs.focus",
+			Args: focusArgs,
+		})
+		if err != nil {
+			return err
+		}
+
+		if flagJSON {
+			fmt.Println(string(resp))
+			return nil
+		}
+
+		var result struct {
+			Data struct {
+				TabID    int `json:"tabId"`
+				WindowID int `json:"windowId"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(resp, &result); err != nil {
+			fmt.Println(string(resp))
+			return nil
+		}
+
+		if result.Data.WindowID > 0 {
+			fmt.Printf("focused tab %d in window %d\n", result.Data.TabID, result.Data.WindowID)
+			return nil
+		}
+		fmt.Printf("focused tab %d\n", result.Data.TabID)
+		return nil
+	},
+}
+
 var tabsCreateCmd = &cobra.Command{
 	Use:   "create <url>",
 	Short: "Open a new tab",
@@ -229,8 +289,9 @@ var tabsWatchCmd = &cobra.Command{
 }
 
 func init() {
+	tabsFocusCmd.Flags().Int("window", 0, "browser window ID to focus after activating the tab")
 	tabsCreateCmd.Flags().Bool("active", true, "bring new tab to foreground")
 
-	tabsCmd.AddCommand(tabsListCmd, tabsGetCmd, tabsCreateCmd, tabsWatchCmd)
+	tabsCmd.AddCommand(tabsListCmd, tabsGetCmd, tabsFocusCmd, tabsCreateCmd, tabsWatchCmd)
 	rootCmd.AddCommand(tabsCmd)
 }
