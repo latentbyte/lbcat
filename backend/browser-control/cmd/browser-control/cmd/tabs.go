@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
+	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol"
 	"github.com/spf13/cobra"
 )
 
@@ -18,48 +20,32 @@ var tabsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List open tabs",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := cli.Connect()
+		allBrowsers, _ := cmd.Flags().GetBool("all-browsers")
+		ctx := context.Background()
+		client, err := browsercontrol.New(ctx)
 		if err != nil {
 			return err
 		}
-		defer c.Close()
+		defer client.Close()
 
-		target, err := resolveBrowser(c.Peers())
-		if err != nil {
-			return err
-		}
-
-		resp, err := c.Request(target, cli.ExtCommand{
-			Cmd: "tabs.list",
-			Args: map[string]any{
-				"query": map[string]any{},
-			},
+		tabs, err := client.ListTabs(ctx, browsercontrol.ListTabsOptions{
+			BrowserID:   browserIDFromFlag(),
+			AllBrowsers: allBrowsers,
 		})
 		if err != nil {
 			return err
 		}
 
 		if flagJSON {
-			fmt.Println(string(resp))
+			data, err := json.Marshal(map[string]any{"cmd": "tabs.list", "data": tabs})
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
 			return nil
 		}
 
-		// parse and display as table
-		var result struct {
-			Data []struct {
-				ID     int    `json:"id"`
-				Title  string `json:"title"`
-				URL    string `json:"url"`
-				Active bool   `json:"active"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal(resp, &result); err != nil {
-			// fallback to raw JSON
-			fmt.Println(string(resp))
-			return nil
-		}
-
-		for _, tab := range result.Data {
+		for _, tab := range tabs {
 			marker := " "
 			if tab.Active {
 				marker = "*"
@@ -68,7 +54,7 @@ var tabsListCmd = &cobra.Command{
 			if len(title) > 60 {
 				title = title[:57] + "..."
 			}
-			fmt.Printf(" %s %5d  %-60s  %s\n", marker, tab.ID, title, tab.URL)
+			fmt.Printf(" %s %-12s %5d  %-60s  %s\n", marker, tab.BrowserID, tab.ID, title, tab.URL)
 		}
 		return nil
 	},
@@ -289,6 +275,7 @@ var tabsWatchCmd = &cobra.Command{
 }
 
 func init() {
+	tabsListCmd.Flags().Bool("all-browsers", false, "list tabs from all connected browsers")
 	tabsFocusCmd.Flags().Int("window", 0, "browser window ID to focus after activating the tab")
 	tabsCreateCmd.Flags().Bool("active", true, "bring new tab to foreground")
 

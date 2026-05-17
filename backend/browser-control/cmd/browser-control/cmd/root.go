@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
 	"github.com/spf13/cobra"
 )
 
@@ -31,6 +32,10 @@ func init() {
 		"target browser connection (e.g., chrome-01, firefox-01)")
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false,
 		"output in JSON format")
+}
+
+func browserIDFromFlag() model.BrowserID {
+	return model.BrowserID(flagBrowser)
 }
 
 // resolveBrowser picks a browser target. If --browser is set, use it.
