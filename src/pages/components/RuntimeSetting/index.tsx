@@ -5,6 +5,7 @@ import FileSystemParams from "../FileSystemParams";
 import { systemConfig } from "@App/pages/store/global";
 import type { FileSystemType } from "@Packages/filesystem/factory";
 import FileSystemFactory from "@Packages/filesystem/factory";
+import { isFirefox } from "@App/pkg/utils/utils";
 
 const CollapseItem = Collapse.Item;
 
@@ -17,6 +18,7 @@ const RuntimeSetting: React.FC = () => {
   // 开启后台运行
   const [enableBackground, setEnableBackgroundState] = useState<boolean>(false);
   const { t } = useTranslation();
+  const backgroundPermissionSupported = !isFirefox();
 
   useEffect(() => {
     systemConfig.getCatFileStorage().then((res) => {
@@ -24,6 +26,7 @@ const RuntimeSetting: React.FC = () => {
       setFilesystemType(res.filesystem);
       setFilesystemParam(res.params[res.filesystem] || {});
     });
+    if (!backgroundPermissionSupported) return;
     chrome.permissions.contains({ permissions: ["background"] }, (result) => {
       if (chrome.runtime.lastError) {
         console.error(chrome.runtime.lastError);
@@ -31,9 +34,10 @@ const RuntimeSetting: React.FC = () => {
       }
       setEnableBackgroundState(result);
     });
-  }, []);
+  }, [backgroundPermissionSupported]);
 
   const setEnableBackground = (enable: boolean) => {
+    if (!backgroundPermissionSupported) return;
     if (enable) {
       chrome.permissions.request({ permissions: ["background"] }, (granted) => {
         if (chrome.runtime.lastError) {
@@ -58,20 +62,22 @@ const RuntimeSetting: React.FC = () => {
   return (
     <Card title={t("runtime")} bordered={false}>
       <Space direction="vertical" size={20} className={"tw-w-full"}>
-        <div className="tw-flex tw-items-center tw-justify-between tw-min-h-9">
-          <div className="tw-flex tw-items-center tw-gap-2 tw-flex-1">
-            <Switch onChange={setEnableBackground} checked={enableBackground} />
-            <span
-              className="tw-min-w-20 tw-font-medium tw-cursor-pointer"
-              onClick={() => {
-                setEnableBackground(!enableBackground);
-              }}
-            >
-              {t("enable_background.title")}
-            </span>
+        {backgroundPermissionSupported && (
+          <div className="tw-flex tw-items-center tw-justify-between tw-min-h-9">
+            <div className="tw-flex tw-items-center tw-gap-2 tw-flex-1">
+              <Switch onChange={setEnableBackground} checked={enableBackground} />
+              <span
+                className="tw-min-w-20 tw-font-medium tw-cursor-pointer"
+                onClick={() => {
+                  setEnableBackground(!enableBackground);
+                }}
+              >
+                {t("enable_background.title")}
+              </span>
+            </div>
+            <span className="tw-text-xs tw-ml-6 tw-flex-shrink-0">{t("enable_background.description")}</span>
           </div>
-          <span className="tw-text-xs tw-ml-6 tw-flex-shrink-0">{t("enable_background.description")}</span>
-        </div>
+        )}
         <Collapse bordered={false} defaultActiveKey={["storage"]}>
           <CollapseItem header={t("storage_api")} name="storage">
             <Space direction="vertical">

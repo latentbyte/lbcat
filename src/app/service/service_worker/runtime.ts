@@ -54,6 +54,7 @@ import { setOnTabURLChanged } from "./url_monitor";
 import { scriptToMenu, type TPopupPageLoadInfo } from "./popup_scriptmenu";
 
 const ORIGINAL_URLMATCH_SUFFIX = "{ORIGINAL}"; // 用于标记原始URLPatterns的后缀
+const SCRIPTING_BOOTSTRAP_MATCHES = ["http://*/*", "https://*/*", "file:///*"];
 
 const RuntimeRegisterCode = {
   UNSET: 0,
@@ -892,7 +893,7 @@ export class RuntimeService {
       {
         id: "scriptcat-scripting",
         js: ["/src/scripting.js"],
-        matches: ["<all_urls>"],
+        matches: SCRIPTING_BOOTSTRAP_MATCHES,
         allFrames: true,
         runAt: "document_start",
         excludeMatches,
@@ -905,7 +906,7 @@ export class RuntimeService {
         {
           id: "scriptcat-inject",
           js: ["/src/inject.js"],
-          matches: ["<all_urls>"],
+          matches: SCRIPTING_BOOTSTRAP_MATCHES,
           allFrames: true,
           runAt: "document_start",
           excludeMatches,
@@ -914,7 +915,7 @@ export class RuntimeService {
         {
           id: "scriptcat-content",
           js: ["/src/content.js"],
-          matches: ["<all_urls>"],
+          matches: SCRIPTING_BOOTSTRAP_MATCHES,
           allFrames: true,
           runAt: "document_start",
           excludeMatches,

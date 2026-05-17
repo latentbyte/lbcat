@@ -123,6 +123,8 @@ describe.concurrent("RuntimeService - getPageScriptMatchingResultByUrl 脚本匹
         "scriptcat-content",
       ]);
       expect(scripts[1].world).toBe("MAIN");
+      expect(scripts.every((script) => script.matches?.includes("https://*/*"))).toBe(true);
+      expect(scripts.every((script) => !script.matches?.includes("<all_urls>"))).toBe(true);
       expect(scripts.every((script) => script.runAt === "document_start")).toBe(true);
       expect(scripts.every((script) => script.excludeMatches?.[0] === "https://blocked.example.com/*")).toBe(true);
     });

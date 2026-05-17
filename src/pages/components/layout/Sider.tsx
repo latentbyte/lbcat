@@ -18,7 +18,7 @@ import {
   IconTool,
 } from "@arco-design/web-react/icon";
 import React, { useRef, useState } from "react";
-import { HashRouter, Route, Routes } from "react-router-dom";
+import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { RiFileCodeLine, RiGuideLine, RiLinkM } from "react-icons/ri";
 import SiderGuide from "./SiderGuide";
@@ -212,6 +212,7 @@ const Sider: React.FC = () => {
             </Route>
             <Route path="/subscribe" element={<SubscribeList />} />
             <Route path="/logger" element={<Logger />} />
+            <Route path="/log" element={<Navigate to="/logger" replace />} />
             <Route path="/tools" element={<Tools />} />
             <Route path="/setting" element={<Setting />} />
           </Routes>

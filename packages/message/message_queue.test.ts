@@ -203,10 +203,26 @@ describe("MessageQueueGroup", () => {
       const sendSpy = vi.spyOn(chrome.runtime, "sendMessage");
       group.publish("test-sendChromeMessage", { data: "test-sendChromeMessage" });
 
-      expect(sendSpy).toHaveBeenCalledWith({
-        msgQueue: "api-sendChromeMessage/test-sendChromeMessage",
-        data: { action: "message", message: { data: "test-sendChromeMessage" } },
+      expect(sendSpy).toHaveBeenCalledWith(
+        {
+          msgQueue: "api-sendChromeMessage/test-sendChromeMessage",
+          data: { action: "message", message: { data: "test-sendChromeMessage" } },
+        },
+        expect.any(Function)
+      );
+    });
+
+    it("publish 方法应该忽略没有接收端的运行时错误", async () => {
+      const group = messageQueue.group("api-noReceiver");
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      vi.spyOn(chrome.runtime, "sendMessage").mockImplementation(() => {
+        return Promise.reject(new Error("Could not establish connection. Receiving end does not exist."));
       });
+
+      group.publish("test-noReceiver", { data: "test-noReceiver" });
+      await nextTick();
+
+      expect(errorSpy).not.toHaveBeenCalled();
     });
 
     it("emit 方法应该只在本地发布", () => {

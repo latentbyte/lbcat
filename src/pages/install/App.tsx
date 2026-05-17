@@ -31,7 +31,7 @@ import { intervalExecution, timeoutExecution } from "@App/pkg/utils/timer";
 import { useSearchParams } from "react-router-dom";
 import { CACHE_KEY_SCRIPT_INFO } from "@App/app/cache_key";
 import { cacheInstance } from "@App/app/cache";
-import { formatBytes } from "@App/pkg/utils/utils";
+import { formatBytes, isFirefox } from "@App/pkg/utils/utils";
 import { ScriptIcons } from "../options/routes/utils";
 import { readRawContent } from "@App/pkg/utils/encoding";
 import { prettyUrl } from "@App/pkg/utils/url-utils";
@@ -444,14 +444,21 @@ function App() {
     if (!script.metadata.background && !script.metadata.crontab) {
       return false;
     }
+    if (isFirefox()) {
+      return false;
+    }
 
     // 检查是否首次安装或更新
     const hasShown = localStorage.getItem(backgroundPromptShownKey);
 
     if (hasShown !== "true") {
       // 检查是否已经有后台权限
-      if (!(await chrome.permissions.contains({ permissions: ["background"] }))) {
-        return true;
+      try {
+        if (!(await chrome.permissions.contains({ permissions: ["background"] }))) {
+          return true;
+        }
+      } catch (e) {
+        console.warn("background permission check failed", e);
       }
     }
     return false;

@@ -36,6 +36,11 @@ export interface IMessageQueueExtra {
 
 export interface IMessageQueueExtended extends IMessageQueue, IMessageQueueExtra {}
 
+function isNoReceiverError(error: unknown) {
+  const message = error instanceof Error ? error.message : `${error}`;
+  return message.includes("Receiving end does not exist") || message.includes("Could not establish connection");
+}
+
 // 消息队列
 export class MessageQueue implements IMessageQueue {
   private EE = new EventEmitter<string, any>();
@@ -73,9 +78,20 @@ export class MessageQueue implements IMessageQueue {
   }
 
   publish<T>(topic: string, message: NonNullable<T>) {
-    chrome.runtime.sendMessage({
+    const payload = {
       msgQueue: topic,
       data: { action: "message", message },
+    };
+    const maybePromise = chrome.runtime.sendMessage(payload, () => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError && !isNoReceiverError(lastError)) {
+        console.error("chrome.runtime.lastError in chrome.runtime.sendMessage:", lastError);
+      }
+    }) as Promise<unknown> | undefined;
+    maybePromise?.catch((e) => {
+      if (!isNoReceiverError(e)) {
+        console.error("chrome.runtime.sendMessage failed:", e);
+      }
     });
     this.EE.emit(topic, message);
     //@ts-ignore
