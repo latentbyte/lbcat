@@ -7,7 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/scriptscat/scriptcat/tools/vmctl/internal/protocol"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 )
 
 // Conn wraps a socket connection with identity metadata.

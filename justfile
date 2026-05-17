@@ -52,27 +52,27 @@ coverage:
 
 # build vmctl Go binaries
 vmctl-build:
-    just -f tools/vmctl/justfile build
+    just -f backend/browser-control/justfile build
 
 # build, install to ~/.local/bin, and register native host manifests
 vmctl-install:
-    just -f tools/vmctl/justfile install
+    just -f backend/browser-control/justfile install
 
 # run vmctl Go tests
 vmctl-test:
-    just -f tools/vmctl/justfile test
+    just -f backend/browser-control/justfile test
 
 # run vmctl Go static analysis
 vmctl-check:
-    just -f tools/vmctl/justfile check
+    just -f backend/browser-control/justfile check
 
 # start vmctl daemon in foreground
 vmctl-dev:
-    just -f tools/vmctl/justfile dev
+    just -f backend/browser-control/justfile dev
 
 # clean vmctl build artifacts
 vmctl-clean:
-    just -f tools/vmctl/justfile clean
+    just -f backend/browser-control/justfile clean
 
 # run vmctl smoke test
 vmctl-smoke:
@@ -80,14 +80,14 @@ vmctl-smoke:
     set -euo pipefail
     just vmctl-build
     just vmctl-test
-    tools/vmctl/bin/vmhost &
+    backend/browser-control/bin/vmhost &
     daemon_pid=$!
     cleanup() { kill "$daemon_pid" 2>/dev/null || true; wait "$daemon_pid" 2>/dev/null || true; }
     trap cleanup EXIT
     sleep 0.3
-    tools/vmctl/bin/vmctl ping
-    tools/vmctl/bin/vmctl daemon status
-    tools/vmctl/bin/vmctl daemon stop
+    backend/browser-control/bin/vmctl ping
+    backend/browser-control/bin/vmctl daemon status
+    backend/browser-control/bin/vmctl daemon stop
     wait "$daemon_pid" 2>/dev/null || true
     trap - EXIT
 

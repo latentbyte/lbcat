@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/scriptscat/scriptcat/tools/vmctl/cmd/vmctl/cmd"
+	"github.com/scriptscat/scriptcat/backend/browser-control/cmd/vmctl/cmd"
 )
 
 func main() {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/scriptscat/scriptcat/tools/vmctl/internal/protocol"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 )
 
 // pipePair creates a connected pair of net.Conn for testing.

@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/scriptscat/scriptcat/tools/vmctl/internal/cli"
-	"github.com/scriptscat/scriptcat/tools/vmctl/internal/daemon"
-	"github.com/scriptscat/scriptcat/tools/vmctl/internal/protocol"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/daemon"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 	"github.com/spf13/cobra"
 )
 

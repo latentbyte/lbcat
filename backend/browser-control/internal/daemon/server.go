@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/scriptscat/scriptcat/tools/vmctl/internal/protocol"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 )
 
 func nowTimestamp() string {

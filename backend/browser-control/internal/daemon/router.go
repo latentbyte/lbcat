@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/scriptscat/scriptcat/tools/vmctl/internal/protocol"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 )
 
 // Router dispatches messages between connections based on envelope metadata.

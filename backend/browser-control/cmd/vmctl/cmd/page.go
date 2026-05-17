@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/scriptscat/scriptcat/tools/vmctl/internal/cli"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
 	"github.com/spf13/cobra"
 	"golang.org/x/image/draw"
 )

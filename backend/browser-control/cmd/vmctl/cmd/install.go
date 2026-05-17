@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/scriptscat/scriptcat/tools/vmctl/internal/protocol"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 	"github.com/spf13/cobra"
 )
 
@@ -326,7 +326,7 @@ func readDevFirefoxID() string {
 	// look for dist/manifest.json relative to common locations
 	candidates := []string{
 		"dist/manifest.json",
-		"../../dist/manifest.json", // from tools/vmctl/
+		"../../dist/manifest.json", // from backend/browser-control/
 	}
 
 	for _, path := range candidates {

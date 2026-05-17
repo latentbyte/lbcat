@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/scriptscat/scriptcat/tools/vmctl/internal/protocol"
-	"github.com/scriptscat/scriptcat/tools/vmctl/internal/shim"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/shim"
 )
 
 func main() {

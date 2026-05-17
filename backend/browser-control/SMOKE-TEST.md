@@ -31,8 +31,8 @@ just vmctl-build
 Verify:
 
 ```sh
-tools/vmctl/bin/vmctl --help
-tools/vmctl/bin/vmctl ping          # should fail: "daemon not running"
+backend/browser-control/bin/vmctl --help
+backend/browser-control/bin/vmctl ping          # should fail: "daemon not running"
 ```
 
 ### 2. Start daemon, ping it
@@ -46,8 +46,8 @@ just vmctl-dev                      # blocks, logs to stderr
 Terminal 2:
 
 ```sh
-tools/vmctl/bin/vmctl ping          # "pong from daemon (pid X) in Xms"
-tools/vmctl/bin/vmctl daemon status # shows pid, socket, browser count
+backend/browser-control/bin/vmctl ping          # "pong from daemon (pid X) in Xms"
+backend/browser-control/bin/vmctl daemon status # shows pid, socket, browser count
 ```
 
 ### 3. Install binaries + register native host manifests
