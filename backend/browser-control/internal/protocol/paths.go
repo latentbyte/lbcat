@@ -6,12 +6,12 @@ import (
 )
 
 const (
-	AppName  = "vmctl"
-	HostName = "com.scriptcat.vmhost" // native messaging host name for ScriptCat
+	AppName  = "browser-control"
+	HostName = "com.latentbyte.browser_control" // native messaging host name for LBCat
 )
 
 // StateDir returns the base directory for daemon runtime state.
-// Uses XDG_STATE_HOME if set, otherwise ~/.local/state/vmctl.
+// Uses XDG_STATE_HOME if set, otherwise ~/.local/state/browser-control.
 func StateDir() string {
 	base := os.Getenv("XDG_STATE_HOME")
 	if base == "" {
@@ -23,17 +23,17 @@ func StateDir() string {
 
 // SocketPath returns the path to the daemon's Unix socket.
 func SocketPath() string {
-	return filepath.Join(StateDir(), "vmctl.sock")
+	return filepath.Join(StateDir(), "browser-control.sock")
 }
 
 // PIDPath returns the path to the daemon's PID file.
 func PIDPath() string {
-	return filepath.Join(StateDir(), "vmctl.pid")
+	return filepath.Join(StateDir(), "browser-control.pid")
 }
 
 // LogPath returns the path to the daemon's log file.
 func LogPath() string {
-	return filepath.Join(StateDir(), "vmctl.log")
+	return filepath.Join(StateDir(), "browser-control.log")
 }
 
 // ShimLogPath returns the path to the shim's log file.

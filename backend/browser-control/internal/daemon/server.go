@@ -23,7 +23,7 @@ func nowTimestamp() string {
 // close before shutting itself down.
 const DefaultIdleTimeout = 5 * time.Minute
 
-// Server is the vmhost daemon. It listens on a Unix socket,
+// Server is the Browser Control daemon. It listens on a Unix socket,
 // accepts connections from shims and CLI clients, and routes
 // messages between them.
 type Server struct {

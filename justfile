@@ -50,46 +50,54 @@ test-e2e:
 coverage:
     pnpm coverage
 
-# build vmctl Go binaries
-vmctl-build:
+# build Browser Control Go binaries
+browser-control-build:
     just -f backend/browser-control/justfile build
 
 # build, install to ~/.local/bin, and register native host manifests
-vmctl-install:
+browser-control-install:
     just -f backend/browser-control/justfile install
 
-# run vmctl Go tests
-vmctl-test:
+# run Browser Control Go tests
+browser-control-test:
     just -f backend/browser-control/justfile test
 
-# run vmctl Go static analysis
-vmctl-check:
+# run Browser Control Go static analysis
+browser-control-check:
     just -f backend/browser-control/justfile check
 
-# start vmctl daemon in foreground
-vmctl-dev:
+# start Browser Control daemon in foreground
+browser-control-dev:
     just -f backend/browser-control/justfile dev
 
-# clean vmctl build artifacts
-vmctl-clean:
+# clean Browser Control build artifacts
+browser-control-clean:
     just -f backend/browser-control/justfile clean
 
-# run vmctl smoke test
-vmctl-smoke:
+# run Browser Control smoke test
+browser-control-smoke:
     #!/usr/bin/env bash
     set -euo pipefail
-    just vmctl-build
-    just vmctl-test
-    backend/browser-control/bin/vmhost &
+    just browser-control-build
+    just browser-control-test
+    backend/browser-control/bin/browser-control-daemon &
     daemon_pid=$!
     cleanup() { kill "$daemon_pid" 2>/dev/null || true; wait "$daemon_pid" 2>/dev/null || true; }
     trap cleanup EXIT
     sleep 0.3
-    backend/browser-control/bin/vmctl ping
-    backend/browser-control/bin/vmctl daemon status
-    backend/browser-control/bin/vmctl daemon stop
+    backend/browser-control/bin/browser-control ping
+    backend/browser-control/bin/browser-control daemon status
+    backend/browser-control/bin/browser-control daemon stop
     wait "$daemon_pid" 2>/dev/null || true
     trap - EXIT
+
+alias vmctl-build := browser-control-build
+alias vmctl-install := browser-control-install
+alias vmctl-test := browser-control-test
+alias vmctl-check := browser-control-check
+alias vmctl-dev := browser-control-dev
+alias vmctl-clean := browser-control-clean
+alias vmctl-smoke := browser-control-smoke
 
 # pack the extension into distributable archives
 pack:
@@ -97,7 +105,7 @@ pack:
 
 alias zip := pack
 
-# pack source files for Mozilla review, excluding vmctl tooling
+# pack source files for Mozilla review, excluding Browser Control tooling
 mozilla-source:
     #!/usr/bin/env bash
     set -euo pipefail

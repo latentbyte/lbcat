@@ -17,8 +17,11 @@ import (
 )
 
 // scriptArchiveDir returns the directory where pushed scripts are saved.
-// Uses $VMCTL_SCRIPTS_DIR, then $DOTFILES_DIR/user-scripts/, then ~/dotfiles/user-scripts/.
+// Uses $BROWSER_CONTROL_SCRIPTS_DIR, then $VMCTL_SCRIPTS_DIR, then $DOTFILES_DIR/user-scripts/, then ~/dotfiles/user-scripts/.
 func scriptArchiveDir() string {
+	if d := os.Getenv("BROWSER_CONTROL_SCRIPTS_DIR"); d != "" {
+		return d
+	}
 	if d := os.Getenv("VMCTL_SCRIPTS_DIR"); d != "" {
 		return d
 	}
@@ -582,12 +585,12 @@ var scriptPushAllCmd = &cobra.Command{
 	Long: `Push all .user.js files from an explicit directory or file path to one or more browsers.
 
 Examples:
-  vmctl script push-all ~/my-scripts         # push from custom dir
-  vmctl script push-all my-script.user.js    # push single file
-  vmctl script push-all ~/my-scripts --all-browsers
-  vmctl script push-all ~/my-scripts --parallel
-  vmctl script push-all ~/my-scripts --recursive
-  vmctl script push-all ~/my-scripts --dry-run`,
+  browser-control script push-all ~/my-scripts         # push from custom dir
+  browser-control script push-all my-script.user.js    # push single file
+  browser-control script push-all ~/my-scripts --all-browsers
+  browser-control script push-all ~/my-scripts --parallel
+  browser-control script push-all ~/my-scripts --recursive
+  browser-control script push-all ~/my-scripts --dry-run`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		targetPath := args[0]
@@ -752,14 +755,14 @@ var scriptWatchCmd = &cobra.Command{
 	Short: "Watch directory and auto-push userscript changes",
 	Long: `Watch a directory for .user.js file changes and automatically push updates.
 
-If no path is provided, uses $VMCTL_SCRIPTS_DIR, then $DOTFILES_DIR/user-scripts,
-then ~/dotfiles/user-scripts.
+If no path is provided, uses $BROWSER_CONTROL_SCRIPTS_DIR, then $VMCTL_SCRIPTS_DIR,
+then $DOTFILES_DIR/user-scripts, then ~/dotfiles/user-scripts.
 
 Examples:
-  vmctl script watch                    # watch default dir
-  vmctl script watch ~/my-scripts       # watch custom dir
-  vmctl script watch --initial-push     # push all on start, then watch
-  vmctl script watch --debounce 2       # custom debounce delay`,
+  browser-control script watch                    # watch default dir
+  browser-control script watch ~/my-scripts       # watch custom dir
+  browser-control script watch --initial-push     # push all on start, then watch
+  browser-control script watch --debounce 2       # custom debounce delay`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// determine path

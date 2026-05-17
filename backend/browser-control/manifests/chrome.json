@@ -1,7 +1,7 @@
 {
-  "name": "com.scriptcat.vmhost",
-  "description": "ScriptCat CLI bridge",
-  "path": "/absolute/path/to/vmhost-shim",
+  "name": "com.latentbyte.browser_control",
+  "description": "Browser Control bridge",
+  "path": "/absolute/path/to/lbcat-shim",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://ndcooeababalnlpkfedmmbbbgkljhpjf/"]
 }

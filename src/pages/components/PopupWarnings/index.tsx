@@ -46,7 +46,11 @@ function PopupWarnings({ isBlacklist }: PopupWarningsProps) {
         if (!mounted) return;
         const lastError = chrome.runtime.lastError;
         if (lastError) {
-          setNativeStatus({ status: "error", hostName: "com.scriptcat.vmhost", lastError: lastError.message });
+          setNativeStatus({
+            status: "error",
+            hostName: "com.latentbyte.browser_control",
+            lastError: lastError.message,
+          });
           return;
         }
         setNativeStatus(resp);
@@ -157,7 +161,9 @@ function PopupWarnings({ isBlacklist }: PopupWarningsProps) {
           type={nativeStatus.status === "connecting" ? "info" : "warning"}
           content={
             <div>
-              vmctl {nativeStatus.status}. Host: {nativeStatus.hostName}
+              {"Browser Control"} {nativeStatus.status}
+              {". Host: "}
+              {nativeStatus.hostName}
               {nativeStatus.lastError ? ` (${nativeStatus.lastError})` : ""}
             </div>
           }

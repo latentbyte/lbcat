@@ -1,4 +1,4 @@
-// vmhost is the long-lived daemon process. It listens on a Unix socket,
+// browser-control-daemon is the long-lived daemon process. It listens on a Unix socket,
 // accepts connections from browser shims and CLI clients, and routes
 // messages between them without inspecting payloads.
 package main

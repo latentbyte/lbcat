@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name        Example Test Script
-// @namespace   vmctl-test
+// @namespace   browser-control-test
 // @match       https://example.com/*
 // @grant       none
 // @version     1.0
-// @author      vmctl
-// @description Example userscript for testing vmctl-push-all
+// @author      browser-control
+// @description Example userscript for testing browser-control-push-all
 // ==/UserScript==
 
 // simple test script that adds a banner to example.com
@@ -26,7 +26,7 @@
     font-size: 14px;
     z-index: 999999;
   `;
-  banner.textContent = "vmctl test script loaded successfully";
+  banner.textContent = "browser-control test script loaded successfully";
 
   if (document.body) {
     document.body.appendChild(banner);
@@ -36,5 +36,5 @@
     });
   }
 
-  console.log("[vmctl-test] Script loaded at", new Date().toISOString());
+  console.log("[browser-control-test] Script loaded at", new Date().toISOString());
 })();

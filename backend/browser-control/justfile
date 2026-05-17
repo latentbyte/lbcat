@@ -1,21 +1,21 @@
-# vmctl justfile -- build Go binaries for the native messaging bridge
+# browser-control justfile -- build Go binaries for the native messaging bridge
 
 default:
     @just --list
 
 # build all three Go binaries
 build:
-    go build -o bin/vmctl ./cmd/vmctl
-    go build -o bin/vmhost ./cmd/vmhost
-    go build -o bin/vmhost-shim ./cmd/vmhost-shim
+    go build -o bin/browser-control ./cmd/browser-control
+    go build -o bin/browser-control-daemon ./cmd/browser-control-daemon
+    go build -o bin/lbcat-shim ./cmd/lbcat-shim
 
 # build, copy to ~/.local/bin, and register native host manifests
 install: build
     mkdir -p ~/.local/bin
-    cp bin/vmctl bin/vmhost bin/vmhost-shim ~/.local/bin/
+    cp bin/browser-control bin/browser-control-daemon bin/lbcat-shim ~/.local/bin/
     # re-sign after copy so macOS code signing monitor doesn't kill them
-    codesign --sign - --force ~/.local/bin/vmctl ~/.local/bin/vmhost ~/.local/bin/vmhost-shim
-    ~/.local/bin/vmctl install --dev
+    codesign --sign - --force ~/.local/bin/browser-control ~/.local/bin/browser-control-daemon ~/.local/bin/lbcat-shim
+    ~/.local/bin/browser-control install --dev
 
 # run Go tests
 test:
@@ -36,7 +36,7 @@ alias fix := fmt
 
 # start the daemon in foreground (ctrl+c to stop)
 dev: build
-    ./bin/vmhost
+    ./bin/browser-control-daemon
 
 # clean Go build artifacts
 clean:

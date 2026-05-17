@@ -18,7 +18,7 @@ import (
 
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
-	Short: "Manage the vmhost daemon",
+	Short: "Manage the Browser Control daemon",
 }
 
 var daemonStartCmd = &cobra.Command{

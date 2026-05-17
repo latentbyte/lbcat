@@ -1,6 +1,6 @@
-// vmhost-shim is the Native Messaging bridge binary.
+// lbcat-shim is the Native Messaging bridge binary.
 // The browser spawns this process; it relays frames between
-// the browser's stdin/stdout and the vmhost daemon's Unix socket.
+// the browser's stdin/stdout and the Browser Control daemon's Unix socket.
 package main
 
 import (
@@ -30,16 +30,16 @@ func main() {
 	}
 
 	cfg := shim.Config{
-		Browser:     envOr("VMCTL_BROWSER", ""),
-		ExtensionID: envOr("VMCTL_EXTENSION_ID", ""),
-		Profile:     envOr("VMCTL_PROFILE", ""),
+		Browser:     envOrAny([]string{"BROWSER_CONTROL_BROWSER", "VMCTL_BROWSER"}, ""),
+		ExtensionID: envOrAny([]string{"BROWSER_CONTROL_EXTENSION_ID", "VMCTL_EXTENSION_ID"}, ""),
+		Profile:     envOrAny([]string{"BROWSER_CONTROL_PROFILE", "VMCTL_PROFILE"}, ""),
 	}
-	if v, err := strconv.Atoi(envOr("VMCTL_MANIFEST_VERSION", "")); err == nil {
+	if v, err := strconv.Atoi(envOrAny([]string{"BROWSER_CONTROL_MANIFEST_VERSION", "VMCTL_MANIFEST_VERSION"}, "")); err == nil {
 		cfg.ManifestVersion = v
 	}
 
 	// chrome passes the extension origin as the first arg after the binary
-	// e.g., vmhost-shim chrome-extension://abcdef1234/
+	// e.g., lbcat-shim chrome-extension://abcdef1234/
 	if len(os.Args) > 1 {
 		arg := os.Args[1]
 		cfg.ExtensionID = arg
@@ -139,9 +139,11 @@ func matchBrowserName(procName string) string {
 	return ""
 }
 
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+func envOrAny(keys []string, fallback string) string {
+	for _, key := range keys {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
 	}
 	return fallback
 }

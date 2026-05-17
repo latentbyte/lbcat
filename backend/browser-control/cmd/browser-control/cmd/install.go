@@ -119,7 +119,7 @@ type extensionRegistry struct {
 var extensions = []extensionRegistry{
 	{
 		hostName:    protocol.HostName,
-		description: "ScriptCat CLI bridge",
+		description: "Browser Control bridge",
 		knownIDs: map[string]string{
 			"chrome":  "ndcooeababalnlpkfedmmbbbgkljhpjf",
 			"firefox": "scriptcat@latentbyte.com",
@@ -161,8 +161,8 @@ var installCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Register native host manifests for detected browsers",
 	Long: `Detects installed browsers and writes native messaging host manifests
-that point to the vmhost-shim binary. This allows ScriptCat to communicate
-with vmctl via the shared daemon.
+that point to the lbcat-shim binary. This allows LBCat to communicate
+with Browser Control via the shared daemon.
 
 For dev builds (unpacked extensions), use --dev to also allow the extension ID
 found in dist/manifest.json, or pass --extension-id explicitly.`,
@@ -645,12 +645,12 @@ var uninstallCmd = &cobra.Command{
 	},
 }
 
-// findShimBinary locates the vmhost-shim binary.
+// findShimBinary locates the lbcat-shim binary.
 func findShimBinary() (string, error) {
-	// look next to vmctl binary
+	// look next to browser-control binary
 	self, err := os.Executable()
 	if err == nil {
-		shimPath := filepath.Join(filepath.Dir(self), "vmhost-shim")
+		shimPath := filepath.Join(filepath.Dir(self), "lbcat-shim")
 		if _, err := os.Stat(shimPath); err == nil {
 			return shimPath, nil
 		}
@@ -661,17 +661,17 @@ func findShimBinary() (string, error) {
 		filepath.Join(os.Getenv("HOME"), ".local", "bin"),
 		"/usr/local/bin",
 	} {
-		shimPath := filepath.Join(dir, "vmhost-shim")
+		shimPath := filepath.Join(dir, "lbcat-shim")
 		if _, err := os.Stat(shimPath); err == nil {
 			return shimPath, nil
 		}
 	}
 
-	return "", fmt.Errorf("vmhost-shim not found, build and install it first")
+	return "", fmt.Errorf("lbcat-shim not found, build and install it first")
 }
 
 func init() {
-	installCmd.Flags().String("extension-id", "", "override extension ID (default: known ScriptCat IDs)")
+	installCmd.Flags().String("extension-id", "", "override extension ID (default: known LBCat IDs)")
 	installCmd.Flags().Bool("dev", false, "dev mode: accept unpacked extension IDs, read from dist/manifest.json")
 	rootCmd.AddCommand(installCmd, uninstallCmd)
 }

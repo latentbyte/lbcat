@@ -1,6 +1,6 @@
 // package shim implements the Native Messaging bridge process.
 // It relays length-prefixed frames between the browser (stdin/stdout)
-// and the vmhost daemon (Unix socket) without inspecting payloads.
+// and the Browser Control daemon (Unix socket) without inspecting payloads.
 package shim
 
 import (
@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -199,18 +200,18 @@ func connectToDaemon() (net.Conn, error) {
 	return nil, fmt.Errorf("daemon did not start within 2 seconds")
 }
 
-// startDaemon launches the vmhost daemon in the background.
+// startDaemon launches the Browser Control daemon in the background.
 func startDaemon() error {
-	// look for vmhost next to our own binary
+	// look for browser-control-daemon next to our own binary
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
 
-	// try vmhost in same directory, then PATH
+	// try browser-control-daemon in same directory, then PATH
 	candidates := []string{
-		self[:len(self)-len("vmhost-shim")] + "vmhost",
-		"vmhost",
+		filepath.Join(filepath.Dir(self), "browser-control-daemon"),
+		"browser-control-daemon",
 	}
 
 	for _, bin := range candidates {
@@ -223,5 +224,5 @@ func startDaemon() error {
 			return nil
 		}
 	}
-	return fmt.Errorf("could not find vmhost binary")
+	return fmt.Errorf("could not find browser-control-daemon binary")
 }

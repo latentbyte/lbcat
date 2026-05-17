@@ -13,10 +13,10 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "vmctl",
-	Short: "CLI for controlling ScriptCat via Native Messaging",
-	Long: `vmctl communicates with the ScriptCat browser extension through
-a local daemon (vmhost) to manage userscripts, inspect tabs, read page
+	Use:   "browser-control",
+	Short: "CLI for Browser Control by Latent Byte",
+	Long: `browser-control communicates with LBCat through a local daemon
+(browser-control-daemon) to manage userscripts, inspect tabs, read page
 content, and execute JavaScript in browser tabs.`,
 	SilenceUsage: true,
 }

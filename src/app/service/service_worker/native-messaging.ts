@@ -1,12 +1,12 @@
-// native messaging bridge for vmctl
-// connects to com.scriptcat.vmhost via chrome.runtime.connectNative and
-// dispatches incoming commands to ScriptCat APIs and browser APIs
+// native messaging bridge for browser-control
+// connects to com.latentbyte.browser_control via chrome.runtime.connectNative and
+// dispatches incoming commands to LBCat APIs and browser APIs
 
 import { ScriptDAO, ScriptCodeDAO, SCRIPT_STATUS_ENABLE } from "@App/app/repo/scripts";
 import { prepareScriptByCode } from "@App/pkg/utils/script";
 import type { ScriptService } from "./script";
 
-const HOST_NAME = "com.scriptcat.vmhost";
+const HOST_NAME = "com.latentbyte.browser_control";
 const RECONNECT_DELAY = 5000;
 
 type NativeMessagingConnectionState = "connected" | "connecting" | "disconnected" | "error";
@@ -44,10 +44,10 @@ function setNativeBadge(state: NativeMessagingConnectionState) {
   if (!actionApi) return;
 
   const badgeByState: Record<NativeMessagingConnectionState, { text: string; color: string; title: string }> = {
-    connected: { text: "●", color: "#4CAF50", title: "ScriptCat vmctl connected" },
-    connecting: { text: "○", color: "#FF9800", title: "ScriptCat vmctl connecting" },
-    disconnected: { text: "×", color: "#F44336", title: "ScriptCat vmctl disconnected" },
-    error: { text: "!", color: "#9C27B0", title: "ScriptCat vmctl connection error" },
+    connected: { text: "●", color: "#4CAF50", title: "LBCat Browser Control connected" },
+    connecting: { text: "○", color: "#FF9800", title: "LBCat Browser Control connecting" },
+    disconnected: { text: "×", color: "#F44336", title: "LBCat Browser Control disconnected" },
+    error: { text: "!", color: "#9C27B0", title: "LBCat Browser Control connection error" },
   };
   const badge = badgeByState[state];
   actionApi.setBadgeText({ text: badge.text });
@@ -464,7 +464,7 @@ const handlers: Record<string, Handler> = {
     if (!scriptService) throw new Error("scriptService not initialized");
     const code = args["code"] as string | undefined;
     if (!code) throw new Error("code is required");
-    const { script, oldScript } = await prepareScriptByCode(code, "vmctl");
+    const { script, oldScript } = await prepareScriptByCode(code, "browser-control");
     await scriptService.installScript({ script, code, upsertBy: "user" });
     return { data: { uuid: script.uuid, isNew: !oldScript } };
   },
@@ -478,7 +478,7 @@ const handlers: Record<string, Handler> = {
     const scriptDAO = new ScriptDAO();
     const existing = await scriptDAO.get(uuid);
     if (!existing) throw new Error(`script not found: ${uuid}`);
-    const { script } = await prepareScriptByCode(code, "vmctl", uuid);
+    const { script } = await prepareScriptByCode(code, "browser-control", uuid);
     await scriptService.installScript({ script, code, upsertBy: "user" });
     return { data: { uuid: script.uuid, isNew: false } };
   },
@@ -512,7 +512,7 @@ const handlers: Record<string, Handler> = {
     const code = args["code"] as string | undefined;
     if (!code) throw new Error("code is required");
     // prepareScriptByCode resolves uuid via findByNameAndNamespace when uuid is omitted
-    const { script, oldScript } = await prepareScriptByCode(code, "vmctl");
+    const { script, oldScript } = await prepareScriptByCode(code, "browser-control");
     await scriptService.installScript({ script, code, upsertBy: "user" });
     return { data: { uuid: script.uuid, isNew: !oldScript } };
   },

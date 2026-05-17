@@ -1,5 +1,5 @@
 // package cli provides the client-side logic for connecting to the
-// vmhost daemon and exchanging messages.
+// Browser Control daemon and exchanging messages.
 package cli
 
 import (
@@ -15,7 +15,7 @@ import (
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 )
 
-// Client connects to the vmhost daemon over Unix socket.
+// Client connects to the Browser Control daemon over Unix socket.
 type Client struct {
 	conn   net.Conn
 	connID string   // assigned by daemon
@@ -33,7 +33,7 @@ func Connect() (*Client, error) {
 	sockPath := protocol.SocketPath()
 	conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("cannot connect to daemon at %s: %w\nhint: start the daemon with `vmctl daemon start`", sockPath, err)
+		return nil, fmt.Errorf("cannot connect to daemon at %s: %w\nhint: start the daemon with `browser-control daemon start`", sockPath, err)
 	}
 
 	c := &Client{conn: conn}
