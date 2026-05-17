@@ -96,20 +96,11 @@ function sendEvent(payload: unknown) {
 
 function tabEventHandler(eventName: string) {
   return (...eventArgs: unknown[]) => {
-    const payload: Record<string, unknown> = { cmd: "tabs.event", data: { event: eventName } };
-    if (eventName === "onCreated") {
-      (payload["data"] as Record<string, unknown>)["tab"] = eventArgs[0];
-    } else if (eventName === "onRemoved") {
-      (payload["data"] as Record<string, unknown>)["tabId"] = eventArgs[0];
-      (payload["data"] as Record<string, unknown>)["removeInfo"] = eventArgs[1];
-    } else if (eventName === "onUpdated") {
-      (payload["data"] as Record<string, unknown>)["tabId"] = eventArgs[0];
-      (payload["data"] as Record<string, unknown>)["changeInfo"] = eventArgs[1];
-      (payload["data"] as Record<string, unknown>)["tab"] = eventArgs[2];
-    } else if (eventName === "onActivated") {
-      (payload["data"] as Record<string, unknown>)["activeInfo"] = eventArgs[0];
-    }
-    sendEvent(payload);
+    void normalizeNativeTabEvent(eventName, eventArgs)
+      .then((event) => {
+        if (event) sendEvent({ cmd: "tabs.event", data: event });
+      })
+      .catch((err: unknown) => log.warn("tab event normalization failed", String(err)));
   };
 }
 
@@ -145,6 +136,15 @@ type BrowserIdentity = {
   appName: string;
 };
 
+type TabRemoveInfo = {
+  windowId?: number;
+};
+
+type TabActiveInfo = {
+  tabId: number;
+  windowId: number;
+};
+
 export type BrowserControlTab = {
   browserId: string;
   browserName: string;
@@ -157,6 +157,19 @@ export type BrowserControlTab = {
   active: boolean;
   incognito: boolean;
   audible: boolean;
+};
+
+export type BrowserControlTabID = {
+  browser: string;
+  windowId: number;
+  tabId: number;
+};
+
+export type BrowserControlEvent = {
+  type: "tab-focused" | "tab-removed" | "tab-updated" | "tab-created";
+  browserId: string;
+  tab?: BrowserControlTab;
+  tabId?: BrowserControlTabID;
 };
 
 export function browserIdentityFromUserAgent(userAgent = navigator.userAgent): BrowserIdentity {
@@ -186,6 +199,51 @@ export function tabToBrowserControlTab(
     incognito: tab.incognito,
     audible: Boolean(tab.audible),
   };
+}
+
+function tabIDFromTab(tab: BrowserControlTab): BrowserControlTabID {
+  return { browser: tab.browserId, windowId: tab.windowId, tabId: tab.id };
+}
+
+export async function normalizeNativeTabEvent(
+  eventName: string,
+  eventArgs: unknown[]
+): Promise<BrowserControlEvent | null> {
+  if (eventName === "onCreated") {
+    const tab = tabToBrowserControlTab(eventArgs[0] as chrome.tabs.Tab);
+    return { type: "tab-created", browserId: tab.browserId, tab, tabId: tabIDFromTab(tab) };
+  }
+
+  if (eventName === "onRemoved") {
+    const tabId = Number(eventArgs[0]);
+    const removeInfo = eventArgs[1] as TabRemoveInfo | undefined;
+    return {
+      type: "tab-removed",
+      browserId: "",
+      tabId: { browser: "", windowId: removeInfo?.windowId ?? -1, tabId },
+    };
+  }
+
+  if (eventName === "onUpdated") {
+    const tab = tabToBrowserControlTab(eventArgs[2] as chrome.tabs.Tab);
+    return { type: "tab-updated", browserId: tab.browserId, tab, tabId: tabIDFromTab(tab) };
+  }
+
+  if (eventName === "onActivated") {
+    const activeInfo = eventArgs[0] as TabActiveInfo;
+    try {
+      const tab = tabToBrowserControlTab(await chrome.tabs.get(activeInfo.tabId));
+      return { type: "tab-focused", browserId: tab.browserId, tab, tabId: tabIDFromTab(tab) };
+    } catch {
+      return {
+        type: "tab-focused",
+        browserId: "",
+        tabId: { browser: "", windowId: activeInfo.windowId, tabId: activeInfo.tabId },
+      };
+    }
+  }
+
+  return null;
 }
 
 export async function focusNativeTab(tabId: number, requestedWindowId?: number) {
