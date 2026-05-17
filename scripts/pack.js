@@ -80,6 +80,11 @@ delete chromeManifest.background.scripts;
 
 delete firefoxManifest.background.service_worker;
 delete firefoxManifest.sandbox;
+delete firefoxManifest.incognito;
+// firefox rejects these chrome-only required permissions
+firefoxManifest.permissions = firefoxManifest.permissions.filter((val) => !["offscreen", "userScripts"].includes(val));
+// firefox accepts userScripts as optional, but not background
+firefoxManifest.optional_permissions = firefoxManifest.optional_permissions.filter((val) => val !== "background");
 // firefoxManifest.content_security_policy = "script-src 'self' blob:; object-src 'self' blob:";
 firefoxManifest.browser_specific_settings = {
   gecko: {
@@ -89,6 +94,10 @@ firefoxManifest.browser_specific_settings = {
     // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/userScripts#browser_compatibility
     // Firefox 136 (Released 2025-03-04)
     strict_min_version: "136.0",
+    // https://mzl.la/firefox-builtin-data-consent
+    data_collection_permissions: {
+      required: ["none"],
+    },
   },
 };
 
