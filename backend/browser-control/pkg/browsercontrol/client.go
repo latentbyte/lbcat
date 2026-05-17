@@ -2,7 +2,14 @@ package browsercontrol
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
 
+	internalcli "github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
 )
 
@@ -13,6 +20,18 @@ type Client interface {
 	Subscribe(ctx context.Context, opts SubscribeOptions) (<-chan model.Event, error)
 	Status(ctx context.Context) (Status, error)
 	Close() error
+}
+
+// New connects to the Browser Control daemon through the default Unix socket
+func New(ctx context.Context) (Client, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	c, err := internalcli.Connect()
+	if err != nil {
+		return nil, err
+	}
+	return &daemonClient{cli: c}, nil
 }
 
 // ListTabsOptions controls tab listing
@@ -37,7 +56,9 @@ type FocusTabResult struct {
 
 // SubscribeOptions controls event subscription
 type SubscribeOptions struct {
-	Events []model.EventType `json:"events,omitempty"`
+	BrowserID   model.BrowserID   `json:"browserId,omitempty"`
+	AllBrowsers bool              `json:"allBrowsers,omitempty"`
+	Events      []model.EventType `json:"events,omitempty"`
 }
 
 // Status reports daemon and browser connection state
@@ -52,4 +73,410 @@ type BrowserStatus struct {
 	ID      model.BrowserID `json:"id"`
 	Name    string          `json:"name"`
 	AppName string          `json:"appName"`
+}
+
+type daemonClient struct {
+	cli *internalcli.Client
+}
+
+func (c *daemonClient) ListTabs(ctx context.Context, opts ListTabsOptions) ([]model.Tab, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	targets, err := c.browserTargets(ctx, targetOptions{BrowserID: opts.BrowserID, AllBrowsers: opts.AllBrowsers})
+	if err != nil {
+		return nil, err
+	}
+
+	var out []model.Tab
+	for _, target := range targets {
+		resp, err := c.cli.Request(string(target.ID), internalcli.ExtCommand{
+			Cmd:  "tabs.list",
+			Args: map[string]any{"query": map[string]any{}},
+		})
+		if err != nil {
+			return nil, err
+		}
+		var decoded commandResponse[[]model.Tab]
+		if err := decodeCommandResponse(resp, &decoded); err != nil {
+			return nil, err
+		}
+		if decoded.Error != nil {
+			return nil, decoded.Error
+		}
+		for _, tab := range decoded.Data {
+			fillTabBrowser(&tab, target)
+			out = append(out, tab)
+		}
+	}
+	return out, nil
+}
+
+func (c *daemonClient) FocusTab(ctx context.Context, req FocusTabRequest) (FocusTabResult, error) {
+	if err := ctx.Err(); err != nil {
+		return FocusTabResult{}, err
+	}
+	if req.BrowserID == "" {
+		return FocusTabResult{}, errors.New("browserId is required")
+	}
+	args := map[string]any{"tabId": req.TabID}
+	if req.WindowID > 0 {
+		args["windowId"] = req.WindowID
+	}
+	resp, err := c.cli.Request(string(req.BrowserID), internalcli.ExtCommand{Cmd: "tabs.focus", Args: args})
+	if err != nil {
+		return FocusTabResult{}, err
+	}
+	var decoded commandResponse[FocusTabResult]
+	if err := decodeCommandResponse(resp, &decoded); err != nil {
+		return FocusTabResult{}, err
+	}
+	if decoded.Error != nil {
+		return FocusTabResult{}, decoded.Error
+	}
+	decoded.Data.BrowserID = req.BrowserID
+	if decoded.Data.TabID == 0 {
+		decoded.Data.TabID = req.TabID
+	}
+	return decoded.Data, nil
+}
+
+func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-chan model.Event, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	targets, err := c.browserTargets(ctx, targetOptions{BrowserID: opts.BrowserID, AllBrowsers: opts.AllBrowsers})
+	if err != nil {
+		return nil, err
+	}
+	events := browserEventNames(opts.Events)
+	for _, target := range targets {
+		resp, err := c.cli.Request(string(target.ID), internalcli.ExtCommand{
+			Cmd:  "tabs.subscribe",
+			Args: map[string]any{"events": events},
+		})
+		if err != nil {
+			return nil, err
+		}
+		var decoded commandResponse[json.RawMessage]
+		if err := decodeCommandResponse(resp, &decoded); err != nil {
+			return nil, err
+		}
+		if decoded.Error != nil {
+			return nil, decoded.Error
+		}
+	}
+
+	out := make(chan model.Event, 32)
+	go func() {
+		defer close(out)
+		go func() {
+			<-ctx.Done()
+			_ = c.cli.Close()
+		}()
+		for {
+			env, err := c.cli.ReadEvent()
+			if err != nil {
+				return
+			}
+			evt, ok := decodeEventEnvelope(env, opts.Events)
+			if !ok {
+				continue
+			}
+			select {
+			case out <- evt:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
+func (c *daemonClient) Status(ctx context.Context) (Status, error) {
+	if err := ctx.Err(); err != nil {
+		return Status{}, err
+	}
+	resp, err := c.cli.Request("daemon", internalcli.ExtCommand{Cmd: "status"})
+	if err != nil {
+		return Status{}, err
+	}
+	var decoded commandResponse[daemonStatus]
+	if err := decodeCommandResponse(resp, &decoded); err != nil {
+		return Status{}, err
+	}
+	if decoded.Error != nil {
+		return Status{}, decoded.Error
+	}
+
+	status := Status{PID: decoded.Data.PID, Socket: decoded.Data.Socket}
+	for _, conn := range decoded.Data.Connections {
+		if conn.Role != string(protocol.RoleBrowser) {
+			continue
+		}
+		status.Browsers = append(status.Browsers, BrowserStatus{
+			ID:      model.BrowserID(conn.ID),
+			Name:    conn.Browser,
+			AppName: appNameForBrowser(conn.Browser),
+		})
+	}
+	sort.Slice(status.Browsers, func(i, j int) bool { return status.Browsers[i].ID < status.Browsers[j].ID })
+	return status, nil
+}
+
+func (c *daemonClient) Close() error {
+	return c.cli.Close()
+}
+
+type targetOptions struct {
+	BrowserID   model.BrowserID
+	AllBrowsers bool
+}
+
+func (c *daemonClient) browserTargets(ctx context.Context, opts targetOptions) ([]BrowserStatus, error) {
+	if opts.BrowserID != "" {
+		status, err := c.Status(ctx)
+		if err == nil {
+			for _, browser := range status.Browsers {
+				if browser.ID == opts.BrowserID {
+					return []BrowserStatus{browser}, nil
+				}
+			}
+		}
+		name := browserNameFromID(string(opts.BrowserID))
+		return []BrowserStatus{{ID: opts.BrowserID, Name: name, AppName: appNameForBrowser(name)}}, nil
+	}
+
+	status, err := c.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(status.Browsers) == 0 {
+		return nil, errors.New("no browsers connected")
+	}
+	if opts.AllBrowsers {
+		return status.Browsers, nil
+	}
+	if len(status.Browsers) > 1 {
+		ids := make([]string, 0, len(status.Browsers))
+		for _, browser := range status.Browsers {
+			ids = append(ids, string(browser.ID))
+		}
+		return nil, fmt.Errorf("multiple browsers connected: %s; specify BrowserID or AllBrowsers", strings.Join(ids, ", "))
+	}
+	return status.Browsers, nil
+}
+
+type commandResponse[T any] struct {
+	Cmd   string        `json:"cmd"`
+	Data  T             `json:"data"`
+	Error *CommandError `json:"error,omitempty"`
+}
+
+// CommandError is a structured error returned by the daemon or extension
+type CommandError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *CommandError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Code == "" {
+		return e.Message
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+func decodeCommandResponse[T any](raw json.RawMessage, out *commandResponse[T]) error {
+	if err := json.Unmarshal(raw, out); err != nil {
+		return fmt.Errorf("decoding command response: %w", err)
+	}
+	return nil
+}
+
+type daemonStatus struct {
+	PID         int              `json:"pid"`
+	Socket      string           `json:"socket"`
+	Connections []daemonConnInfo `json:"connections"`
+}
+
+type daemonConnInfo struct {
+	ID      string `json:"id"`
+	Role    string `json:"role"`
+	Browser string `json:"browser,omitempty"`
+}
+
+func fillTabBrowser(tab *model.Tab, browser BrowserStatus) {
+	if tab.BrowserID == "" {
+		tab.BrowserID = browser.ID
+	}
+	if tab.BrowserName == "" {
+		tab.BrowserName = browser.Name
+	}
+	if tab.AppName == "" {
+		tab.AppName = browser.AppName
+	}
+}
+
+func browserEventNames(types []model.EventType) []string {
+	if len(types) == 0 {
+		return []string{"onCreated", "onRemoved", "onUpdated", "onActivated"}
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, typ := range types {
+		var name string
+		switch typ {
+		case model.EventTypeTabCreated:
+			name = "onCreated"
+		case model.EventTypeTabRemoved:
+			name = "onRemoved"
+		case model.EventTypeTabUpdated:
+			name = "onUpdated"
+		case model.EventTypeTabFocused:
+			name = "onActivated"
+		default:
+			continue
+		}
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func decodeEventEnvelope(env *protocol.Envelope, allowed []model.EventType) (model.Event, bool) {
+	if env == nil || env.Type != protocol.MsgEvent {
+		return model.Event{}, false
+	}
+	var payload struct {
+		Cmd  string          `json:"cmd"`
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(env.Payload, &payload); err != nil || payload.Cmd != "tabs.event" {
+		return model.Event{}, false
+	}
+
+	evt, ok := decodeBrowserEvent(payload.Data)
+	if !ok {
+		return model.Event{}, false
+	}
+	fillEventBrowser(&evt, model.BrowserID(env.Source))
+	if !eventAllowed(evt.Type, allowed) {
+		return model.Event{}, false
+	}
+	return evt, true
+}
+
+func decodeBrowserEvent(raw json.RawMessage) (model.Event, bool) {
+	var evt model.Event
+	if err := json.Unmarshal(raw, &evt); err == nil && evt.Type != "" {
+		return evt, true
+	}
+
+	var legacy struct {
+		Event      string          `json:"event"`
+		Tab        *model.Tab      `json:"tab,omitempty"`
+		TabID      int64           `json:"tabId,omitempty"`
+		ActiveInfo json.RawMessage `json:"activeInfo,omitempty"`
+		RemoveInfo json.RawMessage `json:"removeInfo,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &legacy); err != nil || legacy.Event == "" {
+		return model.Event{}, false
+	}
+
+	evt.Type = eventTypeFromBrowserEvent(legacy.Event)
+	if evt.Type == "" {
+		return model.Event{}, false
+	}
+	if legacy.Tab != nil {
+		evt.Tab = legacy.Tab
+		evt.TabID = &model.TabID{Browser: legacy.Tab.BrowserID, WindowID: legacy.Tab.WindowID, TabID: legacy.Tab.ID}
+	} else if legacy.TabID != 0 {
+		evt.TabID = &model.TabID{TabID: legacy.TabID}
+	}
+	return evt, true
+}
+
+func fillEventBrowser(evt *model.Event, source model.BrowserID) {
+	if evt.BrowserID == "" {
+		evt.BrowserID = source
+	}
+	if evt.Tab != nil {
+		if evt.Tab.BrowserID == "" {
+			evt.Tab.BrowserID = source
+		}
+		if evt.TabID == nil {
+			evt.TabID = &model.TabID{Browser: evt.Tab.BrowserID, WindowID: evt.Tab.WindowID, TabID: evt.Tab.ID}
+		}
+	}
+	if evt.TabID != nil && evt.TabID.Browser == "" {
+		evt.TabID.Browser = source
+	}
+}
+
+func eventAllowed(typ model.EventType, allowed []model.EventType) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, item := range allowed {
+		if item == typ {
+			return true
+		}
+	}
+	return false
+}
+
+func eventTypeFromBrowserEvent(name string) model.EventType {
+	switch name {
+	case "onCreated":
+		return model.EventTypeTabCreated
+	case "onRemoved":
+		return model.EventTypeTabRemoved
+	case "onUpdated":
+		return model.EventTypeTabUpdated
+	case "onActivated":
+		return model.EventTypeTabFocused
+	default:
+		return ""
+	}
+}
+
+func browserNameFromID(id string) string {
+	if prefix, _, ok := strings.Cut(id, "-"); ok {
+		return prefix
+	}
+	return id
+}
+
+func appNameForBrowser(browser string) string {
+	switch strings.ToLower(browser) {
+	case "chrome":
+		return "Google Chrome"
+	case "chromium":
+		return "Chromium"
+	case "firefox":
+		return "Firefox"
+	case "brave":
+		return "Brave Browser"
+	case "edge":
+		return "Microsoft Edge"
+	case "opera":
+		return "Opera"
+	case "vivaldi":
+		return "Vivaldi"
+	case "zen":
+		return "Zen Browser"
+	case "waterfox":
+		return "Waterfox"
+	case "librewolf":
+		return "LibreWolf"
+	case "floorp":
+		return "Floorp"
+	default:
+		return browser
+	}
 }

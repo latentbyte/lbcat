@@ -105,6 +105,9 @@ func TestRouterRequestResponse(t *testing.T) {
 	if gotResp.ID != "msg-001" {
 		t.Errorf("cli got ID %q, want msg-001", gotResp.ID)
 	}
+	if gotResp.Source != browserConn.ID {
+		t.Errorf("cli got Source %q, want %q", gotResp.Source, browserConn.ID)
+	}
 	if string(gotResp.Payload) != string(resp.Payload) {
 		t.Errorf("cli payload mismatch: %s", gotResp.Payload)
 	}
@@ -150,9 +153,15 @@ func TestRouterEventBroadcast(t *testing.T) {
 	if got1.ID != "evt-001" {
 		t.Errorf("cli1 got ID %q, want evt-001", got1.ID)
 	}
+	if got1.Source != browserConn.ID {
+		t.Errorf("cli1 got Source %q, want %q", got1.Source, browserConn.ID)
+	}
 	got2 := waitEnvelope(t, cli2Ch)
 	if got2.ID != "evt-001" {
 		t.Errorf("cli2 got ID %q, want evt-001", got2.ID)
+	}
+	if got2.Source != browserConn.ID {
+		t.Errorf("cli2 got Source %q, want %q", got2.Source, browserConn.ID)
 	}
 }
 

@@ -19,6 +19,7 @@ type Envelope struct {
 	ID      string          `json:"id"`
 	Type    MsgType         `json:"type"`
 	Target  string          `json:"target,omitempty"`  // conn ID or "*" for broadcast, empty for responses
+	Source  string          `json:"source,omitempty"`  // daemon-assigned source conn ID for responses and events
 	Payload json.RawMessage `json:"payload,omitempty"` // opaque to daemon
 }
 

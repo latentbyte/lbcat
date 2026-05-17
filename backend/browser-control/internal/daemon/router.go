@@ -35,7 +35,7 @@ func (rt *Router) Route(src *Conn, env *protocol.Envelope) error {
 	case protocol.MsgResponse:
 		return rt.routeResponse(env)
 	case protocol.MsgEvent:
-		return rt.routeEvent(env)
+		return rt.routeEvent(src, env)
 	default:
 		return fmt.Errorf("unknown message type: %s", env.Type)
 	}
@@ -127,6 +127,8 @@ func (rt *Router) routeResponse(env *protocol.Envelope) error {
 		log.Printf("router: malformed pending entry for response id=%s", env.ID)
 		return nil
 	}
+	env.Source = req.targetID
+
 	originID := req.originID
 	dst, ok := rt.reg.Get(originID)
 	if !ok {
@@ -138,7 +140,8 @@ func (rt *Router) routeResponse(env *protocol.Envelope) error {
 }
 
 // routeEvent forwards an event from browser to all connected CLIs.
-func (rt *Router) routeEvent(env *protocol.Envelope) error {
+func (rt *Router) routeEvent(src *Conn, env *protocol.Envelope) error {
+	env.Source = src.ID
 	return rt.broadcast(env, protocol.RoleCLI)
 }
 
