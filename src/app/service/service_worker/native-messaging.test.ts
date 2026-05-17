@@ -68,6 +68,14 @@ describe("normalizeNativeTabEvent", () => {
     });
   });
 
+  it("falls back to tab ID when updated event lacks tab details", async () => {
+    await expect(normalizeNativeTabEvent("onUpdated", [123])).resolves.toEqual({
+      type: "tab-updated",
+      browserId: "",
+      tabId: { browser: "", windowId: -1, tabId: 123 },
+    });
+  });
+
   it("fetches tab details for activated events", async () => {
     const tabsGet = vi.fn().mockResolvedValue({
       id: 123,

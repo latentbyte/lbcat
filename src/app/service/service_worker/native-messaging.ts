@@ -195,8 +195,8 @@ export function tabToBrowserControlTab(
     index: tab.index ?? -1,
     title: tab.title || "",
     url: tab.url || tab.pendingUrl || "",
-    active: tab.active,
-    incognito: tab.incognito,
+    active: Boolean(tab.active),
+    incognito: Boolean(tab.incognito),
     audible: Boolean(tab.audible),
   };
 }
@@ -210,7 +210,9 @@ export async function normalizeNativeTabEvent(
   eventArgs: unknown[]
 ): Promise<BrowserControlEvent | null> {
   if (eventName === "onCreated") {
-    const tab = tabToBrowserControlTab(eventArgs[0] as chrome.tabs.Tab);
+    const rawTab = eventArgs[0] as chrome.tabs.Tab | undefined;
+    if (!rawTab) return null;
+    const tab = tabToBrowserControlTab(rawTab);
     return { type: "tab-created", browserId: tab.browserId, tab, tabId: tabIDFromTab(tab) };
   }
 
@@ -225,12 +227,18 @@ export async function normalizeNativeTabEvent(
   }
 
   if (eventName === "onUpdated") {
-    const tab = tabToBrowserControlTab(eventArgs[2] as chrome.tabs.Tab);
+    const tabId = Number(eventArgs[0]);
+    const rawTab = eventArgs[2] as chrome.tabs.Tab | undefined;
+    if (!rawTab) {
+      return { type: "tab-updated", browserId: "", tabId: { browser: "", windowId: -1, tabId } };
+    }
+    const tab = tabToBrowserControlTab(rawTab);
     return { type: "tab-updated", browserId: tab.browserId, tab, tabId: tabIDFromTab(tab) };
   }
 
   if (eventName === "onActivated") {
-    const activeInfo = eventArgs[0] as TabActiveInfo;
+    const activeInfo = eventArgs[0] as TabActiveInfo | undefined;
+    if (!activeInfo) return null;
     try {
       const tab = tabToBrowserControlTab(await chrome.tabs.get(activeInfo.tabId));
       return { type: "tab-focused", browserId: tab.browserId, tab, tabId: tabIDFromTab(tab) };

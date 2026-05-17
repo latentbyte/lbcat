@@ -186,7 +186,16 @@ func resolveOffload(payload json.RawMessage) (json.RawMessage, error) {
 // ReadEvent reads the next event envelope (blocking).
 // Used for streaming subscriptions (tab watch, etc.).
 func (c *Client) ReadEvent() (*protocol.Envelope, error) {
-	return protocol.ReadEnvelope(c.conn)
+	env, err := protocol.ReadEnvelope(c.conn)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := resolveOffload(env.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("resolving event offload: %w", err)
+	}
+	env.Payload = resolved
+	return env, nil
 }
 
 // ExtCommand is a command payload sent to the extension.
