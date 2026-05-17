@@ -22,5 +22,7 @@ is unset.
 just browser-control-build
 just browser-control-install
 browser-control daemon status --json
-browser-control tabs list --json
+browser-control tabs list --all-browsers --json
+browser-control tabs focus --browser chrome-01 123 --json
+browser-control events --json --type tab-focused,tab-removed
 ```

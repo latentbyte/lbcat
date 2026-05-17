@@ -88,7 +88,9 @@ just dev           # rspack watch, outputs to dist/
 ```sh
 browser-control ping                                # daemon reachable
 browser-control daemon status                       # shows connected browsers
-browser-control tabs list                           # list all open tabs
+browser-control tabs list --all-browsers --json     # list all open tabs
+browser-control tabs focus --browser chrome-01 123 --json
+browser-control events --json --type tab-focused,tab-removed
 browser-control page exec 123 "document.title"      # run JS in a tab
 browser-control script list                         # list userscripts
 ```
@@ -139,5 +141,5 @@ All components are implemented:
 
 2. **Extension manifest**: `"nativeMessaging"` added to permissions in `src/manifest.json`.
 
-3. **Command handlers in extension**: `tabs.list`, `tabs.get`, `tabs.subscribe`, `page.content`, `page.exec`,
-   `script.list/get/create/update/delete/toggle/push`, `ping`.
+3. **Command handlers in extension**: `tabs.list`, `tabs.get`, `tabs.focus`, `tabs.subscribe`, `page.content`,
+   `page.exec`, `script.list/get/create/update/delete/toggle/push`, `ping`.
