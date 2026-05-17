@@ -46,7 +46,7 @@ const isReactTools = process.env.REACT_DEVTOOLS === "true";
 
 // Target browsers, see: https://github.com/browserslist/browserslist
 // 依照 https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/userScripts#browser_compatibility
-const targets = ["chrome >= 120", "edge >= 120", "firefox >= 136"];
+const targets = ["chrome >= 120", "edge >= 120", "firefox >= 142"];
 
 const src = path.join(dirname, "src");
 const dist = path.join(dirname, "dist");

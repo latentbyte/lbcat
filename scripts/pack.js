@@ -95,8 +95,8 @@ firefoxManifest.browser_specific_settings = {
   gecko: {
     id: "scriptcat@latentbyte.com",
     // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/userScripts#browser_compatibility
-    // Firefox 136 (Released 2025-03-04)
-    strict_min_version: "136.0",
+    // Firefox 142+ also covers Android support for data_collection_permissions
+    strict_min_version: "142.0",
     // https://mzl.la/firefox-builtin-data-consent
     data_collection_permissions: {
       required: ["none"],
