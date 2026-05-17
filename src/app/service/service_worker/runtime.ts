@@ -102,6 +102,10 @@ export class RuntimeService {
   // 在未初始化前，预设 false。一般情况初始化值会很快被替换
   isUserScriptsAvailable = false;
 
+  // firefox/zen may expose MV3 without enabling the userScripts backend
+  // in that case we can still run page-load scripts through registered content scripts
+  isScriptingFallbackAvailable = false;
+
   // 当前扩充是否开启了启用脚本
   // 在未初始化前，预设 true。一般情况初始化值会很快被替换
   isLoadScripts = true;
@@ -545,7 +549,7 @@ export class RuntimeService {
       this.blacklist = obtainBlackList(blacklist);
       this.loadBlacklist();
       await this.unregisterUserscripts();
-      if (this.isUserScriptsAvailable && this.isLoadScripts) {
+      if (this.hasPageScriptRunner() && this.isLoadScripts) {
         // 重新注册用户脚本；注册是会用加入 blacklistExcludeMatches 和 blacklistExcludeGlobs
         await this.registerUserscripts();
       }
@@ -556,6 +560,7 @@ export class RuntimeService {
 
     const onUserScriptAPIGrantAdded = async () => {
       this.isUserScriptsAvailable = true;
+      this.isScriptingFallbackAvailable = false;
       // 注册脚本
       if (this.isLoadScripts) {
         await this.unregisterUserscripts();
@@ -566,8 +571,12 @@ export class RuntimeService {
 
     const onUserScriptAPIGrantRemoved = async () => {
       this.isUserScriptsAvailable = false;
-      // 取消当前注册 （如有）
+      this.isScriptingFallbackAvailable = this.canUseScriptingFallback();
+      // 切换注册后端
       await this.unregisterUserscripts();
+      if (this.isLoadScripts) {
+        await this.registerUserscripts();
+      }
       this.updateIcon();
     };
 
@@ -614,6 +623,7 @@ export class RuntimeService {
 
       // 保存初始值
       this.isUserScriptsAvailable = isUserScriptsAvailable;
+      this.isScriptingFallbackAvailable = !isUserScriptsAvailable && this.canUseScriptingFallback();
       this.isLoadScripts = isLoadScripts;
       this.blacklist = obtainBlackList(strBlacklist);
 
@@ -621,7 +631,7 @@ export class RuntimeService {
       this.updateIcon();
 
       // 检查是否开启了开发者模式
-      if (!this.isUserScriptsAvailable) {
+      if (!this.hasPageScriptRunner()) {
         // 未开启加上警告引导
         this.showNoDeveloperModeWarning();
         let cid: ReturnType<typeof setInterval> | number;
@@ -673,8 +683,19 @@ export class RuntimeService {
     })();
   }
 
+  hasPageScriptRunner() {
+    return this.isUserScriptsAvailable || this.isScriptingFallbackAvailable;
+  }
+
+  canUseScriptingFallback() {
+    return (
+      typeof chrome.scripting?.registerContentScripts === "function" &&
+      typeof chrome.scripting?.unregisterContentScripts === "function"
+    );
+  }
+
   updateIcon() {
-    const enableUserscript: boolean = this.isUserScriptsAvailable && this.isLoadScripts;
+    const enableUserscript: boolean = this.hasPageScriptRunner() && this.isLoadScripts;
     const iconUrl = enableUserscript
       ? chrome.runtime.getURL("assets/logo-32.png") // 设置正常logo
       : chrome.runtime.getURL("assets/logo-gray-32.png"); // 如果未启用脚本，设置灰色的logo
@@ -858,6 +879,53 @@ export class RuntimeService {
     return registerScripts;
   }
 
+  getScriptingBootstrapScripts({
+    excludeMatches,
+    includePageRuntimes = false,
+    injectWorld = "MAIN",
+  }: {
+    excludeMatches: string[];
+    includePageRuntimes?: boolean;
+    injectWorld?: `${chrome.scripting.ExecutionWorld}`;
+  }) {
+    const scripts: chrome.scripting.RegisteredContentScript[] = [
+      {
+        id: "scriptcat-scripting",
+        js: ["/src/scripting.js"],
+        matches: ["<all_urls>"],
+        allFrames: true,
+        runAt: "document_start",
+        excludeMatches,
+        world: "ISOLATED",
+      } satisfies chrome.scripting.RegisteredContentScript,
+    ];
+
+    if (includePageRuntimes) {
+      scripts.push(
+        {
+          id: "scriptcat-inject",
+          js: ["/src/inject.js"],
+          matches: ["<all_urls>"],
+          allFrames: true,
+          runAt: "document_start",
+          excludeMatches,
+          world: injectWorld,
+        } satisfies chrome.scripting.RegisteredContentScript,
+        {
+          id: "scriptcat-content",
+          js: ["/src/content.js"],
+          matches: ["<all_urls>"],
+          allFrames: true,
+          runAt: "document_start",
+          excludeMatches,
+          world: "ISOLATED",
+        } satisfies chrome.scripting.RegisteredContentScript
+      );
+    }
+
+    return scripts;
+  }
+
   // 获取content.js和inject.js的脚本注册信息
   async getContentAndInjectScript({
     excludeMatches,
@@ -885,22 +953,8 @@ export class RuntimeService {
       }
     }
 
-    let retContent: chrome.scripting.RegisteredContentScript[] = [];
+    const retContent = this.getScriptingBootstrapScripts({ excludeMatches });
     const retInject: chrome.userScripts.RegisteredUserScript[] = [];
-
-    // ------ scripting.js ------
-    // Note: Chrome does not support file.js?query
-    // 注意：Chrome 不支持 file.js?query
-    retContent = [
-      {
-        id: "scriptcat-scripting",
-        js: ["/src/scripting.js"],
-        matches: ["<all_urls>"],
-        allFrames: true,
-        runAt: "document_start",
-        excludeMatches,
-      } satisfies chrome.scripting.RegisteredContentScript,
-    ];
 
     // ------ inject.js & content.js ------
     const jsonUAD = JSON.stringify(this.userAgentData);
@@ -942,18 +996,61 @@ export class RuntimeService {
     return { content: retContent, inject: retInject };
   }
 
+  async registerScriptingFallback(options: { excludeMatches: string[] }) {
+    const fallbackScripts = this.getScriptingBootstrapScripts({
+      excludeMatches: options.excludeMatches,
+      includePageRuntimes: true,
+    });
+
+    try {
+      await chrome.scripting.registerContentScripts(fallbackScripts);
+      runtimeGlobal.registerState = RuntimeRegisterCode.REGISTER_DONE;
+      return;
+    } catch (e: any) {
+      this.logger.warn("scripting fallback registration with MAIN world failed", Logger.E(e));
+      await chrome.scripting.unregisterContentScripts({ ids: fallbackScripts.map((script) => script.id) }).catch(() => {
+        /* ignore cleanup failure before isolated fallback */
+      });
+    }
+
+    const isolatedFallbackScripts = this.getScriptingBootstrapScripts({
+      excludeMatches: options.excludeMatches,
+      includePageRuntimes: true,
+      injectWorld: "ISOLATED",
+    });
+    try {
+      await chrome.scripting.registerContentScripts(isolatedFallbackScripts);
+      runtimeGlobal.registerState = RuntimeRegisterCode.REGISTER_DONE;
+    } catch (e: any) {
+      runtimeGlobal.registerState = RuntimeRegisterCode.UNSET;
+      this.logger.error("scripting fallback registration error", Logger.E(e));
+    }
+  }
+
   // 如果是重复注册，需要先调用 unregisterUserscripts
   async registerUserscripts() {
-    // 若 UserScripts API 不可使用 或 ScriptCat设定为不启用脚本 则退出
-    if (!this.isUserScriptsAvailable || !this.isLoadScripts) return;
+    // 若 ScriptCat设定为不启用脚本则退出
+    if (!this.isLoadScripts) return;
 
     // 判断是否已经注册过
     if (runtimeGlobal.registerState === RuntimeRegisterCode.REGISTER_DONE) {
-      // 异常情况
-      // 检查scriptcat-content和scriptcat-inject是否存在
-      const res = await chrome.userScripts.getScripts({ ids: ["scriptcat-inject"] });
-      if (res.length === 1) {
-        return;
+      if (this.isUserScriptsAvailable) {
+        // 异常情况
+        // 检查scriptcat-content和scriptcat-inject是否存在
+        const res = await chrome.userScripts.getScripts({ ids: ["scriptcat-inject"] });
+        if (res.length === 1) {
+          return;
+        }
+      } else if (
+        this.isScriptingFallbackAvailable &&
+        typeof chrome.scripting?.getRegisteredContentScripts === "function"
+      ) {
+        const res = await chrome.scripting.getRegisteredContentScripts({
+          ids: ["scriptcat-scripting", "scriptcat-inject", "scriptcat-content"],
+        });
+        if (res.length === 3) {
+          return;
+        }
       }
       // scriptcat-content/scriptcat-inject不存在的情况
       // 走一次重新注册的流程
@@ -962,17 +1059,25 @@ export class RuntimeService {
     }
     // 删除旧注册
     await this.unregisterUserscripts();
+
+    const options = {
+      excludeMatches: this.blacklistExcludeMatches,
+      excludeGlobs: this.blacklistExcludeGlobs,
+    };
+
+    if (!this.isUserScriptsAvailable) {
+      if (this.isScriptingFallbackAvailable) {
+        await this.registerScriptingFallback(options);
+      }
+      return;
+    }
+
     // 使注册时重新注入 chrome.runtime
     try {
       await chrome.userScripts.resetWorldConfiguration();
     } catch (e: any) {
       console.error("chrome.userScripts.resetWorldConfiguration() failed.", e);
     }
-
-    const options = {
-      excludeMatches: this.blacklistExcludeMatches,
-      excludeGlobs: this.blacklistExcludeGlobs,
-    };
 
     const particularScriptList = await this.getParticularScriptList(options);
     // getContentAndInjectScript依赖loadScriptMatchInfo

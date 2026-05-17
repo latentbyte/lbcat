@@ -109,6 +109,32 @@ describe.concurrent("RuntimeService - getPageScriptMatchingResultByUrl 脚本匹
     );
   });
 
+  describe.concurrent("scripting fallback bootstrap", () => {
+    it.concurrent("should register scripting plus page runtimes when userScripts is unavailable", () => {
+      const scripts = runtime.getScriptingBootstrapScripts({
+        excludeMatches: ["https://blocked.example.com/*"],
+        includePageRuntimes: true,
+      });
+
+      expect(scripts).toHaveLength(3);
+      expect(scripts.map((script) => script.id)).toEqual([
+        "scriptcat-scripting",
+        "scriptcat-inject",
+        "scriptcat-content",
+      ]);
+      expect(scripts[1].world).toBe("MAIN");
+      expect(scripts.every((script) => script.runAt === "document_start")).toBe(true);
+      expect(scripts.every((script) => script.excludeMatches?.[0] === "https://blocked.example.com/*")).toBe(true);
+    });
+
+    it.concurrent("should treat scripting fallback as a page script runner", () => {
+      runtime.isUserScriptsAvailable = false;
+      runtime.isScriptingFallbackAvailable = true;
+
+      expect(runtime.hasPageScriptRunner()).toBe(true);
+    });
+  });
+
   describe.concurrent("脚本匹配基础功能", () => {
     it.concurrent("应该匹配没有自定义metadata的脚本", async () => {
       // Arrange
