@@ -8,6 +8,15 @@ import type { ScriptService } from "./script";
 
 const HOST_NAME = "com.scriptcat.vmhost";
 const RECONNECT_DELAY = 5000;
+
+type NativeMessagingConnectionState = "connected" | "connecting" | "disconnected" | "error";
+
+export interface NativeMessagingStatus {
+  status: NativeMessagingConnectionState;
+  hostName: string;
+  lastError?: string;
+}
+
 const log = {
   info: (...a: unknown[]) => console.info("[native-messaging]", ...a),
   warn: (...a: unknown[]) => console.warn("[native-messaging]", ...a),
@@ -19,9 +28,56 @@ let scriptService: ScriptService | null = null;
 let port: chrome.runtime.Port | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldReconnect = false;
+let connectionState: NativeMessagingConnectionState = "disconnected";
+let lastConnectionError = "";
+let statusListenerRegistered = false;
 
 // active tab event subscriptions keyed by chrome.tabs event name
 const tabSubscriptions: Record<string, (...args: unknown[]) => void> = {};
+
+function getActionApi() {
+  return chrome.action ?? (chrome as unknown as { browserAction?: typeof chrome.action }).browserAction;
+}
+
+function setNativeBadge(state: NativeMessagingConnectionState) {
+  const actionApi = getActionApi();
+  if (!actionApi) return;
+
+  const badgeByState: Record<NativeMessagingConnectionState, { text: string; color: string; title: string }> = {
+    connected: { text: "●", color: "#4CAF50", title: "ScriptCat vmctl connected" },
+    connecting: { text: "○", color: "#FF9800", title: "ScriptCat vmctl connecting" },
+    disconnected: { text: "×", color: "#F44336", title: "ScriptCat vmctl disconnected" },
+    error: { text: "!", color: "#9C27B0", title: "ScriptCat vmctl connection error" },
+  };
+  const badge = badgeByState[state];
+  actionApi.setBadgeText({ text: badge.text });
+  actionApi.setBadgeBackgroundColor({ color: badge.color });
+  actionApi.setTitle({ title: badge.title });
+}
+
+function setConnectionState(state: NativeMessagingConnectionState, error = "") {
+  connectionState = state;
+  lastConnectionError = error;
+  setNativeBadge(state);
+}
+
+export function getNativeMessagingStatus(): NativeMessagingStatus {
+  return {
+    status: connectionState,
+    hostName: HOST_NAME,
+    lastError: lastConnectionError || undefined,
+  };
+}
+
+function registerStatusListener() {
+  if (statusListenerRegistered) return;
+  statusListenerRegistered = true;
+  chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+    if ((message as { type?: string } | null)?.type !== "nativeMessaging.GET_STATUS") return undefined;
+    sendResponse(getNativeMessagingStatus());
+    return true;
+  });
+}
 
 function sendEvent(payload: unknown) {
   if (!port) return;
@@ -471,15 +527,19 @@ const handlers: Record<string, Handler> = {
 function connect() {
   if (port) return;
   shouldReconnect = true;
+  setConnectionState("connecting");
   try {
     port = chrome.runtime.connectNative(HOST_NAME);
   } catch (e: unknown) {
-    log.error("connectNative failed", String(e));
+    const message = e instanceof Error ? e.message : String(e);
+    log.error("connectNative failed", message);
+    setConnectionState("error", message);
     scheduleReconnect();
     return;
   }
   port.onMessage.addListener(onMessage);
   port.onDisconnect.addListener(onDisconnect);
+  setConnectionState("connected");
   log.info("connected to " + HOST_NAME);
 }
 
@@ -494,6 +554,7 @@ export function disconnect() {
     port.disconnect();
     port = null;
   }
+  setConnectionState("disconnected");
 }
 
 function scheduleReconnect() {
@@ -506,9 +567,11 @@ function scheduleReconnect() {
 
 function onDisconnect() {
   const err = chrome.runtime.lastError;
-  log.warn("disconnected: " + (err?.message || "unknown reason"));
+  const message = err?.message || "unknown reason";
+  log.warn("disconnected: " + message);
   port = null;
   clearTabSubscriptions();
+  setConnectionState(err ? "error" : "disconnected", err?.message || "");
   if (shouldReconnect) scheduleReconnect();
 }
 
@@ -566,5 +629,6 @@ async function onMessage(envelope: Envelope) {
 // connect on load; the shim handles handshake with the daemon
 export function initNativeMessaging(svc: ScriptService) {
   scriptService = svc;
+  registerStatusListener();
   connect();
 }

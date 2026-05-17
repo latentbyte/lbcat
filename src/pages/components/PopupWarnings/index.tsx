@@ -8,11 +8,20 @@ interface PopupWarningsProps {
   isBlacklist: boolean;
 }
 
+type NativeMessagingStatus = "connected" | "connecting" | "disconnected" | "error";
+
+interface NativeMessagingStatusResponse {
+  status: NativeMessagingStatus;
+  hostName: string;
+  lastError?: string;
+}
+
 function PopupWarnings({ isBlacklist }: PopupWarningsProps) {
   const { t } = useTranslation();
   const [isUserScriptsAvailableState, setIsUserScriptsAvailableState] = useState<boolean | null>(null);
   const [showRequestButton, setShowRequestButton] = useState(false);
   const [permissionReqResult, setPermissionReqResult] = useState("");
+  const [nativeStatus, setNativeStatus] = useState<NativeMessagingStatusResponse | null>(null);
 
   const updateIsUserScriptsAvailableState = async () => {
     const badgeText = await chrome.action.getBadgeText({});
@@ -28,6 +37,27 @@ function PopupWarnings({ isBlacklist }: PopupWarningsProps) {
 
   useEffect(() => {
     updateIsUserScriptsAvailableState();
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const updateNativeStatus = () => {
+      chrome.runtime.sendMessage({ type: "nativeMessaging.GET_STATUS" }, (resp: NativeMessagingStatusResponse) => {
+        if (!mounted) return;
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          setNativeStatus({ status: "error", hostName: "com.scriptcat.vmhost", lastError: lastError.message });
+          return;
+        }
+        setNativeStatus(resp);
+      });
+    };
+    updateNativeStatus();
+    const intervalId = window.setInterval(updateNativeStatus, 2000);
+    return () => {
+      mounted = false;
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   const warningMessageHTML = useMemo(() => {
@@ -122,6 +152,17 @@ function PopupWarnings({ isBlacklist }: PopupWarningsProps) {
 
   return (
     <>
+      {nativeStatus && nativeStatus.status !== "connected" && (
+        <Alert
+          type={nativeStatus.status === "connecting" ? "info" : "warning"}
+          content={
+            <div>
+              vmctl {nativeStatus.status}. Host: {nativeStatus.hostName}
+              {nativeStatus.lastError ? ` (${nativeStatus.lastError})` : ""}
+            </div>
+          }
+        />
+      )}
       {warningMessageHTML && (
         <Alert
           type="warning"
