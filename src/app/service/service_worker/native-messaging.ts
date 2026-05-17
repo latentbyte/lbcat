@@ -140,6 +140,54 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 type HandlerResult = { data: unknown };
 type Handler = (args: Record<string, unknown>) => HandlerResult | Promise<HandlerResult>;
 
+type BrowserIdentity = {
+  browserName: string;
+  appName: string;
+};
+
+export type BrowserControlTab = {
+  browserId: string;
+  browserName: string;
+  appName: string;
+  id: number;
+  windowId: number;
+  index: number;
+  title: string;
+  url: string;
+  active: boolean;
+  incognito: boolean;
+  audible: boolean;
+};
+
+export function browserIdentityFromUserAgent(userAgent = navigator.userAgent): BrowserIdentity {
+  if (userAgent.includes("Edg/")) return { browserName: "edge", appName: "Microsoft Edge" };
+  if (userAgent.includes("Firefox/")) return { browserName: "firefox", appName: "Firefox" };
+  if (userAgent.includes("OPR/") || userAgent.includes("Opera/")) return { browserName: "opera", appName: "Opera" };
+  if (userAgent.includes("Vivaldi/")) return { browserName: "vivaldi", appName: "Vivaldi" };
+  if (userAgent.includes("Chromium/")) return { browserName: "chromium", appName: "Chromium" };
+  if (userAgent.includes("Chrome/")) return { browserName: "chrome", appName: "Google Chrome" };
+  return { browserName: "unknown", appName: "Unknown Browser" };
+}
+
+export function tabToBrowserControlTab(
+  tab: chrome.tabs.Tab,
+  identity = browserIdentityFromUserAgent()
+): BrowserControlTab {
+  return {
+    browserId: "",
+    browserName: identity.browserName,
+    appName: identity.appName,
+    id: tab.id ?? -1,
+    windowId: tab.windowId ?? -1,
+    index: tab.index ?? -1,
+    title: tab.title || "",
+    url: tab.url || tab.pendingUrl || "",
+    active: tab.active,
+    incognito: tab.incognito,
+    audible: Boolean(tab.audible),
+  };
+}
+
 export async function focusNativeTab(tabId: number, requestedWindowId?: number) {
   const tab = await chrome.tabs.update(tabId, { active: true });
   const windowId = typeof requestedWindowId === "number" ? requestedWindowId : tab?.windowId;
@@ -155,31 +203,12 @@ const handlers: Record<string, Handler> = {
   async "tabs.list"(args) {
     const query = (args?.["query"] as chrome.tabs.QueryInfo) || {};
     const tabs = await chrome.tabs.query(query);
-    return {
-      data: tabs.map((t) => ({
-        id: t.id,
-        url: t.url || t.pendingUrl || "",
-        title: t.title || "",
-        active: t.active,
-        windowId: t.windowId,
-        status: t.status,
-        pinned: t.pinned,
-        incognito: t.incognito,
-      })),
-    };
+    return { data: tabs.map((tab) => tabToBrowserControlTab(tab)) };
   },
 
   async "tabs.get"(args) {
     const tab = await chrome.tabs.get(args["tabId"] as number);
-    return {
-      data: {
-        id: tab.id,
-        url: tab.url || tab.pendingUrl || "",
-        title: tab.title || "",
-        active: tab.active,
-        windowId: tab.windowId,
-      },
-    };
+    return { data: tabToBrowserControlTab(tab) };
   },
 
   async "tabs.create"(args) {
@@ -187,15 +216,7 @@ const handlers: Record<string, Handler> = {
     const active = args["active"] !== undefined ? Boolean(args["active"]) : true;
     if (!url) throw new Error("url is required");
     const tab = await chrome.tabs.create({ url, active });
-    return {
-      data: {
-        id: tab.id,
-        url: tab.url || tab.pendingUrl || "",
-        title: tab.title || "",
-        active: tab.active,
-        windowId: tab.windowId,
-      },
-    };
+    return { data: tabToBrowserControlTab(tab) };
   },
 
   async "tabs.focus"(args) {
