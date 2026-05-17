@@ -26,6 +26,10 @@ alias lint := check
 build:
     pnpm build
 
+# set project version, e.g. `just set-version 2.1.0`
+set-version version:
+    pnpm run set-version {{version}}
+
 # start dev server
 dev:
     pnpm dev
