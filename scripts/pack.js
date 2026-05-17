@@ -26,10 +26,15 @@ const createJSZip = () => {
 
 // 判断是否为beta版本
 const version = semver.parse(packageInfo.version);
+if (!version) {
+  throw new Error(`invalid package version: ${packageInfo.version}`);
+}
+
+const prereleaseName = version.prerelease[0]?.toString();
 if (version.prerelease.length) {
   // 替换manifest中的版本
   let betaVersion = 1000;
-  switch (version.prerelease[0]) {
+  switch (prereleaseName) {
     case "alpha":
       // 第一位进1
       betaVersion += parseInt(version.prerelease[1] || "0", 10) + 1 || 1;
@@ -38,20 +43,20 @@ if (version.prerelease.length) {
       // 第三位进1
       betaVersion += 100 * (parseInt(version.prerelease[1] || "0", 10) + 1 || 1);
       break;
+    case "az":
+      betaVersion += 900;
+      break;
     default:
       throw new Error("未知的版本类型");
   }
   manifest.version = `${version.major}.${version.minor}.${version.patch}.${betaVersion}`;
-  manifest.name = `__MSG_scriptcat_beta__`;
+  manifest.version_name = packageInfo.version;
+  manifest.name = prereleaseName === "az" ? `__MSG_scriptcat_az__` : `__MSG_scriptcat_beta__`;
 } else {
   manifest.name = `__MSG_scriptcat__`;
   manifest.version = packageInfo.version;
+  delete manifest.version_name;
 }
-
-// 处理manifest version
-let str = (await fs.readFile("./src/manifest.json", { encoding: "utf8" })).toString();
-str = str.replace(/"version": "(.*?)"/, `"version": "${manifest.version}"`);
-await fs.writeFile("./src/manifest.json", str);
 
 // 处理configSystem version
 let configSystem = (await fs.readFile("./src/app/const.ts", { encoding: "utf8" })).toString();

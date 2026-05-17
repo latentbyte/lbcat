@@ -8,6 +8,9 @@
   "scriptcat_beta": {
     "message": "ScriptCat Beta"
   },
+  "scriptcat_az": {
+    "message": "ScriptCat -az"
+  },
   "scriptcat_description": {
     "message": "Всё можно автоматизировать скриптами, позволяя вашему браузеру делать больше!"
   }

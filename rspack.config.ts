@@ -5,10 +5,43 @@ import { v4 as uuidv4 } from "uuid";
 
 const pkg = JSON.parse(readFileSync("./package.json", "utf-8"));
 
-const version = pkg.version;
+const version = pkg.version as string;
 const dirname = path.resolve();
 const isDev = process.env.NODE_ENV === "development";
-const isBeta = version.includes("-");
+const getManifestVersion = (pkgVersion: string) => {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+)(?:\.(\d+))?)?$/.exec(pkgVersion);
+  if (!match) {
+    throw new Error(`invalid package version: ${pkgVersion}`);
+  }
+
+  const [, major, minor, patch, prereleaseName, prereleaseIndex] = match;
+  if (!prereleaseName) {
+    return { manifestVersion: pkgVersion };
+  }
+
+  let betaVersion = 1000;
+  switch (prereleaseName) {
+    case "alpha":
+      betaVersion += Number.parseInt(prereleaseIndex || "0", 10) + 1 || 1;
+      break;
+    case "beta":
+      betaVersion += 100 * (Number.parseInt(prereleaseIndex || "0", 10) + 1 || 1);
+      break;
+    case "az":
+      betaVersion += 900;
+      break;
+    default:
+      throw new Error(`unknown prerelease version: ${prereleaseName}`);
+  }
+
+  return {
+    manifestVersion: `${major}.${minor}.${patch}.${betaVersion}`,
+    prereleaseName,
+    versionName: pkgVersion,
+  };
+};
+const versionInfo = getManifestVersion(version);
+const isPrerelease = Boolean(versionInfo.prereleaseName);
 const isReactTools = process.env.REACT_DEVTOOLS === "true";
 
 // Target browsers, see: https://github.com/browserslist/browserslist
@@ -136,8 +169,16 @@ export default {
           to: `${dist}/ext`,
           // 将manifest.json内版本号替换为package.json中版本号
           transform(content: Buffer) {
-            const manifest = JSON.parse(content.toString()) as chrome.runtime.ManifestV3;
-            if (isDev || isBeta) {
+            const manifest = JSON.parse(content.toString()) as chrome.runtime.ManifestV3 & { version_name?: string };
+            manifest.version = versionInfo.manifestVersion;
+            if (versionInfo.versionName) {
+              manifest.version_name = versionInfo.versionName;
+            } else {
+              delete manifest.version_name;
+            }
+            if (versionInfo.prereleaseName === "az") {
+              manifest.name = "__MSG_scriptcat_az__";
+            } else if (isDev || isPrerelease) {
               manifest.name = "__MSG_scriptcat_beta__";
             }
             if (isReactTools) {
@@ -149,11 +190,11 @@ export default {
           },
         },
         {
-          from: `${assets}/logo${isDev || isBeta ? "-beta" : ""}.png`,
+          from: `${assets}/logo${isDev || isPrerelease ? "-beta" : ""}.png`,
           to: `${dist}/ext/assets/logo.png`,
         },
         {
-          from: `${assets}/logo${isDev || isBeta ? "-beta" : ""}-32.png`,
+          from: `${assets}/logo${isDev || isPrerelease ? "-beta" : ""}-32.png`,
           to: `${dist}/ext/assets/logo-32.png`,
         },
         { from: `${assets}/logo-gray.png`, to: `${dist}/ext/assets/logo-gray.png` },

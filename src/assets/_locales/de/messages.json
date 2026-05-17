@@ -8,6 +8,9 @@
   "scriptcat_beta": {
     "message": "ScriptCat Beta"
   },
+  "scriptcat_az": {
+    "message": "ScriptCat -az"
+  },
   "scriptcat_description": {
     "message": "Alles kann geskriptet werden, damit Ihr Browser mehr kann!"
   }
