@@ -3,5 +3,5 @@
   "description": "ScriptCat CLI bridge",
   "path": "/absolute/path/to/vmhost-shim",
   "type": "stdio",
-  "allowed_extensions": ["scriptcat@scriptcat.org"]
+  "allowed_extensions": ["scriptcat@latentbyte.com"]
 }

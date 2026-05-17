@@ -93,9 +93,7 @@ firefoxManifest.optional_permissions = firefoxManifest.optional_permissions.filt
 // firefoxManifest.content_security_policy = "script-src 'self' blob:; object-src 'self' blob:";
 firefoxManifest.browser_specific_settings = {
   gecko: {
-    id: `{${
-      version.prerelease.length ? "44ab8538-2642-46b0-8a57-3942dbc1a33b" : "8e515334-52b5-4cc5-b4e8-675d50af677d"
-    }}`,
+    id: "scriptcat@latentbyte.com",
     // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/userScripts#browser_compatibility
     // Firefox 136 (Released 2025-03-04)
     strict_min_version: "136.0",

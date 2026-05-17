@@ -122,7 +122,7 @@ var extensions = []extensionRegistry{
 		description: "ScriptCat CLI bridge",
 		knownIDs: map[string]string{
 			"chrome":  "ndcooeababalnlpkfedmmbbbgkljhpjf",
-			"firefox": "scriptcat@scriptcat.org",
+			"firefox": "scriptcat@latentbyte.com",
 		},
 	},
 }
