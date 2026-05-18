@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 )
 
@@ -145,6 +147,31 @@ func (rt *Router) routeEvent(src *Conn, env *protocol.Envelope) error {
 	return rt.broadcast(env, protocol.RoleCLI)
 }
 
+// BroadcastBrowserLifecycle sends public browser connection lifecycle events to CLIs.
+func (rt *Router) BroadcastBrowserLifecycle(conn *Conn, typ string) error {
+	if conn == nil || conn.Role != protocol.RoleBrowser {
+		return nil
+	}
+	payload, err := json.Marshal(map[string]any{
+		"cmd": "browser.event",
+		"data": map[string]any{
+			"type":        typ,
+			"browserId":   conn.ID,
+			"browserName": conn.Meta.Browser,
+			"appName":     appNameForBrowser(conn.Meta.Browser),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("encoding browser lifecycle event: %w", err)
+	}
+	return rt.broadcast(&protocol.Envelope{
+		ID:      "evt-" + uuid.NewString(),
+		Type:    protocol.MsgEvent,
+		Source:  "daemon",
+		Payload: payload,
+	}, protocol.RoleCLI)
+}
+
 // broadcast sends an envelope to all connections of the given role.
 func (rt *Router) broadcast(env *protocol.Envelope, role protocol.ConnRole) error {
 	var targets []*Conn
@@ -208,4 +235,33 @@ func (rt *Router) ClearPending(connID string) {
 		}
 		return true
 	})
+}
+
+func appNameForBrowser(browser string) string {
+	switch strings.ToLower(browser) {
+	case "chrome":
+		return "Google Chrome"
+	case "chromium":
+		return "Chromium"
+	case "firefox":
+		return "Firefox"
+	case "brave":
+		return "Brave Browser"
+	case "edge":
+		return "Microsoft Edge"
+	case "opera":
+		return "Opera"
+	case "vivaldi":
+		return "Vivaldi"
+	case "zen":
+		return "Zen Browser"
+	case "waterfox":
+		return "Waterfox"
+	case "librewolf":
+		return "LibreWolf"
+	case "floorp":
+		return "Floorp"
+	default:
+		return browser
+	}
 }

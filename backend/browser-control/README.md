@@ -24,5 +24,5 @@ just browser-control-install
 browser-control daemon status --json
 browser-control tabs list --all-browsers --json
 browser-control tabs focus --browser chrome-01 123 --json
-browser-control events --json --type tab-focused,tab-removed
+browser-control events --json --type tab-focused,tab-removed,browser-connected,browser-disconnected
 ```

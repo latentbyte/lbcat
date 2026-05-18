@@ -90,7 +90,7 @@ browser-control ping                                # daemon reachable
 browser-control daemon status                       # shows connected browsers
 browser-control tabs list --all-browsers --json     # list all open tabs
 browser-control tabs focus --browser chrome-01 123 --json
-browser-control events --json --type tab-focused,tab-removed
+browser-control events --json --type tab-focused,tab-removed,browser-connected,browser-disconnected
 browser-control page exec 123 "document.title"      # run JS in a tab
 browser-control script list                         # list userscripts
 ```

@@ -68,7 +68,12 @@ func parseEventTypes(raw string) ([]model.EventType, error) {
 		}
 		typ := model.EventType(name)
 		switch typ {
-		case model.EventTypeTabFocused, model.EventTypeTabRemoved, model.EventTypeTabUpdated, model.EventTypeTabCreated:
+		case model.EventTypeTabFocused,
+			model.EventTypeTabRemoved,
+			model.EventTypeTabUpdated,
+			model.EventTypeTabCreated,
+			model.EventTypeBrowserConnected,
+			model.EventTypeBrowserDisconnected:
 			out = append(out, typ)
 		default:
 			return nil, fmt.Errorf("unknown event type %q", name)
@@ -91,6 +96,6 @@ func formatEvent(evt model.Event) string {
 }
 
 func init() {
-	eventsCmd.Flags().String("type", "", "comma-separated event types: tab-focused,tab-removed,tab-updated,tab-created")
+	eventsCmd.Flags().String("type", "", "comma-separated event types: tab-focused,tab-removed,tab-updated,tab-created,browser-connected,browser-disconnected")
 	rootCmd.AddCommand(eventsCmd)
 }

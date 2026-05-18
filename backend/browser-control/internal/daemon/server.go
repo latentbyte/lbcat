@@ -195,6 +195,9 @@ func (s *Server) handleConn(raw net.Conn) {
 		Role:    string(conn.Role),
 		Browser: conn.Meta.Browser,
 	})
+	if err := s.router.BroadcastBrowserLifecycle(conn, "browser-connected"); err != nil {
+		log.Printf("browser lifecycle broadcast failed: %v", err)
+	}
 
 	defer func() {
 		s.reg.RecordEvent(ConnEvent{
@@ -204,6 +207,9 @@ func (s *Server) handleConn(raw net.Conn) {
 			Role:    string(conn.Role),
 			Browser: conn.Meta.Browser,
 		})
+		if err := s.router.BroadcastBrowserLifecycle(conn, "browser-disconnected"); err != nil {
+			log.Printf("browser lifecycle broadcast failed: %v", err)
+		}
 		s.reg.Remove(conn.ID)
 		s.router.ClearPending(conn.ID)
 		conn.Close()

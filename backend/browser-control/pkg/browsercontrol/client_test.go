@@ -19,6 +19,20 @@ func TestBrowserEventNames(t *testing.T) {
 	}
 }
 
+func TestEventTypeGroups(t *testing.T) {
+	t.Parallel()
+
+	if !wantsTabEvents([]model.EventType{model.EventTypeTabFocused}) {
+		t.Fatal("wantsTabEvents(tab-focused) = false")
+	}
+	if wantsTabEvents([]model.EventType{model.EventTypeBrowserConnected}) {
+		t.Fatal("wantsTabEvents(browser-connected) = true")
+	}
+	if !wantsLifecycleEvents([]model.EventType{model.EventTypeBrowserDisconnected}) {
+		t.Fatal("wantsLifecycleEvents(browser-disconnected) = false")
+	}
+}
+
 func TestDecodeEventEnvelopeFillsSourceBrowser(t *testing.T) {
 	t.Parallel()
 
@@ -64,6 +78,22 @@ func TestDecodeEventEnvelopeFillsSourceBrowser(t *testing.T) {
 	}
 	if evt.TabID == nil || evt.TabID.Browser != "chrome-01" || evt.TabID.TabID != 123 {
 		t.Fatalf("TabID = %#v, want chrome-01/123", evt.TabID)
+	}
+}
+
+func TestDecodeBrowserLifecycleEventEnvelope(t *testing.T) {
+	t.Parallel()
+
+	raw := json.RawMessage(`{"cmd":"browser.event","data":{"type":"browser-connected","browserId":"chrome-01","browserName":"chrome","appName":"Google Chrome"}}`)
+	evt, ok := decodeEventEnvelope(&protocol.Envelope{Type: protocol.MsgEvent, Source: "daemon", Payload: raw}, []model.EventType{model.EventTypeBrowserConnected})
+	if !ok {
+		t.Fatal("decodeEventEnvelope() ok = false")
+	}
+	if evt.Type != model.EventTypeBrowserConnected {
+		t.Fatalf("Type = %q, want %q", evt.Type, model.EventTypeBrowserConnected)
+	}
+	if evt.BrowserID != "chrome-01" || evt.BrowserName != "chrome" || evt.AppName != "Google Chrome" {
+		t.Fatalf("browser fields = %#v, want chrome-01/chrome/Google Chrome", evt)
 	}
 }
 

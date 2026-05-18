@@ -39,8 +39,10 @@ const (
 
 // Event is the stable public event envelope
 type Event struct {
-	Type      EventType `json:"type"`
-	BrowserID BrowserID `json:"browserId,omitempty"`
-	Tab       *Tab      `json:"tab,omitempty"`
-	TabID     *TabID    `json:"tabId,omitempty"`
+	Type        EventType `json:"type"`
+	BrowserID   BrowserID `json:"browserId,omitempty"`
+	BrowserName string    `json:"browserName,omitempty"`
+	AppName     string    `json:"appName,omitempty"`
+	Tab         *Tab      `json:"tab,omitempty"`
+	TabID       *TabID    `json:"tabId,omitempty"`
 }

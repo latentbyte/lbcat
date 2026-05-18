@@ -145,25 +145,29 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	targets, err := c.browserTargets(ctx, targetOptions{BrowserID: opts.BrowserID, AllBrowsers: opts.AllBrowsers})
-	if err != nil {
-		return nil, err
-	}
-	events := browserEventNames(opts.Events)
-	for _, target := range targets {
-		resp, err := c.cli.Request(string(target.ID), internalcli.ExtCommand{
-			Cmd:  "tabs.subscribe",
-			Args: map[string]any{"events": events},
-		})
+	if wantsTabEvents(opts.Events) {
+		targets, err := c.browserTargets(ctx, targetOptions{BrowserID: opts.BrowserID, AllBrowsers: opts.AllBrowsers})
 		if err != nil {
-			return nil, err
+			if !opts.AllBrowsers || !wantsLifecycleEvents(opts.Events) {
+				return nil, err
+			}
 		}
-		var decoded commandResponse[json.RawMessage]
-		if err := decodeCommandResponse(resp, &decoded); err != nil {
-			return nil, err
-		}
-		if decoded.Error != nil {
-			return nil, decoded.Error
+		events := browserEventNames(opts.Events)
+		for _, target := range targets {
+			resp, err := c.cli.Request(string(target.ID), internalcli.ExtCommand{
+				Cmd:  "tabs.subscribe",
+				Args: map[string]any{"events": events},
+			})
+			if err != nil {
+				return nil, err
+			}
+			var decoded commandResponse[json.RawMessage]
+			if err := decodeCommandResponse(resp, &decoded); err != nil {
+				return nil, err
+			}
+			if decoded.Error != nil {
+				return nil, decoded.Error
+			}
 		}
 	}
 
@@ -181,6 +185,9 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 			}
 			evt, ok := decodeEventEnvelope(env, opts.Events)
 			if !ok {
+				continue
+			}
+			if opts.BrowserID != "" && evt.BrowserID != opts.BrowserID {
 				continue
 			}
 			select {
@@ -348,6 +355,32 @@ func browserEventNames(types []model.EventType) []string {
 	return out
 }
 
+func wantsTabEvents(types []model.EventType) bool {
+	if len(types) == 0 {
+		return true
+	}
+	for _, typ := range types {
+		switch typ {
+		case model.EventTypeTabCreated, model.EventTypeTabRemoved, model.EventTypeTabUpdated, model.EventTypeTabFocused:
+			return true
+		}
+	}
+	return false
+}
+
+func wantsLifecycleEvents(types []model.EventType) bool {
+	if len(types) == 0 {
+		return true
+	}
+	for _, typ := range types {
+		switch typ {
+		case model.EventTypeBrowserConnected, model.EventTypeBrowserDisconnected:
+			return true
+		}
+	}
+	return false
+}
+
 func decodeEventEnvelope(env *protocol.Envelope, allowed []model.EventType) (model.Event, bool) {
 	if env == nil || env.Type != protocol.MsgEvent {
 		return model.Event{}, false
@@ -356,11 +389,20 @@ func decodeEventEnvelope(env *protocol.Envelope, allowed []model.EventType) (mod
 		Cmd  string          `json:"cmd"`
 		Data json.RawMessage `json:"data"`
 	}
-	if err := json.Unmarshal(env.Payload, &payload); err != nil || payload.Cmd != "tabs.event" {
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		return model.Event{}, false
 	}
 
-	evt, ok := decodeBrowserEvent(payload.Data)
+	var evt model.Event
+	var ok bool
+	switch payload.Cmd {
+	case "tabs.event":
+		evt, ok = decodeBrowserEvent(payload.Data)
+	case "browser.event":
+		evt, ok = decodeBrowserLifecycleEvent(payload.Data)
+	default:
+		return model.Event{}, false
+	}
 	if !ok {
 		return model.Event{}, false
 	}
@@ -399,6 +441,19 @@ func decodeBrowserEvent(raw json.RawMessage) (model.Event, bool) {
 		evt.TabID = &model.TabID{TabID: legacy.TabID}
 	}
 	return evt, true
+}
+
+func decodeBrowserLifecycleEvent(raw json.RawMessage) (model.Event, bool) {
+	var evt model.Event
+	if err := json.Unmarshal(raw, &evt); err != nil || evt.Type == "" {
+		return model.Event{}, false
+	}
+	switch evt.Type {
+	case model.EventTypeBrowserConnected, model.EventTypeBrowserDisconnected:
+		return evt, true
+	default:
+		return model.Event{}, false
+	}
 }
 
 func fillEventBrowser(evt *model.Event, source model.BrowserID) {

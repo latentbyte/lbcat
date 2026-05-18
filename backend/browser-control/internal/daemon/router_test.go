@@ -165,6 +165,51 @@ func TestRouterEventBroadcast(t *testing.T) {
 	}
 }
 
+func TestRouterBrowserLifecycleBroadcast(t *testing.T) {
+	reg := NewRegistry()
+	router := NewRouter(reg)
+
+	cliLocal, cliRemote := pipePair(t)
+	reg.Add(cliLocal, &protocol.Handshake{ID: "h1", Type: protocol.MsgHandshake, Role: protocol.RoleCLI, PID: 1})
+
+	browserLocal, _ := pipePair(t)
+	browserConn := reg.Add(browserLocal, &protocol.Handshake{
+		ID: "h2", Type: protocol.MsgHandshake, Role: protocol.RoleBrowser, Browser: "chrome",
+	})
+
+	cliCh := readEnvelopeAsync(cliRemote)
+	if err := router.BroadcastBrowserLifecycle(browserConn, "browser-connected"); err != nil {
+		t.Fatalf("BroadcastBrowserLifecycle() error = %v", err)
+	}
+
+	got := waitEnvelope(t, cliCh)
+	if got.Type != protocol.MsgEvent {
+		t.Fatalf("event Type = %q, want %q", got.Type, protocol.MsgEvent)
+	}
+	if got.Source != "daemon" {
+		t.Fatalf("event Source = %q, want daemon", got.Source)
+	}
+
+	var payload struct {
+		Cmd  string `json:"cmd"`
+		Data struct {
+			Type        string `json:"type"`
+			BrowserID   string `json:"browserId"`
+			BrowserName string `json:"browserName"`
+			AppName     string `json:"appName"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(got.Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal(payload) error = %v", err)
+	}
+	if payload.Cmd != "browser.event" {
+		t.Fatalf("Cmd = %q, want browser.event", payload.Cmd)
+	}
+	if payload.Data.Type != "browser-connected" || payload.Data.BrowserID != browserConn.ID || payload.Data.BrowserName != "chrome" || payload.Data.AppName != "Google Chrome" {
+		t.Fatalf("unexpected payload data: %#v", payload.Data)
+	}
+}
+
 func TestRegistryPeerIDs(t *testing.T) {
 	reg := NewRegistry()
 

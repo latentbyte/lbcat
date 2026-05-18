@@ -56,3 +56,24 @@ func TestEventJSONStability(t *testing.T) {
 		t.Fatalf("Marshal(Event) = %s, want %s", got, want)
 	}
 }
+
+func TestBrowserEventJSONStability(t *testing.T) {
+	t.Parallel()
+
+	evt := Event{
+		Type:        EventTypeBrowserConnected,
+		BrowserID:   BrowserID("chrome-01"),
+		BrowserName: "chrome",
+		AppName:     "Google Chrome",
+	}
+
+	got, err := json.Marshal(evt)
+	if err != nil {
+		t.Fatalf("Marshal(Event) error = %v", err)
+	}
+
+	want := `{"type":"browser-connected","browserId":"chrome-01","browserName":"chrome","appName":"Google Chrome"}`
+	if string(got) != want {
+		t.Fatalf("Marshal(Event) = %s, want %s", got, want)
+	}
+}
