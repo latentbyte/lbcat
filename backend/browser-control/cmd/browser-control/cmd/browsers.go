@@ -19,7 +19,7 @@ var browsersCmd = &cobra.Command{
 		}
 		defer c.Close()
 
-		peers := c.Peers()
+		peers := browserPeers(c.Peers())
 
 		if flagJSON {
 			data, _ := json.MarshalIndent(peers, "", "  ")

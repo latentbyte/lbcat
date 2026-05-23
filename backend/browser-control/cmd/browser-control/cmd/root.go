@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
 	"github.com/spf13/cobra"
@@ -38,6 +39,20 @@ func browserIDFromFlag() model.BrowserID {
 	return model.BrowserID(flagBrowser)
 }
 
+func isCLIPeer(peer string) bool {
+	return strings.HasPrefix(peer, "cli-")
+}
+
+func browserPeers(peers []string) []string {
+	browsers := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		if !isCLIPeer(peer) {
+			browsers = append(browsers, peer)
+		}
+	}
+	return browsers
+}
+
 // resolveBrowser picks a browser target. If --browser is set, use it.
 // Otherwise try to auto-select if exactly one browser is connected.
 func resolveBrowser(peers []string) (string, error) {
@@ -45,13 +60,7 @@ func resolveBrowser(peers []string) (string, error) {
 		return flagBrowser, nil
 	}
 
-	// filter to browser-like peers (not cli-*)
-	var browsers []string
-	for _, p := range peers {
-		if len(p) > 4 && p[:4] != "cli-" {
-			browsers = append(browsers, p)
-		}
-	}
+	browsers := browserPeers(peers)
 
 	switch len(browsers) {
 	case 0:

@@ -13,6 +13,7 @@ build:
 install: build
     mkdir -p ~/.local/bin
     cp bin/browser-control bin/browser-control-daemon bin/lbcat-shim ~/.local/bin/
+    ln -sf browser-control ~/.local/bin/bctl
     # re-sign after copy so macOS code signing monitor doesn't kill them
     codesign --sign - --force ~/.local/bin/browser-control ~/.local/bin/browser-control-daemon ~/.local/bin/lbcat-shim
     ~/.local/bin/browser-control install --dev

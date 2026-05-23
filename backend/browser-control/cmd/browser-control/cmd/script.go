@@ -640,12 +640,7 @@ Examples:
 
 		var browsers []string
 		if allBrowsers || parallel {
-			// get all browser peers (filter out cli-* connections)
-			for _, peer := range c.Peers() {
-				if len(peer) > 4 && peer[:4] != "cli-" {
-					browsers = append(browsers, peer)
-				}
-			}
+			browsers = browserPeers(c.Peers())
 			if len(browsers) == 0 {
 				return fmt.Errorf("no browsers connected")
 			}
