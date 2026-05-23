@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -21,8 +20,6 @@ type browserInfo struct {
 	dirs          map[string][]string // OS -> candidate relative paths from $HOME
 	manifestStyle string              // "chrome" or "firefox"
 }
-
-var userDataDirRE = regexp.MustCompile(`--user-data-dir(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^"'[:space:]]+))`)
 
 // browserManifestDirs maps browser names to their native messaging host
 // manifest directories per OS and their manifest style.
@@ -45,6 +42,13 @@ var browserRegistry = map[string]browserInfo{
 		dirs: map[string][]string{
 			"darwin": {"Library/Application Support/Chromium/NativeMessagingHosts"},
 			"linux":  {".config/chromium/NativeMessagingHosts"},
+		},
+		manifestStyle: "chrome",
+	},
+	"comet": {
+		dirs: map[string][]string{
+			"darwin": {"Library/Application Support/Comet/NativeMessagingHosts"},
+			"linux":  {".config/comet/NativeMessagingHosts"},
 		},
 		manifestStyle: "chrome",
 	},
@@ -327,6 +331,8 @@ func readDevFirefoxID() string {
 	candidates := []string{
 		"dist/manifest.json",
 		"../../dist/manifest.json", // from backend/browser-control/
+		"dist/ext/manifest.json",
+		"../../dist/ext/manifest.json", // from backend/browser-control/
 	}
 
 	for _, path := range candidates {
@@ -383,7 +389,9 @@ func readDevChromeIDs(home string) ([]string, error) {
 func devDistPaths() ([]string, error) {
 	candidates := []string{
 		"dist",
+		"dist/ext",
 		"../../dist",
+		"../../dist/ext",
 	}
 	var paths []string
 	for _, candidate := range candidates {
@@ -540,6 +548,12 @@ func browserProcessMarkers(browser string) []string {
 			"vivaldi-bin",
 			"vivaldi ",
 		}
+	case "comet":
+		return []string{
+			"/comet.app/",
+			"comet --user-data-dir",
+			"comet --type=",
+		}
 	case "edge":
 		return []string{
 			"/microsoft edge.app/",
@@ -558,16 +572,40 @@ func browserProcessMarkers(browser string) []string {
 }
 
 func extractUserDataDir(line string) string {
-	matches := userDataDirRE.FindStringSubmatch(line)
-	if len(matches) == 0 {
+	const flag = "--user-data-dir"
+	idx := strings.Index(line, flag)
+	if idx < 0 {
 		return ""
 	}
-	for _, val := range matches[1:] {
-		if val != "" {
-			return val
-		}
+
+	rest := strings.TrimSpace(line[idx+len(flag):])
+	if rest == "" {
+		return ""
 	}
-	return ""
+	if rest[0] == '=' {
+		rest = strings.TrimSpace(rest[1:])
+	}
+	if rest == "" {
+		return ""
+	}
+
+	if rest[0] == '"' || rest[0] == '\'' {
+		quote := rest[0]
+		end := strings.IndexByte(rest[1:], quote)
+		if end < 0 {
+			return ""
+		}
+		return rest[1 : end+1]
+	}
+
+	if end := strings.Index(rest, " --"); end >= 0 {
+		return strings.TrimSpace(rest[:end])
+	}
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
 }
 
 func containsAny(line string, markers []string) bool {

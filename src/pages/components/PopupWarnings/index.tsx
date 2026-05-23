@@ -1,5 +1,5 @@
 import { Alert, Button } from "@arco-design/web-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { checkUserScriptsAvailable, getBrowserType, BrowserType } from "@App/pkg/utils/utils";
 import edgeMobileQrCode from "@App/assets/images/edge_mobile_qrcode.png";
@@ -24,21 +24,23 @@ function PopupWarnings({ isBlacklist }: PopupWarningsProps) {
   const [permissionReqResult, setPermissionReqResult] = useState("");
   const [nativeStatus, setNativeStatus] = useState<NativeMessagingStatusResponse | null>(null);
 
-  const updateIsUserScriptsAvailableState = async () => {
-    const badgeText = await chrome.action.getBadgeText({});
-    let displayState;
-    if (badgeText === "!") {
-      // 要求用户重启扩展/浏览器，会重置badge状态的
-      displayState = false;
-    } else {
-      displayState = await checkUserScriptsAvailable();
+  const clearUserScriptsWarningBadge = useCallback(async () => {
+    await chrome.action.setBadgeBackgroundColor({ color: [0, 0, 0, 0] });
+    await chrome.action.setBadgeTextColor({ color: "#ffffff" });
+    await chrome.action.setBadgeText({ text: "" });
+  }, []);
+
+  const updateIsUserScriptsAvailableState = useCallback(async () => {
+    const displayState = await checkUserScriptsAvailable();
+    if (displayState && (await chrome.action.getBadgeText({})) === "!") {
+      await clearUserScriptsWarningBadge();
     }
     setIsUserScriptsAvailableState(displayState);
-  };
+  }, [clearUserScriptsWarningBadge]);
 
   useEffect(() => {
     updateIsUserScriptsAvailableState();
-  }, []);
+  }, [updateIsUserScriptsAvailableState]);
 
   useEffect(() => {
     let mounted = true;

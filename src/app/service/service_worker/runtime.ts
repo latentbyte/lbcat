@@ -187,6 +187,18 @@ export class RuntimeService {
     }
   }
 
+  clearNoDeveloperModeWarning() {
+    chrome.action.setBadgeBackgroundColor({
+      color: [0, 0, 0, 0],
+    });
+    chrome.action.setBadgeTextColor({
+      color: "#ffffff",
+    });
+    chrome.action.setBadgeText({
+      text: "",
+    });
+  }
+
   showNoDeveloperModeWarning() {
     // 判断是否首次
     this.localStorageDAO.get("firstShowDeveloperMode").then((res) => {
@@ -220,15 +232,7 @@ export class RuntimeService {
         return;
       }
       if (permissions.permissions?.includes("userScripts")) {
-        chrome.action.setBadgeBackgroundColor({
-          color: [0, 0, 0, 0], // transparent (RGBA)
-        });
-        chrome.action.setBadgeTextColor({
-          color: "#ffffff", // default is white
-        });
-        chrome.action.setBadgeText({
-          text: "", // clears badge
-        });
+        this.clearNoDeveloperModeWarning();
       }
     });
   }
@@ -630,6 +634,9 @@ export class RuntimeService {
 
       // 更新 logo
       this.updateIcon();
+      if (this.hasPageScriptRunner()) {
+        this.clearNoDeveloperModeWarning();
+      }
 
       // 检查是否开启了开发者模式
       if (!this.hasPageScriptRunner()) {

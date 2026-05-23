@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -19,6 +20,11 @@ func TestExtractUserDataDir(t *testing.T) {
 			name: "equals syntax",
 			line: `/Applications/Chromium.app/Contents/MacOS/Chromium --user-data-dir=/Volumes/joda/apps/hzare/chromium --remote-debugging-port=9222`,
 			want: `/Volumes/joda/apps/hzare/chromium`,
+		},
+		{
+			name: "equals syntax with unquoted spaces",
+			line: `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=/Users/test/Application Support/Google/Chrome --no-startup-window`,
+			want: `/Users/test/Application Support/Google/Chrome`,
 		},
 		{
 			name: "space separated quoted syntax",
@@ -89,13 +95,33 @@ func TestChromeProfileManifestDirsFromLinesIgnoresOtherBrowsers(t *testing.T) {
 	}
 }
 
+func TestChromeProfileManifestDirsFromLinesComet(t *testing.T) {
+	t.Parallel()
+
+	lines := []string{
+		`/Applications/Comet.app/Contents/MacOS/Comet --user-data-dir=/Users/test/comet`,
+		`/Applications/Comet.app/Contents/Frameworks/Comet Framework.framework/Versions/147.0.7727.1858/Helpers/Comet Helper.app/Contents/MacOS/Comet Helper --type=gpu-process --user-data-dir=/Users/test/comet`,
+		`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=/Users/test/chrome`,
+	}
+
+	want := []string{
+		filepath.Clean(`/Users/test/comet/NativeMessagingHosts`),
+	}
+
+	got := chromeProfileManifestDirsFromLines("comet", lines)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("chromeProfileManifestDirsFromLines() = %#v, want %#v", got, want)
+	}
+}
+
 func TestFindDevChromeIDsInPreferences(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
 	distPath := filepath.Join(tmpDir, "dist")
-	if err := os.MkdirAll(distPath, 0o755); err != nil {
-		t.Fatalf("MkdirAll(dist) failed: %v", err)
+	distExtPath := filepath.Join(distPath, "ext")
+	if err := os.MkdirAll(distExtPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(dist/ext) failed: %v", err)
 	}
 
 	prefsPath := filepath.Join(tmpDir, "Secure Preferences")
@@ -105,6 +131,10 @@ func TestFindDevChromeIDsInPreferences(t *testing.T) {
       "jpdgdnbodkkeokfekmmabgecbgnjhgkj": {
         "location": 4,
         "path": "` + filepath.ToSlash(distPath) + `"
+      },
+      "ngcphajdpkmefkapppmmmlghdpgcfoan": {
+        "location": 4,
+        "path": "` + filepath.ToSlash(distExtPath) + `"
       },
       "otherdevextid": {
         "location": 4,
@@ -121,12 +151,13 @@ func TestFindDevChromeIDsInPreferences(t *testing.T) {
 		t.Fatalf("WriteFile(Secure Preferences) failed: %v", err)
 	}
 
-	got, err := findDevChromeIDsInPreferences(prefsPath, []string{distPath})
+	got, err := findDevChromeIDsInPreferences(prefsPath, []string{distPath, distExtPath})
 	if err != nil {
 		t.Fatalf("findDevChromeIDsInPreferences() error = %v", err)
 	}
 
-	want := []string{"jpdgdnbodkkeokfekmmabgecbgnjhgkj"}
+	sort.Strings(got)
+	want := []string{"jpdgdnbodkkeokfekmmabgecbgnjhgkj", "ngcphajdpkmefkapppmmmlghdpgcfoan"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("findDevChromeIDsInPreferences() = %#v, want %#v", got, want)
 	}
