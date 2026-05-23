@@ -26,6 +26,11 @@ alias lint := check
 build:
     pnpm build
 
+# clean generated artifacts
+clean:
+    rm -rf dist coverage test-results playwright-report .eslintcache
+    just browser-control-clean
+
 # build Chrome extension output
 build-chrome:
     pnpm build:chrome
