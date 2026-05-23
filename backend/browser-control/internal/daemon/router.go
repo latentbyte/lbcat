@@ -254,7 +254,7 @@ func appNameForBrowser(browser string) string {
 	case "vivaldi":
 		return "Vivaldi"
 	case "zen":
-		return "Zen Browser"
+		return "Zen"
 	case "waterfox":
 		return "Waterfox"
 	case "librewolf":

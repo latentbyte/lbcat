@@ -43,8 +43,8 @@ func TestDecodeEventEnvelopeFillsSourceBrowser(t *testing.T) {
 			"browserId": "",
 			"tab": map[string]any{
 				"browserId":   "",
-				"browserName": "chrome",
-				"appName":     "Google Chrome",
+				"browserName": "firefox",
+				"appName":     "Firefox",
 				"id":          123,
 				"windowId":    7,
 				"index":       2,
@@ -63,21 +63,35 @@ func TestDecodeEventEnvelopeFillsSourceBrowser(t *testing.T) {
 
 	evt, ok := decodeEventEnvelope(&protocol.Envelope{
 		Type:    protocol.MsgEvent,
-		Source:  "chrome-01",
+		Source:  "zen-01",
 		Payload: raw,
 	}, []model.EventType{model.EventTypeTabFocused})
 	if !ok {
 		t.Fatal("decodeEventEnvelope() ok = false")
 	}
 
-	if evt.BrowserID != "chrome-01" {
-		t.Fatalf("BrowserID = %q, want chrome-01", evt.BrowserID)
+	if evt.BrowserID != "zen-01" {
+		t.Fatalf("BrowserID = %q, want zen-01", evt.BrowserID)
 	}
-	if evt.Tab == nil || evt.Tab.BrowserID != "chrome-01" {
-		t.Fatalf("Tab BrowserID = %#v, want chrome-01", evt.Tab)
+	if evt.Tab == nil || evt.Tab.BrowserID != "zen-01" {
+		t.Fatalf("Tab BrowserID = %#v, want zen-01", evt.Tab)
 	}
-	if evt.TabID == nil || evt.TabID.Browser != "chrome-01" || evt.TabID.TabID != 123 {
-		t.Fatalf("TabID = %#v, want chrome-01/123", evt.TabID)
+	if evt.Tab.BrowserName != "zen" || evt.Tab.AppName != "Zen" {
+		t.Fatalf("Tab browser fields = %#v, want zen/Zen", evt.Tab)
+	}
+	if evt.TabID == nil || evt.TabID.Browser != "zen-01" || evt.TabID.TabID != 123 {
+		t.Fatalf("TabID = %#v, want zen-01/123", evt.TabID)
+	}
+}
+
+func TestFillTabBrowserOverridesExtensionIdentity(t *testing.T) {
+	t.Parallel()
+
+	tab := model.Tab{BrowserID: "", BrowserName: "firefox", AppName: "Firefox"}
+	fillTabBrowser(&tab, BrowserStatus{ID: "zen-01", Name: "zen", AppName: "Zen"})
+
+	if tab.BrowserID != "zen-01" || tab.BrowserName != "zen" || tab.AppName != "Zen" {
+		t.Fatalf("tab = %#v, want zen-01/zen/Zen", tab)
 	}
 }
 

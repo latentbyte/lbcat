@@ -316,13 +316,11 @@ type daemonConnInfo struct {
 }
 
 func fillTabBrowser(tab *model.Tab, browser BrowserStatus) {
-	if tab.BrowserID == "" {
-		tab.BrowserID = browser.ID
-	}
-	if tab.BrowserName == "" {
+	tab.BrowserID = browser.ID
+	if browser.Name != "" {
 		tab.BrowserName = browser.Name
 	}
-	if tab.AppName == "" {
+	if browser.AppName != "" {
 		tab.AppName = browser.AppName
 	}
 }
@@ -464,6 +462,11 @@ func fillEventBrowser(evt *model.Event, source model.BrowserID) {
 		if evt.Tab.BrowserID == "" {
 			evt.Tab.BrowserID = source
 		}
+		name := browserNameFromID(string(evt.Tab.BrowserID))
+		if name != "" {
+			evt.Tab.BrowserName = name
+			evt.Tab.AppName = appNameForBrowser(name)
+		}
 		if evt.TabID == nil {
 			evt.TabID = &model.TabID{Browser: evt.Tab.BrowserID, WindowID: evt.Tab.WindowID, TabID: evt.Tab.ID}
 		}
@@ -524,7 +527,7 @@ func appNameForBrowser(browser string) string {
 	case "vivaldi":
 		return "Vivaldi"
 	case "zen":
-		return "Zen Browser"
+		return "Zen"
 	case "waterfox":
 		return "Waterfox"
 	case "librewolf":

@@ -165,6 +165,14 @@ func TestRouterEventBroadcast(t *testing.T) {
 	}
 }
 
+func TestAppNameForBrowserUsesMacAppName(t *testing.T) {
+	t.Parallel()
+
+	if got := appNameForBrowser("zen"); got != "Zen" {
+		t.Fatalf("appNameForBrowser(zen) = %q, want Zen", got)
+	}
+}
+
 func TestRouterBrowserLifecycleBroadcast(t *testing.T) {
 	reg := NewRegistry()
 	router := NewRouter(reg)
