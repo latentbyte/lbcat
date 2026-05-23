@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { checkUserScriptsAvailable, getBrowserType, BrowserType } from "@App/pkg/utils/utils";
 import edgeMobileQrCode from "@App/assets/images/edge_mobile_qrcode.png";
+import BrowserControlCard from "../BrowserControlCard";
 
 interface PopupWarningsProps {
   isBlacklist: boolean;
@@ -156,6 +157,7 @@ function PopupWarnings({ isBlacklist }: PopupWarningsProps) {
 
   return (
     <>
+      <BrowserControlCard />
       {nativeStatus && nativeStatus.status !== "connected" && (
         <Alert
           type={nativeStatus.status === "connecting" ? "info" : "warning"}
