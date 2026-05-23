@@ -43,6 +43,57 @@ const getManifestVersion = (pkgVersion: string) => {
 const versionInfo = getManifestVersion(version);
 const isPrerelease = Boolean(versionInfo.prereleaseName);
 const isReactTools = process.env.REACT_DEVTOOLS === "true";
+const targetBrowser = (process.env.TARGET_BROWSER || "chrome").toLowerCase();
+if (!["chrome", "firefox"].includes(targetBrowser)) {
+  throw new Error(`unsupported target browser: ${targetBrowser}`);
+}
+const isFirefoxBuild = targetBrowser === "firefox";
+
+type ScriptCatManifest = chrome.runtime.ManifestV3 & {
+  background?: chrome.runtime.ManifestV3["background"] & { scripts?: string[] };
+  browser_specific_settings?: {
+    gecko?: {
+      id?: string;
+      strict_min_version?: string;
+      data_collection_permissions?: { required: string[] };
+    };
+  };
+  commands?: Record<string, Record<string, never>>;
+  incognito?: string;
+  optional_permissions?: string[];
+  permissions?: string[];
+  sandbox?: { pages: string[] };
+  version_name?: string;
+};
+
+const applyFirefoxManifest = (manifest: ScriptCatManifest) => {
+  delete manifest.version_name;
+  delete manifest.background?.service_worker;
+  delete manifest.incognito;
+  delete manifest.sandbox;
+  manifest.permissions = manifest.permissions?.filter((val) => !["offscreen", "userScripts"].includes(val));
+  manifest.optional_permissions = manifest.optional_permissions?.filter((val) => val !== "background");
+  manifest.browser_specific_settings = {
+    ...manifest.browser_specific_settings,
+    gecko: {
+      ...manifest.browser_specific_settings?.gecko,
+      id: "scriptcat@latentbyte.com",
+      strict_min_version: "142.0",
+      data_collection_permissions: {
+        required: ["none"],
+      },
+    },
+  };
+  manifest.commands = {
+    ...manifest.commands,
+    _execute_action: {},
+  };
+};
+
+const applyChromeManifest = (manifest: ScriptCatManifest) => {
+  delete manifest.background?.scripts;
+  manifest.optional_permissions = manifest.optional_permissions?.filter((val) => val !== "userScripts");
+};
 
 // Target browsers, see: https://github.com/browserslist/browserslist
 // 依照 https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/userScripts#browser_compatibility
@@ -169,7 +220,7 @@ export default {
           to: `${dist}/ext`,
           // 将manifest.json内版本号替换为package.json中版本号
           transform(content: Buffer) {
-            const manifest = JSON.parse(content.toString()) as chrome.runtime.ManifestV3 & { version_name?: string };
+            const manifest = JSON.parse(content.toString()) as ScriptCatManifest;
             manifest.version = versionInfo.manifestVersion;
             if (versionInfo.versionName) {
               manifest.version_name = versionInfo.versionName;
@@ -185,6 +236,11 @@ export default {
               manifest.content_security_policy = {
                 extension_pages: "script-src 'self' http://localhost:8097; object-src 'self'",
               };
+            }
+            if (isFirefoxBuild) {
+              applyFirefoxManifest(manifest);
+            } else {
+              applyChromeManifest(manifest);
             }
             return JSON.stringify(manifest);
           },

@@ -26,6 +26,14 @@ alias lint := check
 build:
     pnpm build
 
+# build Chrome extension output
+build-chrome:
+    pnpm build:chrome
+
+# build Firefox extension output
+build-firefox:
+    pnpm build:firefox
+
 # set project version, e.g. `just set-version 2.1.0`
 set-version version:
     pnpm run set-version {{version}}
