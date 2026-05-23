@@ -516,6 +516,8 @@ func appNameForBrowser(browser string) string {
 		return "Google Chrome"
 	case "chromium":
 		return "Chromium"
+	case "comet":
+		return "Comet"
 	case "firefox":
 		return "Firefox"
 	case "brave":

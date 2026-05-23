@@ -168,8 +168,22 @@ func TestRouterEventBroadcast(t *testing.T) {
 func TestAppNameForBrowserUsesMacAppName(t *testing.T) {
 	t.Parallel()
 
-	if got := appNameForBrowser("zen"); got != "Zen" {
-		t.Fatalf("appNameForBrowser(zen) = %q, want Zen", got)
+	tests := []struct {
+		browser string
+		want    string
+	}{
+		{browser: "zen", want: "Zen"},
+		{browser: "comet", want: "Comet"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.browser, func(t *testing.T) {
+			t.Parallel()
+			if got := appNameForBrowser(tt.browser); got != tt.want {
+				t.Fatalf("appNameForBrowser(%s) = %q, want %q", tt.browser, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -43,18 +43,18 @@ func main() {
 	if len(os.Args) > 1 {
 		arg := os.Args[1]
 		cfg.ExtensionID = arg
-		// infer browser from origin scheme
 		if strings.HasPrefix(arg, "chrome-extension://") {
-			if cfg.Browser == "" {
-				cfg.Browser = "chrome"
-			}
 			cfg.ManifestVersion = 2 // MV2 uses background page which keeps NM alive
 		}
 	}
 
-	// if browser is still unknown, detect from parent process name
-	if cfg.Browser == "" {
-		cfg.Browser = detectBrowserFromParent()
+	// prefer parent-process detection because Chromium forks also pass
+	// chrome-extension:// origins and otherwise look like Chrome
+	if detectedBrowser := detectBrowserFromParent(); detectedBrowser != "" {
+		cfg.Browser = detectedBrowser
+	}
+	if cfg.Browser == "" && len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "chrome-extension://") {
+		cfg.Browser = "chrome"
 	}
 
 	if cfg.Browser == "" {
@@ -121,6 +121,7 @@ func matchBrowserName(procName string) string {
 		{[]string{"librewolf"}, "librewolf"},
 		{[]string{"floorp"}, "floorp"},
 		{[]string{"brave"}, "brave"},
+		{[]string{"comet"}, "comet"},
 		{[]string{"vivaldi"}, "vivaldi"},
 		{[]string{"opera"}, "opera"},
 		{[]string{"edge", "msedge"}, "edge"},
