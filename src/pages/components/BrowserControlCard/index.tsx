@@ -1,6 +1,7 @@
 import { Alert, Button, Card, Input, Space, Typography } from "@arco-design/web-react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  browserAppNameFromBrowserName,
   browserIdentityFromUserAgent,
   clearBrowserControlIdentityOverride,
   getBrowserControlIdentityOverride,
@@ -40,6 +41,7 @@ function BrowserControlCard() {
   const [override, setOverride] = useState<BrowserControlIdentityOverride>(emptyOverride);
   const [status, setStatus] = useState<NativeMessagingStatusResponse | null>(null);
   const [savedLabel, setSavedLabel] = useState("");
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -66,10 +68,8 @@ function BrowserControlCard() {
     };
   }, []);
 
-  const activeIdentity = {
-    browserName: override.browserName || detected.browserName,
-    appName: override.appName || detected.appName,
-  };
+  const activeBrowserName = override.browserName || detected.browserName;
+  const activeAppName = override.browserName ? browserAppNameFromBrowserName(activeBrowserName) : detected.appName;
 
   const save = async () => {
     await setBrowserControlIdentityOverride(override);
@@ -96,32 +96,33 @@ function BrowserControlCard() {
         {status ? `${status.status} (${status.hostName})` : "checking"}
       </Typography.Text>
       {status?.lastError && <Alert type="warning" content={status.lastError} />}
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        {`Sending: ${activeIdentity.browserName} / ${activeIdentity.appName}`}
-      </Typography.Text>
-      <Space direction="vertical" style={{ width: "100%" }}>
-        <Input
-          size="small"
-          placeholder={`browser name, detected ${detected.browserName}`}
-          value={override.browserName || ""}
-          onChange={(value) => setOverride((prev) => ({ ...prev, browserName: value }))}
-        />
-        <Input
-          size="small"
-          placeholder={`app name, detected ${detected.appName}`}
-          value={override.appName || ""}
-          onChange={(value) => setOverride((prev) => ({ ...prev, appName: value }))}
-        />
-      </Space>
-      <Space>
-        <Button size="small" type="primary" onClick={save}>
-          {"Save"}
-        </Button>
-        <Button size="small" onClick={reset}>
-          {"Reset"}
+      <Space size="mini" wrap>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {`Browser: ${activeBrowserName} (${activeAppName})`}
+        </Typography.Text>
+        <Button size="mini" onClick={() => setExpanded((value) => !value)}>
+          {expanded ? "Hide" : "Edit"}
         </Button>
         {savedLabel && <Typography.Text type="secondary">{savedLabel}</Typography.Text>}
       </Space>
+      {expanded && (
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Input
+            size="small"
+            placeholder={`browser name, detected ${detected.browserName}`}
+            value={override.browserName || ""}
+            onChange={(value) => setOverride({ browserName: value })}
+          />
+          <Space>
+            <Button size="small" type="primary" onClick={save}>
+              {"Save"}
+            </Button>
+            <Button size="small" onClick={reset}>
+              {"Reset"}
+            </Button>
+          </Space>
+        </Space>
+      )}
     </Card>
   );
 }

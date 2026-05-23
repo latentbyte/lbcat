@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BROWSER_CONTROL_IDENTITY_OVERRIDE_KEY,
+  browserAppNameFromBrowserName,
   browserIdentityFromUserAgent,
   getBrowserControlIdentityOverride,
   resolveBrowserControlIdentity,
@@ -44,8 +45,13 @@ describe("browser control identity", () => {
     });
   });
 
-  it("resolves stored override before user agent", async () => {
-    stubStorage({ [BROWSER_CONTROL_IDENTITY_OVERRIDE_KEY]: { browserName: "zen", appName: "Zen" } });
+  it("derives app names from browser names", () => {
+    expect(browserAppNameFromBrowserName("zen")).toBe("Zen");
+    expect(browserAppNameFromBrowserName("custom-browser")).toBe("custom-browser");
+  });
+
+  it("resolves stored browser override before user agent", async () => {
+    stubStorage({ [BROWSER_CONTROL_IDENTITY_OVERRIDE_KEY]: { browserName: "zen", appName: "Ignored" } });
 
     await expect(resolveBrowserControlIdentity("Mozilla/5.0 Firefox/123.0")).resolves.toEqual({
       browserName: "zen",
@@ -53,10 +59,10 @@ describe("browser control identity", () => {
     });
   });
 
-  it("cleans empty override values when saving", async () => {
+  it("cleans empty and legacy app override values when saving", async () => {
     const values = stubStorage();
 
-    await setBrowserControlIdentityOverride({ browserName: " zen ", appName: " " });
+    await setBrowserControlIdentityOverride({ browserName: " zen " });
 
     expect(values[BROWSER_CONTROL_IDENTITY_OVERRIDE_KEY]).toEqual({ browserName: "zen" });
     await expect(getBrowserControlIdentityOverride()).resolves.toEqual({ browserName: "zen" });
