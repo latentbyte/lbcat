@@ -104,13 +104,13 @@ browser-control-smoke:
     wait "$daemon_pid" 2>/dev/null || true
     trap - EXIT
 
-alias vmctl-build := browser-control-build
-alias vmctl-install := browser-control-install
-alias vmctl-test := browser-control-test
-alias vmctl-check := browser-control-check
-alias vmctl-dev := browser-control-dev
-alias vmctl-clean := browser-control-clean
-alias vmctl-smoke := browser-control-smoke
+alias bctl-build := browser-control-build
+alias bctl-install := browser-control-install
+alias bctl-test := browser-control-test
+alias bctl-check := browser-control-check
+alias bctl-dev := browser-control-dev
+alias bctl-clean := browser-control-clean
+alias bctl-smoke := browser-control-smoke
 
 # pack the extension into distributable archives
 pack:

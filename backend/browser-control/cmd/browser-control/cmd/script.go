@@ -17,12 +17,9 @@ import (
 )
 
 // scriptArchiveDir returns the directory where pushed scripts are saved.
-// Uses $BROWSER_CONTROL_SCRIPTS_DIR, then $VMCTL_SCRIPTS_DIR, then $DOTFILES_DIR/user-scripts/, then ~/dotfiles/user-scripts/.
+// Uses $BROWSER_CONTROL_SCRIPTS_DIR, then $DOTFILES_DIR/user-scripts/, then ~/dotfiles/user-scripts/.
 func scriptArchiveDir() string {
 	if d := os.Getenv("BROWSER_CONTROL_SCRIPTS_DIR"); d != "" {
-		return d
-	}
-	if d := os.Getenv("VMCTL_SCRIPTS_DIR"); d != "" {
 		return d
 	}
 	dotfiles := os.Getenv("DOTFILES_DIR")
@@ -750,7 +747,7 @@ var scriptWatchCmd = &cobra.Command{
 	Short: "Watch directory and auto-push userscript changes",
 	Long: `Watch a directory for .user.js file changes and automatically push updates.
 
-If no path is provided, uses $BROWSER_CONTROL_SCRIPTS_DIR, then $VMCTL_SCRIPTS_DIR,
+If no path is provided, uses $BROWSER_CONTROL_SCRIPTS_DIR,
 then $DOTFILES_DIR/user-scripts, then ~/dotfiles/user-scripts.
 
 Examples:

@@ -30,11 +30,11 @@ func main() {
 	}
 
 	cfg := shim.Config{
-		Browser:     envOrAny([]string{"BROWSER_CONTROL_BROWSER", "VMCTL_BROWSER"}, ""),
-		ExtensionID: envOrAny([]string{"BROWSER_CONTROL_EXTENSION_ID", "VMCTL_EXTENSION_ID"}, ""),
-		Profile:     envOrAny([]string{"BROWSER_CONTROL_PROFILE", "VMCTL_PROFILE"}, ""),
+		Browser:     os.Getenv("BROWSER_CONTROL_BROWSER"),
+		ExtensionID: os.Getenv("BROWSER_CONTROL_EXTENSION_ID"),
+		Profile:     os.Getenv("BROWSER_CONTROL_PROFILE"),
 	}
-	if v, err := strconv.Atoi(envOrAny([]string{"BROWSER_CONTROL_MANIFEST_VERSION", "VMCTL_MANIFEST_VERSION"}, "")); err == nil {
+	if v, err := strconv.Atoi(os.Getenv("BROWSER_CONTROL_MANIFEST_VERSION")); err == nil {
 		cfg.ManifestVersion = v
 	}
 
@@ -138,13 +138,4 @@ func matchBrowserName(procName string) string {
 		}
 	}
 	return ""
-}
-
-func envOrAny(keys []string, fallback string) string {
-	for _, key := range keys {
-		if v := os.Getenv(key); v != "" {
-			return v
-		}
-	}
-	return fallback
 }
