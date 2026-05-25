@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
@@ -242,6 +243,9 @@ var pageScreenshotCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if extErr, ok := parseExtensionError(resp); ok {
+			return handleScreenshotExtensionError(c, target, tabID, extErr)
+		}
 
 		if flagJSON {
 			fmt.Println(string(resp))
@@ -297,6 +301,121 @@ var pageScreenshotCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+type extensionError struct {
+	Code    string
+	Message string
+}
+
+type browserRequestClient interface {
+	Request(target string, payload any) (json.RawMessage, error)
+}
+
+type focusedTab struct {
+	TabID    int
+	WindowID int
+}
+
+// parseExtensionError detects browser-side command errors wrapped in normal responses.
+func parseExtensionError(resp json.RawMessage) (extensionError, bool) {
+	var result struct {
+		Cmd   string `json:"cmd"`
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(resp, &result); err != nil || result.Cmd != "error" || result.Error == nil {
+		return extensionError{}, false
+	}
+	return extensionError{Code: result.Error.Code, Message: result.Error.Message}, true
+}
+
+func formatExtensionError(extErr extensionError) string {
+	if extErr.Code == "" {
+		return extErr.Message
+	}
+	if extErr.Message == "" {
+		return extErr.Code
+	}
+	return fmt.Sprintf("%s: %s", extErr.Code, extErr.Message)
+}
+
+func shouldFocusForCallerCapture(extErr extensionError) bool {
+	msg := strings.ToLower(extErr.Code + " " + extErr.Message)
+	return strings.Contains(msg, "activetab") ||
+		(strings.Contains(msg, "permission") && strings.Contains(msg, "capture")) ||
+		strings.Contains(msg, "capturevisibletab")
+}
+
+func handleScreenshotExtensionError(c browserRequestClient, target string, tabID int, extErr extensionError) error {
+	baseErr := formatExtensionError(extErr)
+	if !shouldFocusForCallerCapture(extErr) {
+		return fmt.Errorf("page screenshot failed: %s", baseErr)
+	}
+
+	focused, err := focusTabForCallerCapture(c, target, tabID)
+	if err != nil {
+		return fmt.Errorf("page screenshot failed: %s; also failed to focus tab for caller capture: %w", baseErr, err)
+	}
+	return fmt.Errorf("page screenshot failed: %s; focused tab %d in window %d and browser reports it active, caller may run OS-level capture", baseErr, focused.TabID, focused.WindowID)
+}
+
+func focusTabForCallerCapture(c browserRequestClient, target string, tabID int) (focusedTab, error) {
+	focusResp, err := c.Request(target, cli.ExtCommand{
+		Cmd:  "tabs.focus",
+		Args: map[string]any{"tabId": tabID},
+	})
+	if err != nil {
+		return focusedTab{}, err
+	}
+	if extErr, ok := parseExtensionError(focusResp); ok {
+		return focusedTab{}, fmt.Errorf("tabs.focus failed: %s", formatExtensionError(extErr))
+	}
+
+	var focusResult struct {
+		Data struct {
+			TabID    int `json:"tabId"`
+			WindowID int `json:"windowId"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(focusResp, &focusResult); err != nil {
+		return focusedTab{}, fmt.Errorf("decoding tabs.focus response: %w", err)
+	}
+
+	getResp, err := c.Request(target, cli.ExtCommand{
+		Cmd:  "tabs.get",
+		Args: map[string]any{"tabId": tabID},
+	})
+	if err != nil {
+		return focusedTab{}, err
+	}
+	if extErr, ok := parseExtensionError(getResp); ok {
+		return focusedTab{}, fmt.Errorf("tabs.get failed: %s", formatExtensionError(extErr))
+	}
+
+	var getResult struct {
+		Data struct {
+			ID       int  `json:"id"`
+			WindowID int  `json:"windowId"`
+			Active   bool `json:"active"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(getResp, &getResult); err != nil {
+		return focusedTab{}, fmt.Errorf("decoding tabs.get response: %w", err)
+	}
+	if getResult.Data.ID != tabID {
+		return focusedTab{}, fmt.Errorf("tabs.get returned tab %d, want %d", getResult.Data.ID, tabID)
+	}
+	if !getResult.Data.Active {
+		return focusedTab{}, fmt.Errorf("tab %d is not active after focus", tabID)
+	}
+	windowID := focusResult.Data.WindowID
+	if windowID == 0 {
+		windowID = getResult.Data.WindowID
+	}
+	return focusedTab{TabID: tabID, WindowID: windowID}, nil
 }
 
 // base64Decode decodes standard base64 (with padding).
