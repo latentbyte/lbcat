@@ -15,7 +15,6 @@ export { browserIdentityFromUserAgent } from "@App/pkg/browser-control/identity"
 
 const HOST_NAME = "com.latentbyte.browser_control";
 const RECONNECT_DELAY = 5000;
-const KEEPALIVE_INTERVAL = 10000;
 
 type NativeMessagingConnectionState = "connected" | "connecting" | "disconnected" | "error";
 
@@ -35,7 +34,6 @@ let scriptService: ScriptService | null = null;
 
 let port: chrome.runtime.Port | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 let shouldReconnect = false;
 let connectionState: NativeMessagingConnectionState = "disconnected";
 let lastConnectionError = "";
@@ -83,8 +81,6 @@ function registerStatusListener() {
   statusListenerRegistered = true;
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
     if ((message as { type?: string } | null)?.type !== "nativeMessaging.GET_STATUS") return undefined;
-    // mv3 workers can outlive reconnect timers, so status polling wakes reconnect
-    if (!port && scriptService) connect();
     sendResponse(getNativeMessagingStatus());
     return true;
   });
@@ -103,19 +99,6 @@ function sendEvent(payload: unknown) {
       log.warn("sendEvent failed", String(e));
     }
   }
-}
-
-function stopKeepalive() {
-  if (!keepaliveTimer) return;
-  clearInterval(keepaliveTimer);
-  keepaliveTimer = null;
-}
-
-function startKeepalive() {
-  stopKeepalive();
-  keepaliveTimer = setInterval(() => {
-    sendEvent({ cmd: "browser.keepalive", data: { ts: Date.now() } });
-  }, KEEPALIVE_INTERVAL);
 }
 
 function tabEventHandler(eventName: string) {
@@ -642,10 +625,6 @@ const handlers: Record<string, Handler> = {
 
 function connect() {
   if (port) return;
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
   shouldReconnect = true;
   setConnectionState("connecting");
   try {
@@ -659,7 +638,6 @@ function connect() {
   }
   port.onMessage.addListener(onMessage);
   port.onDisconnect.addListener(onDisconnect);
-  startKeepalive();
   setConnectionState("connected");
   log.info("connected to " + HOST_NAME);
 }
@@ -671,7 +649,6 @@ export function disconnect() {
     reconnectTimer = null;
   }
   clearTabSubscriptions();
-  stopKeepalive();
   if (port) {
     port.disconnect();
     port = null;
@@ -693,7 +670,6 @@ function onDisconnect() {
   log.warn("disconnected: " + message);
   port = null;
   clearTabSubscriptions();
-  stopKeepalive();
   setConnectionState(err ? "error" : "disconnected", err?.message || "");
   if (shouldReconnect) scheduleReconnect();
 }

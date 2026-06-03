@@ -50,7 +50,7 @@ if (!["chrome", "firefox"].includes(targetBrowser)) {
 const isFirefoxBuild = targetBrowser === "firefox";
 
 type ScriptCatManifest = chrome.runtime.ManifestV3 & {
-  background?: chrome.runtime.ManifestV3["background"] & { persistent?: boolean; scripts?: string[] };
+  background?: chrome.runtime.ManifestV3["background"] & { scripts?: string[] };
   browser_specific_settings?: {
     gecko?: {
       id?: string;
@@ -69,9 +69,6 @@ type ScriptCatManifest = chrome.runtime.ManifestV3 & {
 const applyFirefoxManifest = (manifest: ScriptCatManifest) => {
   delete manifest.version_name;
   delete manifest.background?.service_worker;
-  if (manifest.background) {
-    manifest.background.persistent = true;
-  }
   delete manifest.incognito;
   delete manifest.sandbox;
   manifest.permissions = manifest.permissions?.filter((val) => !["offscreen", "userScripts"].includes(val));

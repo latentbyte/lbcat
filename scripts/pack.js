@@ -84,7 +84,6 @@ chromeManifest.optional_permissions = chromeManifest.optional_permissions.filter
 delete chromeManifest.background.scripts;
 
 delete firefoxManifest.background.service_worker;
-firefoxManifest.background.persistent = true;
 delete firefoxManifest.version_name;
 delete firefoxManifest.sandbox;
 delete firefoxManifest.incognito;
