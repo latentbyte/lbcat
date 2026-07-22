@@ -14,6 +14,7 @@ export default defineConfig({
   outputDir: "test-results",
   use: {
     actionTimeout: 10_000,
+    channel: "chrome",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
