@@ -5,7 +5,7 @@ import { ScriptService } from "./script";
 import { ResourceService } from "./resource";
 import { ValueService } from "./value";
 import { RuntimeService } from "./runtime";
-import { type ServiceWorkerMessageSend } from "@Packages/message/window_message";
+import { type IOffscreenSend } from "@Packages/message/types";
 import { PopupService } from "./popup";
 import { SystemConfig } from "@App/pkg/config/config";
 import { SynchronizeService } from "./synchronize";
@@ -22,13 +22,16 @@ import { onRegularUpdateCheckAlarm } from "./regular_updatecheck";
 import { cacheInstance } from "@App/app/cache";
 import { InfoNotification } from "./utils";
 import { initNativeMessaging } from "./native-messaging";
+import { AgentService } from "@App/app/service/agent/service_worker/agent";
+import { extensionEnv, getExtensionUserAgentData } from "../extension/extension_env";
+import { cleanupStaleTempStorageEntries } from "./temp";
 
 // service worker的管理器
 export default class ServiceWorkerManager {
   constructor(
     private api: Server,
     private mq: IMessageQueue,
-    private sender: ServiceWorkerMessageSend
+    private offscreenSend: IOffscreenSend
   ) {}
 
   logger(data: Logger) {
@@ -37,14 +40,23 @@ export default class ServiceWorkerManager {
     dao.save(data);
   }
 
+  async getExtensionEnv(data: { requireUAD: boolean }) {
+    const result = { ...extensionEnv };
+    if (data.requireUAD) {
+      result.userAgentData = await getExtensionUserAgentData();
+    }
+    return result;
+  }
+
   initManager() {
     this.api.on("logger", this.logger.bind(this));
+    this.api.on("getExtensionEnv", this.getExtensionEnv.bind(this));
     this.api.on("preparationOffscreen", async () => {
       // 准备好环境
-      await this.sender.init();
+      await this.offscreenSend.init();
       this.mq.emit("preparationOffscreen", {});
     });
-    this.sender.init();
+    this.offscreenSend.init();
 
     const faviconDAO = new FaviconDAO();
 
@@ -68,7 +80,7 @@ export default class ServiceWorkerManager {
     const runtime = new RuntimeService(
       systemConfig,
       this.api.group("runtime"),
-      this.sender,
+      this.offscreenSend,
       this.mq,
       value,
       script,
@@ -81,7 +93,7 @@ export default class ServiceWorkerManager {
     popup.init();
     value.init(runtime, popup);
     const synchronize = new SynchronizeService(
-      this.sender,
+      this.offscreenSend,
       this.api.group("synchronize"),
       script,
       value,
@@ -91,18 +103,26 @@ export default class ServiceWorkerManager {
       scriptDAO
     );
     synchronize.init();
-    const subscribe = new SubscribeService(systemConfig, this.api.group("subscribe"), this.mq, script);
+    const subscribe = new SubscribeService(this.api.group("subscribe"), this.mq, script);
     subscribe.init();
     const system = new SystemService(
       systemConfig,
       this.api.group("system"),
-      this.sender,
+      this.offscreenSend,
       this.mq,
       scriptDAO,
       faviconDAO
     );
     system.init();
     initNativeMessaging(script);
+    const agent = new AgentService(this.api.group("agent"), this.offscreenSend, resource);
+    agent.init();
+
+    // 注入 AgentService 到 GMApi，使 Agent API 走权限验证通道
+    const gmApi = runtime.getGMApi();
+    if (gmApi) {
+      gmApi.setAgentService(agent);
+    }
 
     const regularScriptUpdateCheck = async () => {
       const res = await onRegularUpdateCheckAlarm(systemConfig, script, subscribe);
@@ -131,6 +151,7 @@ export default class ServiceWorkerManager {
       pendingOpen = 0;
     });
 
+    const initTime = Date.now();
     // 定时器处理
     chrome.alarms.onAlarm.addListener((alarm) => {
       const lastError = chrome.runtime.lastError;
@@ -138,6 +159,10 @@ export default class ServiceWorkerManager {
         console.error("chrome.runtime.lastError in chrome.alarms.onAlarm:", lastError);
         // 非预期的异常API错误，停止处理
       }
+      const now = Date.now();
+      const isJustInit = now - initTime < 30_000; // 浏览器刚开
+      const isCarryoverAlarm = alarm.scheduledTime < initTime; // Alarm排程早于SW初始化
+      const needsWarmupDelay = isJustInit || isCarryoverAlarm;
       switch (alarm.name) {
         case "checkScriptUpdate":
           regularScriptUpdateCheck();
@@ -153,6 +178,13 @@ export default class ServiceWorkerManager {
         case "checkUpdate":
           // 检查扩展更新
           regularExtensionUpdateCheck();
+          break;
+        case "agentTaskScheduler":
+          agent.onSchedulerTick();
+          break;
+        case "cleanupTempStorage":
+          // 避免浏览器打开时立即清除。先等tabs载入一下
+          setTimeout(cleanupStaleTempStorageEntries, needsWarmupDelay ? 45_000 : 100);
           break;
       }
     });
@@ -182,10 +214,36 @@ export default class ServiceWorkerManager {
       }
     });
 
+    // Agent 定时任务调度器 alarm（每分钟触发一次）
+    chrome.alarms.get("agentTaskScheduler", (alarm) => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        console.error("chrome.runtime.lastError in chrome.alarms.get:", lastError);
+      }
+      if (!alarm) {
+        chrome.alarms.create(
+          "agentTaskScheduler",
+          {
+            delayInMinutes: 1,
+            periodInMinutes: 1,
+          },
+          () => {
+            const lastError = chrome.runtime.lastError;
+            if (lastError) {
+              console.error("chrome.runtime.lastError in chrome.alarms.create:", lastError);
+            }
+          }
+        );
+      }
+    });
+
     // 云同步
     systemConfig.watch("cloud_sync", (value) => {
       synchronize.cloudSyncConfigChange(value);
     });
+
+    // 定期清理过期的临时安装信息
+    chrome.alarms.create("cleanupTempStorage", { periodInMinutes: 30 });
 
     // 一些只需启动时运行一次的任务
     cacheInstance.getOrSet("extension_initialized", () => {

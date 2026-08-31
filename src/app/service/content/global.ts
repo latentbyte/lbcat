@@ -11,6 +11,8 @@ export const Native = {
   ownFragment: new DocumentFragment(),
   objectCreate: Object.create.bind(Object),
   objectGetOwnPropertyDescriptors: Object.getOwnPropertyDescriptors.bind(Object),
+  objectGetOwnPropertyDescriptor: Object.getOwnPropertyDescriptor.bind(Object),
+  objectGetPrototypeOf: Object.getPrototypeOf.bind(Object),
 } as const;
 
 export const customClone = (o: any) => {
@@ -38,3 +40,20 @@ export const customClone = (o: any) => {
   console.error("customClone failed");
   return undefined;
 };
+
+/** is Firefox browser? */
+//@ts-ignore
+const bFirefox = typeof mozInnerScreenX === "number";
+/** is Firefox browser and running in isolated environment? */
+const bFirefoxIsolatedScript =
+  //@ts-ignore
+  bFirefox && typeof wrappedJSObject !== "undefined" && Object.hasOwn(window, "wrappedJSObject");
+/** is Firefox browser and running in isolated userscript API environment? */
+const isFFContent =
+  //@ts-ignore
+  bFirefoxIsolatedScript && typeof browser === "object" && typeof browser?.runtime?.sendMessage === "function";
+
+/** Required for Firefox */
+export const localizeObject = isFFContent
+  ? <T = object>(script: T): T => customClone(script)
+  : <T = object>(script: T): T => script;

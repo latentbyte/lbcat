@@ -22,11 +22,12 @@ import { popupClient, requestOpenBatchUpdatePage } from "@App/pages/store/featur
 import type { ScriptMenu, TPopupScript } from "@App/app/service/service_worker/types";
 import { systemConfig } from "@App/pages/store/global";
 import { isChineseUser, localePath } from "@App/locales/locales";
-import { getCurrentTab } from "@App/pkg/utils/utils";
+import { getCurrentTab, openInCurrentTab } from "@App/pkg/utils/utils";
 import { subscribeMessage } from "@App/pages/store/global";
 import type { TDeleteScript, TEnableScript, TScriptRunStatus } from "@App/app/service/queue";
 import { SCRIPT_RUN_STATUS_RUNNING } from "@App/app/repo/scripts";
 import { HookManager } from "@App/pkg/utils/hookManager";
+import { cacheInstance } from "@App/app/cache";
 
 const CollapseItem = Collapse.Item;
 
@@ -69,6 +70,43 @@ const updateList = (list: ScriptMenu[], update: TUpdateEntryFn, options: TUpdate
   return changed ? newList : list; // 如子项没任何变化，则返回原list参考
 };
 
+type ScriptProvider = "scriptcat" | "greasyfork" | "openuserjs";
+
+const getMoreScriptWindowOpen = (currentUrl: string, provider: ScriptProvider) => {
+  let urlHost = "";
+  if (currentUrl) {
+    try {
+      const url = new URL(currentUrl);
+      if (url.hostname && url.protocol.startsWith("http")) {
+        urlHost = url.hostname;
+      }
+    } catch (e: any) {
+      console.warn(e); // 容错：URL 解析失败时忽略错误（不影响后续 UI）
+    }
+  }
+  let link = "";
+  if (provider === "greasyfork") {
+    // www.google.com -> google.com
+    urlHost = /[^.]+\.[^.]+$/.exec(urlHost)?.[0] || urlHost;
+  }
+  switch (provider) {
+    case "scriptcat":
+      link = !urlHost
+        ? "https://scriptcat.org/search"
+        : `https://scriptcat.org/search?domain=${encodeURIComponent(urlHost)}`;
+      break;
+    case "greasyfork":
+      link = !urlHost
+        ? "https://greasyfork.org/scripts/"
+        : `https://greasyfork.org/scripts/by-site/${encodeURI(urlHost)}`;
+      break;
+    case "openuserjs":
+      link = !urlHost ? "https://openuserjs.org/" : `https://openuserjs.org/?q=${encodeURIComponent(urlHost)}`;
+      break;
+  }
+  window.open(link, "_blank");
+};
+
 function App() {
   const [loading, setLoading] = useState(true);
   const [scriptList, setScriptList] = useState<(ScriptMenu & { menuUpdated?: number })[]>([]);
@@ -84,6 +122,12 @@ function App() {
   const [isEnableScript, setIsEnableScript] = useState(true);
   const [isBlacklist, setIsBlacklist] = useState(false);
   const [collapseActiveKey, setCollapseActiveKey] = useState<string[]>(["script"]);
+  const [defaultScriptProvider, setDefaultScriptProvider] = useState<ScriptProvider>(() => {
+    cacheInstance.get<ScriptProvider>("default_script_provider").then((value) => {
+      setDefaultScriptProvider(value || "scriptcat");
+    });
+    return "scriptcat";
+  });
   const { t } = useTranslation();
   const pageTabIdRef = useRef(0);
 
@@ -129,16 +173,6 @@ function App() {
       total: enables.length, // 总数
     };
   }, [backEnables]);
-
-  const urlHost = useMemo(() => {
-    let url: URL | undefined;
-    try {
-      url = new URL(currentUrl);
-    } catch (_: any) {
-      // 容错：URL 解析失败时忽略错误（不影响后续 UI）
-    }
-    return url?.hostname ?? "";
-  }, [currentUrl]);
 
   useEffect(() => {
     const hookMgr = new HookManager();
@@ -309,8 +343,9 @@ function App() {
       systemConfig.setEnableScript(val);
     },
     handleSettingsClick: () => {
-      // 使用 window.open 而非 <a> 连结：避免 Vivaldi 等浏览器偶发崩溃
-      window.open("/src/options.html", "_blank");
+      // 经由扩展 API 打开（而非 window.open / <a>）：既避免 Vivaldi 偶发崩溃，
+      // 也兼容 Edge Android —— 移动端 window.open 打不开 chrome-extension:// 内部页（#686）
+      openInCurrentTab("/src/options.html");
     },
     handleNotificationClick: () => {
       setShowAlert((prev) => !prev);
@@ -336,12 +371,18 @@ function App() {
   };
 
   const handleMenuClick = async (key: string) => {
+    if (key.startsWith("get_more_script_")) {
+      const provider = key.replace("get_more_script_", "") as ScriptProvider;
+      await cacheInstance.set<ScriptProvider>("default_script_provider", provider);
+      setDefaultScriptProvider(provider);
+      return getMoreScriptWindowOpen(currentUrl, provider);
+    }
     switch (key) {
       case "newScript":
         await chrome.storage.local.set({
           activeTabUrl: { url: currentUrl },
         });
-        window.open("/src/options.html#/script/editor?target=initial", "_blank");
+        await openInCurrentTab("/src/options.html#/script/editor?target=initial");
         break;
       case "checkUpdate":
         requestOpenBatchUpdatePage(getUrlDomain(currentUrl));
@@ -439,13 +480,25 @@ function App() {
                       <IconPlus style={iconStyle} />
                       {t("create_script")}
                     </Menu.Item>
-                    <Menu.Item
-                      key={`https://scriptcat.org/search?domain=${urlHost}`}
-                      className="tw-flex tw-flex-row tw-items-center"
+                    <Menu.SubMenu
+                      key="getScript"
+                      title={
+                        <span
+                          className="tw-flex tw-flex-row tw-items-center"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            getMoreScriptWindowOpen(currentUrl, defaultScriptProvider);
+                          }}
+                        >
+                          <IconSearch style={iconStyle} />
+                          {t("get_script")}
+                        </span>
+                      }
                     >
-                      <IconSearch style={iconStyle} />
-                      {t("get_script")}
-                    </Menu.Item>
+                      <Menu.Item key="get_more_script_scriptcat">{"ScriptCat"}</Menu.Item>
+                      <Menu.Item key="get_more_script_greasyfork">{"Greasy Fork"}</Menu.Item>
+                      <Menu.Item key="get_more_script_openuserjs">{"OpenUserJS"}</Menu.Item>
+                    </Menu.SubMenu>
                     <Menu.Item key={"checkUpdate"} className="tw-flex tw-flex-row tw-items-center">
                       <IconSync style={iconStyle} />
                       {t("check_update")}

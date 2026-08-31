@@ -5,7 +5,7 @@ import FileSystemParams from "../FileSystemParams";
 import { systemConfig } from "@App/pages/store/global";
 import type { FileSystemType } from "@Packages/filesystem/factory";
 import FileSystemFactory from "@Packages/filesystem/factory";
-import { isFirefox } from "@App/pkg/utils/utils";
+import { isPermissionOk, isFirefox } from "@App/pkg/utils/utils";
 
 const CollapseItem = Collapse.Item;
 
@@ -18,7 +18,6 @@ const RuntimeSetting: React.FC = () => {
   // 开启后台运行
   const [enableBackground, setEnableBackgroundState] = useState<boolean>(false);
   const { t } = useTranslation();
-  const backgroundPermissionSupported = !isFirefox();
 
   useEffect(() => {
     systemConfig.getCatFileStorage().then((res) => {
@@ -26,44 +25,56 @@ const RuntimeSetting: React.FC = () => {
       setFilesystemType(res.filesystem);
       setFilesystemParam(res.params[res.filesystem] || {});
     });
-    if (!backgroundPermissionSupported) return;
-    chrome.permissions.contains({ permissions: ["background"] }, (result) => {
-      if (chrome.runtime.lastError) {
-        console.error(chrome.runtime.lastError);
-        return;
-      }
-      setEnableBackgroundState(result);
-    });
-  }, [backgroundPermissionSupported]);
+    if (isFirefox()) {
+      // no background permission
+    } else {
+      isPermissionOk("background").then((result) => {
+        if (result === null) return; // 无法要求 background permission
+        setEnableBackgroundState(result);
+      });
+    }
+  }, []);
 
   const setEnableBackground = (enable: boolean) => {
-    if (!backgroundPermissionSupported) return;
-    if (enable) {
-      chrome.permissions.request({ permissions: ["background"] }, (granted) => {
-        if (chrome.runtime.lastError) {
-          console.error(chrome.runtime.lastError);
-          Message.error(t("enable_background.enable_failed")!);
-          return;
-        }
-        setEnableBackgroundState(granted);
-      });
+    if (isFirefox()) {
+      // no background permission
     } else {
-      chrome.permissions.remove({ permissions: ["background"] }, (removed) => {
-        if (chrome.runtime.lastError) {
-          console.error(chrome.runtime.lastError);
-          Message.error(t("enable_background.disable_failed")!);
-          return;
-        }
-        setEnableBackgroundState(!removed);
-      });
+      if (enable) {
+        chrome.permissions.request({ permissions: ["background"] }, (granted) => {
+          if (chrome.runtime.lastError) {
+            console.error(chrome.runtime.lastError);
+            Message.error(t("enable_background.enable_failed")!);
+            return;
+          }
+          setEnableBackgroundState(granted);
+        });
+      } else {
+        chrome.permissions.remove({ permissions: ["background"] }, (removed) => {
+          if (chrome.runtime.lastError) {
+            console.error(chrome.runtime.lastError);
+            Message.error(t("enable_background.disable_failed")!);
+            return;
+          }
+          if (removed) {
+            // 成功移除 background 权限，明确关闭开关
+            setEnableBackgroundState(false);
+          } else {
+            // 未成功移除时再次校验权限状态，以真实权限为准更新 UI
+            isPermissionOk("background").then((result) => {
+              if (result === null) return;
+              setEnableBackgroundState(result);
+            });
+          }
+        });
+      }
     }
   };
 
   return (
     <Card title={t("runtime")} bordered={false}>
       <Space direction="vertical" size={20} className={"tw-w-full"}>
-        {backgroundPermissionSupported && (
-          <div className="tw-flex tw-items-center tw-justify-between tw-min-h-9">
+        <div className="tw-flex tw-items-center tw-justify-between tw-min-h-9">
+          {!isFirefox() && (
             <div className="tw-flex tw-items-center tw-gap-2 tw-flex-1">
               <Switch onChange={setEnableBackground} checked={enableBackground} />
               <span
@@ -75,9 +86,11 @@ const RuntimeSetting: React.FC = () => {
                 {t("enable_background.title")}
               </span>
             </div>
+          )}
+          {!isFirefox() && (
             <span className="tw-text-xs tw-ml-6 tw-flex-shrink-0">{t("enable_background.description")}</span>
-          </div>
-        )}
+          )}
+        </div>
         <Collapse bordered={false} defaultActiveKey={["storage"]}>
           <CollapseItem header={t("storage_api")} name="storage">
             <Space direction="vertical">

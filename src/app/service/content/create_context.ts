@@ -7,6 +7,7 @@ import { protect } from "./gm_api/gm_context";
 import { isEarlyStartScript } from "./utils";
 import { ListenerManager } from "./listener_manager";
 import { createGMBase } from "./gm_api/gm_api";
+import { attachNavigateHandler, type UrlChangeEvent } from "./gm_api/navigation_handle";
 
 // 不要使用 {}, 改使用 Object.create(null) - 避免在页面生成沙盒时，受到 Object.prototype 被注入的影响
 
@@ -104,6 +105,10 @@ export const createContext = (
     }
   }
   context.unsafeWindow = window;
+  if (scriptGrants.has("window.onurlchange") && context.onurlchange === undefined) {
+    context.onurlchange = null;
+    attachNavigateHandler(window as any);
+  }
   return context;
 };
 
@@ -173,6 +178,9 @@ const overridedDescs: Record<string, PropertyDescriptor> = Object.create(null);
 // 记录原生 onxxxxx 的 PropertyDescriptor
 const eventDescs: Record<string, PropertyDescriptor> = Object.create(null);
 
+// 在 USE_PSEUDO_WINDOW 情况下，由于没有 类的prototype, 父类的成员要手动传下去
+const protoBaseDescs: Record<string, PropertyDescriptor> = Object.create(null);
+
 // 包含物件本身及所有父类(不包含Object)的PropertyDescriptor
 // 主要是找出哪些 function值， setter/getter 需要替换 global window
 getAllPropertyDescriptors(global, ([key, desc]) => {
@@ -194,6 +202,18 @@ getAllPropertyDescriptors(global, ([key, desc]) => {
         value: boundValue,
       };
       descsCache.add(key); // 必须：子类属性覆盖父类属性
+    } else if (!(key in initOwnDescs) && !Object.hasOwn(global, key)) {
+      if (!protoBaseDescs[key]) {
+        if (typeof value === "function") {
+          const boundValue = value.bind(global);
+          protoBaseDescs[key] = {
+            ...desc,
+            value: boundValue,
+          };
+        } else {
+          protoBaseDescs[key] = { ...desc };
+        }
+      }
     }
   } else {
     if (desc.configurable && desc.get && desc.set && desc.enumerable && key.startsWith("on")) {
@@ -248,6 +268,7 @@ Object.defineProperty(PseudoWindowPrototype, "__proto__", {
 
 const sharedInitCopy = USE_PSEUDO_WINDOW
   ? Object.create(null, {
+      ...protoBaseDescs, // 较快的 @unwrap 注入时有机会改变 EventTarget.prototype
       ...Object.getOwnPropertyDescriptors(PseudoWindowPrototype),
       ...initOwnDescs,
       ...overridedDescs,
@@ -372,6 +393,23 @@ export const createProxyContext = <const Context extends GMWorldContext>(context
     },
   };
 
+  // @grant window.onurlchange
+  if (context?.onurlchange === null) {
+    let currentValue: ((this: GlobalEventHandlers, ev: UrlChangeEvent) => any) | null = null;
+    ownDescs.onurlchange = {
+      enumerable: true,
+      configurable: true,
+      get() {
+        return currentValue;
+      },
+      set(nv) {
+        if (typeof nv !== "function") nv = null;
+        currentValue = nv;
+        return true;
+      },
+    };
+  }
+
   // 把初始Copy加上特殊变量后，生成一份新Copy
   mySandbox = Object.create(Object.getPrototypeOf(sharedInitCopy), ownDescs);
 
@@ -391,7 +429,7 @@ export const createProxyContext = <const Context extends GMWorldContext>(context
 
   // 把 GM context物件的 window属性内容移至exposedWindow
   // 由于目前只有 window.close, window.open, window.onurlchange, 不需要循环 window
-  const cWindow = context.window;
+  const cWindow = context.window as (Window & Record<string, any>) | undefined;
 
   // @grant window.close
   if (cWindow?.close) {
@@ -404,9 +442,11 @@ export const createProxyContext = <const Context extends GMWorldContext>(context
   }
 
   // @grant window.onurlchange
-  if (cWindow?.onurlchange === null) {
-    // 目前 TM 只支援 null. ScriptCat不需要grant预设启用？
-    mySandbox.onurlchange = null;
+  if (context?.onurlchange === null) {
+    const handle = function (this: Window & Record<string, any>, e: UrlChangeEvent) {
+      this.onurlchange?.(e);
+    } as EventListener;
+    (<EventTarget>window).addEventListener("urlchange", handle.bind(mySandbox), false);
   }
 
   // 从网页 console 隔离出来的沙盒 console

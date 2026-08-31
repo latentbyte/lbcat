@@ -27,15 +27,17 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "@App/pages/store/AppContext";
 import { RiFileCodeLine, RiImportLine, RiPlayListAddLine, RiTerminalBoxLine, RiTimerLine } from "react-icons/ri";
-import { scriptClient } from "@App/pages/store/features/script";
+import { scriptClient, agentClient } from "@App/pages/store/features/script";
 import { useDropzone, type FileWithPath } from "react-dropzone";
 import { systemConfig } from "@App/pages/store/global";
 import i18n, { matchLanguage } from "@App/locales/locales";
 import "./index.css";
 import { arcoLocale } from "@App/locales/arco";
-import { prepareScriptByCode } from "@App/pkg/utils/script";
+import { prepareScriptByCode, parseMetadata } from "@App/pkg/utils/script";
+import { parseSkillScriptMetadata } from "@App/pkg/utils/skill_script";
+import { EnableAgent } from "@App/app/const";
 import { saveHandle } from "@App/pkg/utils/filehandle-db";
-import { makeBlobURL } from "@App/pkg/utils/utils";
+import { makeBlobURL, openInCurrentTab } from "@App/pkg/utils/utils";
 import ScrollBoundary from "@App/pages/components/layout/ScrollBoundary";
 
 // --- 工具函数移出组件外，避免每次 Render 重新定义 ---
@@ -199,6 +201,20 @@ const MainLayout: React.FC<{
     if (stat) showImportResult(stat);
   };
 
+  // 处理 ZIP 文件的 Skill 安装
+  const handleZipSkillInstall = async (file: File) => {
+    const buffer = await file.arrayBuffer();
+    // ArrayBuffer → base64（chrome.runtime 消息不支持直接传 ArrayBuffer）
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const base64 = btoa(binary);
+    const uuid = await agentClient.prepareSkillInstall(base64);
+    window.open(`/src/install.html?skill=${uuid}`, "_blank");
+  };
+
   const onDrop = (acceptedFiles: FileWithPath[]) => {
     // 本地的文件在当前页面处理，打开安装页面，将FileSystemFileHandle传递过去
     // 实现本地文件的监听
@@ -206,6 +222,12 @@ const MainLayout: React.FC<{
     Promise.all(
       acceptedFiles.map(async (aFile) => {
         try {
+          // ZIP 文件走 Skill 安装流程（仅 agent 启用时）
+          if (EnableAgent && aFile.name.endsWith(".zip")) {
+            await handleZipSkillInstall(aFile);
+            stat.success++;
+            return;
+          }
           // 解析看看是不是一个标准的script文件
           // 如果是，则打开安装页面
           let fileHandle = aFile.handle;
@@ -234,9 +256,19 @@ const MainLayout: React.FC<{
           if (!file.name || !file.size) {
             throw new Error("No Read Access Right for File");
           }
-          // 先检查内容，后弹出安装页面
+          // 先检查内容，后弹出安装页面（支持 UserScript 和 SkillScript）
           const checkOk = await Promise.allSettled([
-            file.text().then((code) => prepareScriptByCode(code, `file:///*resp-check*/${file.name}`)),
+            file.text().then((code) => {
+              // 先尝试 UserScript 解析
+              const metadata = parseMetadata(code);
+              if (metadata) return prepareScriptByCode(code, `file:///*resp-check*/${file.name}`);
+              // 再尝试 SkillScript 解析（仅 agent 启用时）
+              if (EnableAgent) {
+                const skillScriptMeta = parseSkillScriptMetadata(code);
+                if (skillScriptMeta) return { script: {} as any };
+              }
+              throw new Error("not a valid UserScript or SkillScript");
+            }),
             simpleDigestMessage(`f=${file.name}\ns=${file.size},m=${file.lastModified}`),
           ]);
           if (checkOk[0].status === "rejected" || !checkOk[0].value || checkOk[1].status === "rejected") {
@@ -244,9 +276,9 @@ const MainLayout: React.FC<{
           }
           const fid = checkOk[1].value;
           await saveHandle(fid, fileHandle); // fileHandle以DB方式传送至安装页面
-          // 打开安装页面
-          const installWindow = window.open(`/src/install.html?file=${fid}`, "_blank");
-          if (!installWindow) {
+          // 打开安装页面（经由扩展 API，兼容 Edge Android —— 移动端 window.open 打不开内部页，#686）
+          const installTab = await openInCurrentTab(`/src/install.html?file=${fid}`);
+          if (!installTab) {
             throw new Error(t("install_page_open_failed"));
           }
           stat.success++;
@@ -261,7 +293,7 @@ const MainLayout: React.FC<{
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    accept: { "text/javascript": [".js"] },
+    accept: { "text/javascript": [".js"], "application/zip": [".zip"] },
     onDrop,
     noClick: true,
     noKeyboard: true,

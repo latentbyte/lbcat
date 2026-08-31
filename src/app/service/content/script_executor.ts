@@ -9,20 +9,21 @@ import { DefinedFlags } from "../service_worker/runtime.consts";
 import { pageAddEventListener, pageDispatchEvent } from "@Packages/message/common";
 import { isUrlExcluded } from "@App/pkg/utils/match";
 import type { ScriptEnvTag } from "@Packages/message/consts";
+import { localizeObject } from "./global";
 
 export type ExecScriptEntry = {
   scriptLoadInfo: TScriptInfo;
   scriptFlag: string;
-  envInfo: any;
+  envInfo: GMInfoEnv;
   scriptFunc: any;
 };
 
-export const initEnvInfo = {
+export const initEnvInfo: GMInfoEnv = {
   /** userAgentData - 从全局变量获取 */
   userAgentData: typeof UserAgentData === "object" ? UserAgentData : {},
   /** sandboxMode - 预留字段，当前固定为 raw */
   sandboxMode: "raw",
-  /** isIncognito - inject/content 环境下无法判断，固定为 false */
+  /** isIncognito - inject/content 环境下透過 scripting 环境判断 */
   /** 使用者可透过 「 await navigator.storage.persisted() 」来判断，但ScriptCat不会主动执行此代码来判断 */
   isIncognito: false,
 } satisfies GMInfoEnv;
@@ -138,7 +139,9 @@ export class ScriptExecutor {
   }
 
   execScriptEntry(scriptEntry: ExecScriptEntry) {
-    const { scriptLoadInfo, scriptFunc, envInfo } = scriptEntry;
+    const { scriptFunc } = scriptEntry;
+    const envInfo = localizeObject(scriptEntry.envInfo);
+    const scriptLoadInfo = localizeObject(scriptEntry.scriptLoadInfo);
 
     const execScript = new ExecScript(scriptLoadInfo, {
       envPrefix: "scripting",

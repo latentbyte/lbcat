@@ -1,6 +1,7 @@
 import LoggerCore from "@App/app/logger/core";
 import Logger from "@App/app/logger/logger";
-import { ScriptDAO } from "@App/app/repo/scripts";
+import { ScriptDAO, type Script } from "@App/app/repo/scripts";
+import { SubscribeDAO } from "@App/app/repo/subscribe";
 import { type IGetSender, type Group, GetSenderType } from "@Packages/message/server";
 import type { ExtMessageSender, MessageConnect, MessageSend, TMessageCommAction } from "@Packages/message/types";
 import { connect, sendMessage } from "@Packages/message/client";
@@ -36,6 +37,11 @@ import type {
 import type { TScriptMenuRegister, TScriptMenuUnregister } from "../../queue";
 import type { NotificationOptionCache } from "../utils";
 import { BrowserNoSupport, notificationsUpdate } from "../utils";
+import {
+  getSkillScriptGrantsByUuid,
+  getSkillScriptNameByUuid,
+  SKILL_SCRIPT_UUID_PREFIX,
+} from "@App/app/service/agent/core/skill_script_executor";
 import i18n from "@App/locales/locales";
 import { encodeRValue, type TKeyValuePair } from "@App/pkg/utils/message_value";
 import { createObjectURL } from "../../offscreen/client";
@@ -53,9 +59,25 @@ import { headerModifierMap, headersReceivedMap } from "./gm_xhr";
 import { BgGMXhr } from "@App/pkg/utils/xhr/bg_gm_xhr";
 import { mightPrepareSetClipboard, setClipboard } from "../clipboard";
 import { nativePageWindowOpen } from "../../offscreen/gm_api";
+import type { AgentService } from "@App/app/service/agent/service_worker/agent";
+// 导入 Agent API 以触发装饰器注册
+// 注意：不能使用 import "./gm_agent"，sideEffects 配置会导致 tree-shaking 移除纯副作用导入
+import GMAgentApi from "./gm_agent";
+void GMAgentApi;
+import GMAgentSkillsApi from "./gm_agent_skills";
+void GMAgentSkillsApi;
+import GMAgentDomApi from "./gm_agent_dom";
+void GMAgentDomApi;
+import GMAgentTaskApi from "./gm_agent_task";
+void GMAgentTaskApi;
+import GMAgentModelApi from "./gm_agent_model";
+void GMAgentModelApi;
+import GMAgentOPFSApi from "./gm_agent_opfs";
+void GMAgentOPFSApi;
 import { nextSessionRuleId, removeSessionRuleIdEntry } from "./dnr_id_controller";
 import type { DownloadCallback } from "../download";
 import { detachDownloadCallback, startDownload } from "../download";
+import { isRequestInitiatorOriginMatched, gmXhrRequestLinker, type IWebRequestDetails } from "./mv3_utils";
 
 let generatedUniqueMarkerIDs = "";
 let generatedUniqueMarkerIDWhen = "";
@@ -236,6 +258,13 @@ export const getConnectMatched = (
   return ConnectMatch.NONE;
 };
 
+export const getExtensionSiteAccessOriginPattern = (url: URL): string | undefined => {
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return undefined;
+  }
+  return `${url.protocol}//${url.hostname}/*`;
+};
+
 type NotificationData = {
   uuid: string;
   details: GMTypes.NotificationDetails;
@@ -285,10 +314,13 @@ export default class GMApi {
   logger: Logger;
 
   scriptDAO: ScriptDAO = new ScriptDAO();
+  subscribeDAO: SubscribeDAO = new SubscribeDAO();
+
+  agentService?: AgentService;
 
   constructor(
     private systemConfig: SystemConfig,
-    private permissionVerify: PermissionVerify,
+    public permissionVerify: PermissionVerify,
     private group: Group,
     private msgSender: MessageSend,
     private mq: IMessageQueue,
@@ -296,6 +328,10 @@ export default class GMApi {
     private gmExternalDependencies: IGMExternalDependencies
   ) {
     this.logger = LoggerCore.logger().with({ service: "runtime/gm_api" });
+  }
+
+  setAgentService(agentService: AgentService) {
+    this.agentService = agentService;
   }
 
   // PermissionVerify.API
@@ -318,11 +354,43 @@ export default class GMApi {
 
   // 解析请求
   async parseRequest<T>(data: MessageRequest<T>): Promise<GMApiRequest<T>> {
-    const script = await this.scriptDAO.get(data.uuid);
-    if (!script) {
-      throw new Error("script is not found");
+    let script;
+    if (data.uuid.startsWith(SKILL_SCRIPT_UUID_PREFIX)) {
+      // Skill Script GM API 调用：构造虚拟 Script 对象（Skill Script 不在 ScriptDAO 中）
+      // 直接从 UUID map 获取 grants，避免查 repo（skill 的 Skill Script 不在 skillScriptRepo 中）
+      const grants = getSkillScriptGrantsByUuid(data.uuid);
+      const toolName = getSkillScriptNameByUuid(data.uuid);
+      // 使用基于工具名的稳定标识符，使权限缓存在多次执行间有效
+      // 每次执行生成新的临时 UUID，但权限应绑定到工具本身而非单次执行
+      const stableUuid = SKILL_SCRIPT_UUID_PREFIX + toolName;
+      script = {
+        uuid: stableUuid,
+        name: toolName || data.uuid,
+        namespace: "",
+        metadata: { grant: grants },
+        type: 3,
+        status: 1,
+        sort: 0,
+        runStatus: "running" as const,
+        createtime: Date.now(),
+        checktime: 0,
+      } as Script;
+    } else {
+      script = await this.scriptDAO.get(data.uuid);
+      if (!script) {
+        throw new Error("script is not found");
+      }
     }
-    return { ...data, script } as GMApiRequest<T>;
+    // 订阅脚本的 connect 使用订阅声明的 connect 覆盖脚本自身的
+    if (script.subscribeUrl) {
+      const subscribe = await this.subscribeDAO.get(script.subscribeUrl);
+      if (subscribe?.metadata?.connect) {
+        script.metadata = { ...script.metadata, connect: subscribe.metadata.connect };
+      }
+    }
+    // Skill Script 使用稳定标识符覆盖 uuid，确保权限 DB 查询/保存也用同一个标识符
+    const uuid = data.uuid.startsWith(SKILL_SCRIPT_UUID_PREFIX) ? script.uuid : data.uuid;
+    return { ...data, uuid, script } as GMApiRequest<T>;
   }
 
   @PermissionVerify.API({
@@ -629,12 +697,7 @@ export default class GMApi {
     const headers = params.headers || (params.headers = {});
     const { anonymous, cookie } = params;
 
-    // HTTP/1.1 and HTTP/2
-    // https://www.rfc-editor.org/rfc/rfc7540#section-8.1.2
-    // https://datatracker.ietf.org/doc/html/rfc6648
-    // All header names in HTTP/2 are lower case, and CF will convert if needed.
-    // All headers comparisons in HTTP/1.1 should be case insensitive.
-    headers["x-sc-request-marker"] = `${markerID}`;
+    gmXhrRequestLinker.prepareRequest(params, headers, markerID);
 
     // 关联 reqID 方法
     // 1) 尝试在 onBeforeRequest 进行关连
@@ -765,10 +828,11 @@ export default class GMApi {
         throw new Error("GM_xmlhttpRequest ERROR: msgConn is undefined");
       }
       // conn 为 nested scope 内 local 存取
-      let throwErrorFn: ((error: string) => Error) | null = ((conn: MessageConnect | null) => {
+      let throwErrorFn: ((error: string) => Error) | null = ((conn: MessageConnect) => {
+        let myConn: MessageConnect | null = conn;
         let errorOccur: string | null = null;
         const doLoadEnd = () => {
-          conn?.sendMessage({
+          myConn?.sendMessage({
             action: "onloadend",
             data: {
               status: 0,
@@ -777,12 +841,12 @@ export default class GMApi {
               readyState: 4, // ERROR. DONE.
             },
           });
-          conn?.disconnect(); // 断开连结
-          conn = null; // 释放
+          myConn?.disconnect(true); // 断开连结(容忍已断开)
+          myConn = null; // 释放
         };
         return (error: string) => {
           errorOccur = error;
-          conn?.sendMessage({
+          myConn?.sendMessage({
             action: "onerror",
             data: {
               status: 0,
@@ -811,14 +875,42 @@ export default class GMApi {
         const msg = `Refused to connect to "${details.url}": URL is blacklisted`;
         throw throwErrorFn(msg);
       }
+      let hasOriginPermission = false;
+      const originPattern = getExtensionSiteAccessOriginPattern(url);
+      if (!originPattern) {
+        hasOriginPermission = true; // TBC
+      } else {
+        try {
+          hasOriginPermission = await chrome.permissions.contains({ origins: [originPattern] });
+        } catch (e) {
+          console.warn(e);
+        }
+      }
+      const extensionSiteAccessOrigins = hasOriginPermission ? undefined : [originPattern];
+      const confirmExtensionSiteAccess = (): ConfirmParam => {
+        const metadata: { [key: string]: string } = {};
+        metadata[i18next.t("script_name")] = i18nName(request.script);
+        metadata[i18next.t("request_domain")] = url.hostname;
+        metadata[i18next.t("request_url")] = details.url;
+        throwErrorFn = null; // 确保 GC 可以释放 conn
+        return {
+          permission: "extension-site-access",
+          permissionValue: originPattern,
+          title: i18next.t("extension_site_access_title"),
+          metadata,
+          describe: i18next.t("extension_site_access_description"),
+          permissionContent: i18next.t("extension_site_access_content"),
+          extensionSiteAccessOrigins,
+        } as ConfirmParam;
+      };
       const connectMatched = getConnectMatched(request.script.metadata.connect, url, sender);
       if (connectMatched === ConnectMatch.ALL) {
         // SC: 有 @connect * 就不询问
-        return true;
+        return hasOriginPermission ? true : confirmExtensionSiteAccess();
       } else {
         // 如果 @connect 有匹配到就放行
         if (connectMatched > 0) {
-          return true;
+          return hasOriginPermission ? true : confirmExtensionSiteAccess();
         }
         // @connect 没有匹配，但有列明 @connect 的话，则自动拒绝
         if (request.script.metadata.connect?.find((e) => !!e)) {
@@ -829,7 +921,7 @@ export default class GMApi {
             wildcard: true,
           });
           if (ret && ret.allow) {
-            return true;
+            return hasOriginPermission ? true : confirmExtensionSiteAccess();
           }
           const msg = `Refused to connect to "${details.url}": This domain is not a part of the @connect list`;
           throw throwErrorFn(msg);
@@ -843,6 +935,14 @@ export default class GMApi {
 
       throwErrorFn = null; // 确保 GC 可以释放 conn
 
+      const ret = await GMApiInstance.permissionVerify.queryPermission(request, {
+        permission: "cors",
+        permissionValue: url.hostname,
+        wildcard: true,
+      });
+      if (ret?.allow && !hasOriginPermission) {
+        return confirmExtensionSiteAccess();
+      }
       return {
         permission: "cors",
         permissionValue: url.hostname,
@@ -851,6 +951,7 @@ export default class GMApi {
         describe: i18next.t("confirm_operation_description"),
         wildcard: true,
         permissionContent: i18next.t("domain"),
+        extensionSiteAccessOrigins,
       } as ConfirmParam;
     },
     alias: ["GM.xmlHttpRequest"],
@@ -935,7 +1036,7 @@ export default class GMApi {
         strategy = new GMXhrXhrStrategy(resultParam);
       }
       if (strategy) {
-        const bgGmXhr = new BgGMXhr(details, resultParam, msgConn, strategy);
+        const bgGmXhr = new BgGMXhr(details, resultParam, msgConn, strategy, markerID);
         bgGmXhr.onLoaded(loadendCleanUp);
         bgGmXhr.do();
       } else {
@@ -1462,6 +1563,11 @@ export default class GMApi {
 
   // 处理GM_xmlhttpRequest请求
   handlerGmXhr() {
+    gmXhrRequestLinker.setup({ cleanupOnAPIError });
+    const currentOrigin: string = new URL(chrome.runtime.getURL("/")).origin;
+    const isInitiatedBySC = (details: IWebRequestDetails) => {
+      return details.tabId === -1 && isRequestInitiatorOriginMatched(details, currentOrigin);
+    };
     chrome.webRequest.onBeforeRedirect.addListener(
       (details) => {
         const lastError = chrome.runtime.lastError;
@@ -1471,7 +1577,7 @@ export default class GMApi {
           cleanupOnAPIError(details?.requestId);
           return undefined;
         }
-        if (details.tabId === -1) {
+        if (isInitiatedBySC(details)) {
           const markerID = scXhrRequests.get(details.requestId);
           if (markerID) {
             redirectedUrls.set(markerID, details.redirectUrl);
@@ -1500,7 +1606,7 @@ export default class GMApi {
           cleanupOnAPIError(details?.requestId);
           return undefined;
         }
-        if (details.tabId === -1) {
+        if (isInitiatedBySC(details)) {
           const markerID = scXhrRequests.get(details.requestId);
           if (!markerID) return;
           nwErrorResults.set(markerID, details.error);
@@ -1566,7 +1672,7 @@ export default class GMApi {
           cleanupOnAPIError(details?.requestId);
           return undefined;
         }
-        if (details.tabId === -1) {
+        if (isInitiatedBySC(details)) {
           const reqId = details.requestId;
           const requestHeaders = details.requestHeaders;
           if (requestHeaders) {
@@ -1601,7 +1707,7 @@ export default class GMApi {
           cleanupOnAPIError(details?.requestId);
           return undefined;
         }
-        if (details.tabId === -1) {
+        if (isInitiatedBySC(details)) {
           const reqId = details.requestId;
 
           const markerID = scXhrRequests.get(reqId);
@@ -1688,7 +1794,7 @@ export default class GMApi {
           cleanupOnAPIError(details?.requestId);
           return undefined;
         }
-        if (details.tabId === -1) {
+        if (isInitiatedBySC(details)) {
           const reqId = details.requestId;
 
           const markerID = scXhrRequests.get(reqId);
@@ -1708,37 +1814,6 @@ export default class GMApi {
         types: ["xmlhttprequest"],
       },
       respOpt
-    );
-
-    const ruleId = 999;
-    const rule = {
-      id: ruleId,
-      action: {
-        type: "modifyHeaders",
-        requestHeaders: [
-          {
-            header: "x-sc-request-marker",
-            operation: "remove",
-          },
-        ] satisfies chrome.declarativeNetRequest.ModifyHeaderInfo[],
-      },
-      priority: 1,
-      condition: {
-        resourceTypes: ["xmlhttprequest"],
-        tabIds: [chrome.tabs.TAB_ID_NONE], // 只限于后台 service_worker / offscreen
-      },
-    } as chrome.declarativeNetRequest.Rule;
-    chrome.declarativeNetRequest.updateSessionRules(
-      {
-        removeRuleIds: [ruleId],
-        addRules: [rule],
-      },
-      () => {
-        const lastError = chrome.runtime.lastError;
-        if (lastError) {
-          console.error("chrome.declarativeNetRequest.updateSessionRules:", lastError);
-        }
-      }
     );
   }
 

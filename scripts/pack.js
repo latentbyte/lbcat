@@ -1,12 +1,12 @@
 /* global process */
 import { promises as fs } from "fs";
-import { createWriteStream } from "fs";
-import JSZip from "jszip";
+import { ZipWriter } from "web-jszipp";
 import ChromeExtension from "crx";
 import { execSync } from "child_process";
 import manifest from "../src/manifest.json" with { type: "json" };
 import packageInfo from "../package.json" with { type: "json" };
 import semver from "semver";
+import { resolveAgentEnabled, applyAgentManifest } from "./build-config.js";
 
 // ============================================================================
 
@@ -16,12 +16,14 @@ const PACK_FIREFOX = true;
 
 // ============================================================================
 
-const createJSZip = () => {
-  const currDate = new Date();
-  const dateWithOffset = new Date(currDate.getTime() - currDate.getTimezoneOffset() * 60000);
-  // replace the default date with dateWithOffset
-  JSZip.defaults.date = dateWithOffset;
-  return new JSZip();
+const zipMtime = new Date();
+
+const addZipFile = async (zip, path, content) => {
+  await zip.add({
+    path,
+    data: content,
+    meta: { modifiedAt: zipMtime },
+  });
 };
 
 // 判断是否为beta版本
@@ -29,6 +31,14 @@ const version = semver.parse(packageInfo.version);
 if (!version) {
   throw new Error(`invalid package version: ${packageInfo.version}`);
 }
+
+// agent 功能仅在 beta 版本提供，正式版本屏蔽入口并移除 debugger 权限
+// （与 rspack 构建一致，支持环境变量 SC_ENABLE_AGENT 覆盖）
+const agentEnabled = resolveAgentEnabled({
+  isDev: false,
+  isBeta: version.prerelease.length > 0,
+  envValue: process.env.SC_ENABLE_AGENT,
+});
 
 const prereleaseName = version.prerelease[0]?.toString();
 if (version.prerelease.length) {
@@ -76,22 +86,20 @@ execSync("pnpm run build", { stdio: "inherit" });
 // 处理firefox和chrome的zip压缩包
 
 // 浅拷贝防止后续修改
-const firefoxManifest = { ...manifest, background: { ...manifest.background } };
-const chromeManifest = { ...manifest, background: { ...manifest.background } };
+const firefoxManifest = applyAgentManifest({ ...manifest, background: { ...manifest.background } }, agentEnabled);
+const chromeManifest = applyAgentManifest({ ...manifest, background: { ...manifest.background } }, agentEnabled);
 
-delete chromeManifest.content_security_policy;
 chromeManifest.optional_permissions = chromeManifest.optional_permissions.filter((val) => val !== "userScripts");
 delete chromeManifest.background.scripts;
 
+// Firefox MV3 不支持 "background" permission
+firefoxManifest.optional_permissions = firefoxManifest.optional_permissions.filter((val) => val !== "background");
 delete firefoxManifest.background.service_worker;
 delete firefoxManifest.version_name;
 delete firefoxManifest.sandbox;
 delete firefoxManifest.incognito;
 // firefox rejects these chrome-only required permissions
 firefoxManifest.permissions = firefoxManifest.permissions.filter((val) => !["offscreen", "userScripts"].includes(val));
-// firefox accepts userScripts as optional, but not background
-firefoxManifest.optional_permissions = firefoxManifest.optional_permissions.filter((val) => val !== "background");
-// firefoxManifest.content_security_policy = "script-src 'self' blob:; object-src 'self' blob:";
 firefoxManifest.browser_specific_settings = {
   gecko: {
     id: "scriptcat@latentbyte.com",
@@ -111,8 +119,8 @@ firefoxManifest.commands = {
   _execute_action: {},
 };
 
-const chrome = createJSZip();
-const firefox = createJSZip();
+const chrome = new ZipWriter({ outputAs: "uint8array" });
+const firefox = new ZipWriter({ outputAs: "uint8array" });
 
 async function addDir(zip, localDir, toDir, filters) {
   const sub = async (localDir, toDir) => {
@@ -127,40 +135,28 @@ async function addDir(zip, localDir, toDir, filters) {
       if (stats.isDirectory()) {
         await sub(localPath, `${toPath}/`);
       } else {
-        zip.file(toPath, await fs.readFile(localPath));
+        await addZipFile(zip, toPath, await fs.readFile(localPath));
       }
     }
   };
   await sub(localDir, toDir);
 }
 
-chrome.file("manifest.json", JSON.stringify(chromeManifest));
-firefox.file("manifest.json", JSON.stringify(firefoxManifest));
+await addZipFile(chrome, "manifest.json", JSON.stringify(chromeManifest));
+await addZipFile(firefox, "manifest.json", JSON.stringify(firefoxManifest));
 
 await Promise.all([
   addDir(chrome, "./dist/ext", "", ["manifest.json"]),
-  addDir(firefox, "./dist/ext", "", ["manifest.json", "ts.worker.js"]),
+  addDir(firefox, "./dist/ext", "", ["manifest.json"]),
 ]);
-// 添加ts.worker.js名字为gz
-firefox.file("src/ts.worker.js.gz", await fs.readFile("./dist/ext/src/ts.worker.js", { encoding: "utf8" }));
-
-// promisify stream writes so zips finish before the process exits
-const writeZip = (zip, outPath) =>
-  new Promise((resolve, reject) => {
-    zip
-      .generateNodeStream({ type: "nodebuffer", streamFiles: true, compression: "DEFLATE" })
-      .pipe(createWriteStream(outPath))
-      .on("finish", resolve)
-      .on("error", reject);
-  });
 
 // 导出zip包
-await writeZip(chrome, `./dist/${packageInfo.name}-v${packageInfo.version}-chrome.zip`);
-console.log(`wrote chrome zip`);
+await fs.writeFile(`./dist/${packageInfo.name}-v${packageInfo.version}-chrome.zip`, await chrome.close());
+console.log("wrote chrome zip");
 
 if (PACK_FIREFOX) {
-  await writeZip(firefox, `./dist/${packageInfo.name}-v${packageInfo.version}-firefox.zip`);
-  console.log(`wrote firefox zip`);
+  await fs.writeFile(`./dist/${packageInfo.name}-v${packageInfo.version}-firefox.zip`, await firefox.close());
+  console.log("wrote firefox zip");
 }
 
 // 处理crx (skip when pem is missing)
