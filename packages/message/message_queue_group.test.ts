@@ -193,10 +193,13 @@ describe("MessageQueueGroup", () => {
 
       group.publish("test-sendChromeMessage", { data: "test-sendChromeMessage" });
 
-      expect(sendSpy).toHaveBeenCalledWith({
-        msgQueue: "api-sendChromeMessage/test-sendChromeMessage",
-        data: { action: "message", message: { data: "test-sendChromeMessage" } },
-      });
+      expect(sendSpy).toHaveBeenCalledWith(
+        {
+          msgQueue: "api-sendChromeMessage/test-sendChromeMessage",
+          data: { action: "message", message: { data: "test-sendChromeMessage" } },
+        },
+        expect.any(Function)
+      );
     });
 
     it("emit 方法应该只在本地发布", () => {
