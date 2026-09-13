@@ -5,24 +5,24 @@ import { checkUserScriptsAvailable, getBrowserType, BrowserType, isPermissionOk 
 import edgeMobileQrCode from "@App/assets/images/edge_mobile_qrcode.png";
 import BrowserControlCard from "../BrowserControlCard";
 
-interface PopupWarningsProps {
-  isBlacklist: boolean;
-}
+export type NativeMessagingStatus = "connected" | "connecting" | "disconnected" | "error";
 
-type NativeMessagingStatus = "connected" | "connecting" | "disconnected" | "error";
-
-interface NativeMessagingStatusResponse {
+export interface NativeMessagingStatusResponse {
   status: NativeMessagingStatus;
   hostName: string;
   lastError?: string;
 }
 
-function PopupWarnings({ isBlacklist }: PopupWarningsProps) {
+interface PopupWarningsProps {
+  isBlacklist: boolean;
+  nativeStatus: NativeMessagingStatusResponse;
+}
+
+function PopupWarnings({ isBlacklist, nativeStatus }: PopupWarningsProps) {
   const { t } = useTranslation();
   const [isUserScriptsAvailableState, setIsUserScriptsAvailableState] = useState<boolean | null>(null);
   const [showRequestButton, setShowRequestButton] = useState(false);
   const [permissionReqResult, setPermissionReqResult] = useState("");
-  const [nativeStatus, setNativeStatus] = useState<NativeMessagingStatusResponse | null>(null);
 
   const clearUserScriptsWarningBadge = useCallback(async () => {
     await chrome.action.setBadgeBackgroundColor({ color: [0, 0, 0, 0] });
@@ -41,31 +41,6 @@ function PopupWarnings({ isBlacklist }: PopupWarningsProps) {
   useEffect(() => {
     updateIsUserScriptsAvailableState();
   }, [updateIsUserScriptsAvailableState]);
-
-  useEffect(() => {
-    let mounted = true;
-    const updateNativeStatus = () => {
-      chrome.runtime.sendMessage({ type: "nativeMessaging.GET_STATUS" }, (resp: NativeMessagingStatusResponse) => {
-        if (!mounted) return;
-        const lastError = chrome.runtime.lastError;
-        if (lastError) {
-          setNativeStatus({
-            status: "error",
-            hostName: "com.latentbyte.browser_control",
-            lastError: lastError.message,
-          });
-          return;
-        }
-        setNativeStatus(resp);
-      });
-    };
-    updateNativeStatus();
-    const intervalId = window.setInterval(updateNativeStatus, 2000);
-    return () => {
-      mounted = false;
-      window.clearInterval(intervalId);
-    };
-  }, []);
 
   const warningMessageHTML = useMemo(() => {
     if (isUserScriptsAvailableState === null) return "";
@@ -158,7 +133,7 @@ function PopupWarnings({ isBlacklist }: PopupWarningsProps) {
   return (
     <>
       <BrowserControlCard />
-      {nativeStatus && nativeStatus.status !== "connected" && (
+      {nativeStatus.status !== "connected" && (
         <Alert
           type={nativeStatus.status === "connecting" ? "info" : "warning"}
           content={

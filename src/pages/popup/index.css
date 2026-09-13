@@ -1,3 +1,14 @@
+.connection-status-dot {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+}
+
+.connection-status-dot .arco-badge-status-dot {
+  width: 8px;
+  height: 8px;
+}
+
 .arco-collapse-item-header-title {
   width: 100%;
 }

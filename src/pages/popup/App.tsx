@@ -17,7 +17,8 @@ import { RiMessage2Line } from "react-icons/ri";
 import { VersionCompare, versionCompare } from "@App/pkg/utils/semver";
 import { useTranslation } from "react-i18next";
 import ScriptMenuList from "../components/ScriptMenuList";
-import PopupWarnings from "../components/PopupWarnings";
+import PopupWarnings, { type NativeMessagingStatusResponse } from "../components/PopupWarnings";
+import ConnectionStatusDot from "./ConnectionStatusDot";
 import { popupClient, requestOpenBatchUpdatePage } from "@App/pages/store/features/script";
 import type { ScriptMenu, TPopupScript } from "@App/app/service/service_worker/types";
 import { systemConfig } from "@App/pages/store/global";
@@ -121,6 +122,10 @@ function App() {
   const [currentUrl, setCurrentUrl] = useState("");
   const [isEnableScript, setIsEnableScript] = useState(true);
   const [isBlacklist, setIsBlacklist] = useState(false);
+  const [nativeStatus, setNativeStatus] = useState<NativeMessagingStatusResponse>({
+    status: "connecting",
+    hostName: "com.latentbyte.browser_control",
+  });
   const [collapseActiveKey, setCollapseActiveKey] = useState<string[]>(["script"]);
   const [defaultScriptProvider, setDefaultScriptProvider] = useState<ScriptProvider>(() => {
     cacheInstance.get<ScriptProvider>("default_script_provider").then((value) => {
@@ -173,6 +178,31 @@ function App() {
       total: enables.length, // 总数
     };
   }, [backEnables]);
+
+  useEffect(() => {
+    let mounted = true;
+    const updateNativeStatus = () => {
+      chrome.runtime.sendMessage({ type: "nativeMessaging.GET_STATUS" }, (resp: NativeMessagingStatusResponse) => {
+        if (!mounted) return;
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          setNativeStatus({
+            status: "error",
+            hostName: "com.latentbyte.browser_control",
+            lastError: lastError.message,
+          });
+          return;
+        }
+        setNativeStatus(resp);
+      });
+    };
+    updateNativeStatus();
+    const intervalId = window.setInterval(updateNativeStatus, 2000);
+    return () => {
+      mounted = false;
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     const hookMgr = new HookManager();
@@ -440,13 +470,14 @@ function App() {
 
   return (
     <>
-      <PopupWarnings isBlacklist={isBlacklist} />
+      <PopupWarnings isBlacklist={isBlacklist} nativeStatus={nativeStatus} />
       <Card
         size="small"
         title={
           <div className="tw-flex tw-justify-between">
             <div className="tw-text-xl tw-inline-flex tw-flex-row tw-items-center tw-gap-x-1">
               <span>{"ScriptCat"}</span>
+              <ConnectionStatusDot status={nativeStatus} />
             </div>
             <div className="tw-flex tw-flex-row tw-items-center">
               <Switch size="small" className="tw-mr-1" checked={isEnableScript} onChange={handleEnableScriptChange} />
