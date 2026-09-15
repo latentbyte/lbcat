@@ -214,6 +214,27 @@ describe("MessageQueueGroup", () => {
       expect(errorSpy).not.toHaveBeenCalled();
     });
 
+    it("publish 方法应该忽略接收端未应答导致的端口关闭错误", async () => {
+      const group = messageQueue.group("api-portClosed");
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const portClosedSend = (_message: unknown, callback?: (response: unknown) => void) => {
+        (chrome.runtime as unknown as { lastError?: chrome.runtime.LastError }).lastError = {
+          message: "The message port closed before a response was received.",
+        };
+        callback?.(undefined);
+        (chrome.runtime as unknown as { lastError?: chrome.runtime.LastError }).lastError = undefined;
+        return undefined;
+      };
+      vi.spyOn(chrome.runtime, "sendMessage").mockImplementation(
+        portClosedSend as unknown as typeof chrome.runtime.sendMessage
+      );
+
+      group.publish("test-portClosed", { data: "test-portClosed" });
+      await nextTick();
+
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
     it("emit 方法应该只在本地发布", () => {
       const group = messageQueue.group("api-emitLocal");
       const handler = vi.fn();

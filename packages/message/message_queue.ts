@@ -36,9 +36,22 @@ export interface IMessageQueueExtra {
 
 export interface IMessageQueueExtended extends IMessageQueue, IMessageQueueExtra {}
 
-function isNoReceiverError(error: unknown) {
-  const message = error instanceof Error ? error.message : `${error}`;
-  return message.includes("Receiving end does not exist") || message.includes("Could not establish connection");
+// 发布是即发即弃的广播，接收端不会 sendResponse，
+// 因此“无接收端”和“接收端未应答导致端口关闭”都是正常情况
+function isBroadcastNoise(error: unknown) {
+  let message: string;
+  if (error instanceof Error) {
+    message = error.message;
+  } else if (typeof error === "object" && error !== null && "message" in error) {
+    message = String((error as { message: unknown }).message);
+  } else {
+    message = `${error}`;
+  }
+  return (
+    message.includes("Receiving end does not exist") ||
+    message.includes("Could not establish connection") ||
+    message.includes("The message port closed before a response was received")
+  );
 }
 
 // 消息队列
@@ -84,12 +97,12 @@ export class MessageQueue implements IMessageQueue {
     };
     const maybePromise = chrome.runtime.sendMessage(payload, () => {
       const lastError = chrome.runtime.lastError;
-      if (lastError && !isNoReceiverError(lastError)) {
+      if (lastError && !isBroadcastNoise(lastError)) {
         console.error("chrome.runtime.lastError in chrome.runtime.sendMessage:", lastError);
       }
     }) as Promise<unknown> | undefined;
     maybePromise?.catch((e) => {
-      if (!isNoReceiverError(e)) {
+      if (!isBroadcastNoise(e)) {
         console.error("chrome.runtime.sendMessage failed:", e);
       }
     });
