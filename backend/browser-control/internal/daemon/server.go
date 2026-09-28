@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
@@ -28,6 +30,7 @@ const DefaultIdleTimeout = 5 * time.Minute
 // messages between them.
 type Server struct {
 	listener    net.Listener
+	lockFile    *os.File
 	reg         *Registry
 	router      *Router
 	wg          sync.WaitGroup
@@ -56,9 +59,34 @@ func (s *Server) Listen() error {
 		return fmt.Errorf("creating state dir: %w", err)
 	}
 
-	// remove stale socket
-	if err := os.Remove(sockPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("removing stale socket: %w", err)
+	lockFile, err := os.OpenFile(filepath.Join(filepath.Dir(sockPath), "browser-control.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("opening daemon lock: %w", err)
+	}
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = lockFile.Close()
+		return fmt.Errorf("daemon already running or starting: %w", err)
+	}
+	defer func() {
+		if s.lockFile == nil {
+			_ = lockFile.Close()
+		}
+	}()
+
+	if _, err := os.Lstat(sockPath); err == nil {
+		conn, dialErr := net.DialTimeout("unix", sockPath, 200*time.Millisecond)
+		if dialErr == nil {
+			_ = conn.Close()
+			return fmt.Errorf("daemon already listening on %s", sockPath)
+		}
+		if !errors.Is(dialErr, syscall.ECONNREFUSED) {
+			return fmt.Errorf("checking existing socket: %w", dialErr)
+		}
+		if err := os.Remove(sockPath); err != nil {
+			return fmt.Errorf("removing stale socket: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("checking socket: %w", err)
 	}
 
 	ln, err := net.Listen("unix", sockPath)
@@ -73,6 +101,7 @@ func (s *Server) Listen() error {
 	}
 
 	s.listener = ln
+	s.lockFile = lockFile
 
 	// write PID file
 	pidPath := protocol.PIDPath()
@@ -161,6 +190,10 @@ func (s *Server) Shutdown() {
 	}
 	os.Remove(protocol.SocketPath())
 	os.Remove(protocol.PIDPath())
+	if s.lockFile != nil {
+		_ = s.lockFile.Close()
+		s.lockFile = nil
+	}
 	log.Println("daemon shutdown complete")
 }
 
