@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
+	"sync"
 
 	internalcli "github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
@@ -88,9 +90,13 @@ func (c *daemonClient) ListTabs(ctx context.Context, opts ListTabsOptions) ([]mo
 		return nil, err
 	}
 
-	var out []model.Tab
-	for _, target := range targets {
-		resp, err := c.cli.RequestContext(ctx, string(target.ID), internalcli.ExtCommand{
+	return collectBrowserTabs(ctx, targets, func(ctx context.Context, target BrowserStatus) ([]model.Tab, error) {
+		cli, err := internalcli.Connect()
+		if err != nil {
+			return nil, err
+		}
+		defer cli.Close()
+		resp, err := cli.RequestContext(ctx, string(target.ID), internalcli.ExtCommand{
 			Cmd:  "tabs.list",
 			Args: map[string]any{"query": map[string]any{}},
 		})
@@ -104,10 +110,42 @@ func (c *daemonClient) ListTabs(ctx context.Context, opts ListTabsOptions) ([]mo
 		if decoded.Error != nil {
 			return nil, decoded.Error
 		}
-		for _, tab := range decoded.Data {
-			fillTabBrowser(&tab, target)
+		return decoded.Data, nil
+	})
+}
+
+func collectBrowserTabs(ctx context.Context, targets []BrowserStatus, fetch func(context.Context, BrowserStatus) ([]model.Tab, error)) ([]model.Tab, error) {
+	type result struct {
+		tabs []model.Tab
+		err  error
+	}
+	results := make([]result, len(targets))
+	var wg sync.WaitGroup
+	for i, target := range targets {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i].tabs, results[i].err = fetch(ctx, target)
+		}()
+	}
+	wg.Wait()
+
+	var out []model.Tab
+	var failures []error
+	for i, result := range results {
+		if result.err != nil {
+			failure := fmt.Errorf("%s: %w", targets[i].ID, result.err)
+			failures = append(failures, failure)
+			log.Printf("browser tab listing failed: %v", failure)
+			continue
+		}
+		for _, tab := range result.tabs {
+			fillTabBrowser(&tab, targets[i])
 			out = append(out, tab)
 		}
+	}
+	if len(failures) == len(targets) {
+		return nil, errors.Join(failures...)
 	}
 	return out, nil
 }

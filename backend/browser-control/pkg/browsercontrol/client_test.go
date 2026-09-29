@@ -1,13 +1,46 @@
 package browsercontrol
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
 )
+
+func TestCollectBrowserTabsKeepsHealthyBrowsers(t *testing.T) {
+	t.Parallel()
+	targets := []BrowserStatus{
+		{ID: "zen-01", Name: "zen", AppName: "Zen"},
+		{ID: "chrome-01", Name: "chrome", AppName: "Google Chrome"},
+	}
+	tabs, err := collectBrowserTabs(context.Background(), targets, func(_ context.Context, target BrowserStatus) ([]model.Tab, error) {
+		if target.ID == "zen-01" {
+			return nil, errors.New("browser unavailable")
+		}
+		return []model.Tab{{ID: 12, Title: "Example"}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tabs) != 1 || tabs[0].BrowserID != "chrome-01" {
+		t.Fatalf("tabs = %#v, want healthy Chrome tab", tabs)
+	}
+}
+
+func TestCollectBrowserTabsReportsAllFailures(t *testing.T) {
+	t.Parallel()
+	targets := []BrowserStatus{{ID: "zen-01"}, {ID: "chrome-01"}}
+	_, err := collectBrowserTabs(context.Background(), targets, func(_ context.Context, _ BrowserStatus) ([]model.Tab, error) {
+		return nil, errors.New("browser unavailable")
+	})
+	if err == nil {
+		t.Fatal("expected an error when every browser fails")
+	}
+}
 
 func TestBrowserEventNames(t *testing.T) {
 	t.Parallel()
