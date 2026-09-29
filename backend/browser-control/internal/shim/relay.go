@@ -60,24 +60,36 @@ func Run(cfg Config) error {
 		log.Printf("warning: cannot create offload dir %s: %v", offloadDir, err)
 	}
 
-	// relay in both directions until one side closes
+	relayBoth(os.Stdin, os.Stdout, conn, offloadDir)
+	return nil
+}
+
+func relayBoth(browserIn io.ReadCloser, browserOut io.Writer, conn net.Conn, offloadDir string) {
 	var wg sync.WaitGroup
 	wg.Add(2)
+	var closeOnce sync.Once
+	closeBoth := func() {
+		closeOnce.Do(func() {
+			_ = browserIn.Close()
+			_ = conn.Close()
+		})
+	}
 
 	// browser stdin -> daemon socket (with large-frame offload)
 	go func() {
 		defer wg.Done()
-		relayBrowserToDaemon(os.Stdin, conn, offloadDir)
+		defer closeBoth()
+		relayBrowserToDaemon(browserIn, conn, offloadDir)
 	}()
 
 	// daemon socket -> browser stdout
 	go func() {
 		defer wg.Done()
-		relay(conn, os.Stdout, "daemon->browser")
+		defer closeBoth()
+		relay(conn, browserOut, "daemon->browser")
 	}()
 
 	wg.Wait()
-	return nil
 }
 
 // relay copies length-prefixed frames from src to dst.
@@ -97,7 +109,7 @@ func relay(src io.Reader, dst io.Writer, label string) {
 	}
 }
 
-// relayBrowserToDaemon reads frames from the browser (up to 4 MB) and
+// relayBrowserToDaemon reads frames from the browser (up to 64 MB) and
 // relays them to the daemon. Frames that exceed the daemon's 1 MB limit
 // are offloaded to a temp file; only a small envelope with the file path
 // is sent over the socket.

@@ -15,6 +15,25 @@ export { browserIdentityFromUserAgent } from "@App/pkg/browser-control/identity"
 
 const HOST_NAME = "com.latentbyte.browser_control";
 const RECONNECT_DELAY = 5000;
+const MAX_NATIVE_MESSAGE_BYTES = 32 * 1024 * 1024;
+
+type NativeResponse = { id: string; type: "response"; payload: Record<string, unknown> };
+
+function nativeMessageSize(message: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(message)).byteLength;
+}
+
+export function limitNativeResponse(response: NativeResponse, maxBytes = MAX_NATIVE_MESSAGE_BYTES): NativeResponse {
+  if (nativeMessageSize(response) <= maxBytes) return response;
+  return {
+    id: response.id,
+    type: "response",
+    payload: {
+      cmd: "error",
+      error: { code: "RESPONSE_TOO_LARGE", message: `response exceeds ${maxBytes} bytes` },
+    },
+  };
+}
 
 type NativeMessagingConnectionState = "connected" | "connecting" | "disconnected" | "error";
 
@@ -89,11 +108,16 @@ function registerStatusListener() {
 function sendEvent(payload: unknown) {
   if (!port) return;
   try {
-    port.postMessage({
+    const event = {
       id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       type: "event",
       payload,
-    });
+    };
+    if (nativeMessageSize(event) > MAX_NATIVE_MESSAGE_BYTES) {
+      log.warn("native event exceeds size limit");
+      return;
+    }
+    port.postMessage(event);
   } catch (e: unknown) {
     if (process.env.DEBUG) {
       log.warn("sendEvent failed", String(e));
@@ -690,7 +714,7 @@ async function onMessage(envelope: Envelope) {
   const cmd = payload?.cmd;
   const handler = cmd ? handlers[cmd] : undefined;
 
-  let response: unknown;
+  let response: NativeResponse;
   if (handler) {
     try {
       const result = await handler(payload?.args || {});
@@ -718,7 +742,7 @@ async function onMessage(envelope: Envelope) {
 
   if (port) {
     try {
-      port.postMessage(response);
+      port.postMessage(limitNativeResponse(response));
     } catch (e: unknown) {
       log.error("postMessage failed", String(e));
     }

@@ -15,9 +15,8 @@ import (
 // This matches Chrome's Native Messaging limit.
 const MaxFrameSize = 1024 * 1024
 
-// BrowserMaxFrameSize is the limit for reading frames from Firefox-family
-// browsers, which allow up to 4 MB in Native Messaging.
-const BrowserMaxFrameSize = 4 * 1024 * 1024
+// BrowserMaxFrameSize bounds shim memory while accepting large browser responses.
+const BrowserMaxFrameSize = 64 * 1024 * 1024
 
 // ReadFrame reads one length-prefixed JSON frame from r,
 // enforcing MaxFrameSize as the upper bound.

@@ -90,7 +90,7 @@ func (c *daemonClient) ListTabs(ctx context.Context, opts ListTabsOptions) ([]mo
 
 	var out []model.Tab
 	for _, target := range targets {
-		resp, err := c.cli.Request(string(target.ID), internalcli.ExtCommand{
+		resp, err := c.cli.RequestContext(ctx, string(target.ID), internalcli.ExtCommand{
 			Cmd:  "tabs.list",
 			Args: map[string]any{"query": map[string]any{}},
 		})
@@ -123,7 +123,7 @@ func (c *daemonClient) FocusTab(ctx context.Context, req FocusTabRequest) (Focus
 	if req.WindowID > 0 {
 		args["windowId"] = req.WindowID
 	}
-	resp, err := c.cli.Request(string(req.BrowserID), internalcli.ExtCommand{Cmd: "tabs.focus", Args: args})
+	resp, err := c.cli.RequestContext(ctx, string(req.BrowserID), internalcli.ExtCommand{Cmd: "tabs.focus", Args: args})
 	if err != nil {
 		return FocusTabResult{}, err
 	}
@@ -154,7 +154,7 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 		}
 		events := browserEventNames(opts.Events)
 		for _, target := range targets {
-			resp, err := c.cli.Request(string(target.ID), internalcli.ExtCommand{
+			resp, err := c.cli.RequestContext(ctx, string(target.ID), internalcli.ExtCommand{
 				Cmd:  "tabs.subscribe",
 				Args: map[string]any{"events": events},
 			})
@@ -204,7 +204,7 @@ func (c *daemonClient) Status(ctx context.Context) (Status, error) {
 	if err := ctx.Err(); err != nil {
 		return Status{}, err
 	}
-	resp, err := c.cli.Request("daemon", internalcli.ExtCommand{Cmd: "status"})
+	resp, err := c.cli.RequestContext(ctx, "daemon", internalcli.ExtCommand{Cmd: "status"})
 	if err != nil {
 		return Status{}, err
 	}

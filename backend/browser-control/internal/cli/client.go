@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -97,10 +98,22 @@ func (c *Client) Request(target string, payload any) (json.RawMessage, error) {
 	return c.RequestWithTimeout(target, payload, requestTimeout)
 }
 
+// RequestContext stops waiting when the caller's context expires.
+func (c *Client) RequestContext(ctx context.Context, target string, payload any) (json.RawMessage, error) {
+	return c.request(ctx, target, payload, requestTimeout)
+}
+
 // RequestWithTimeout sends a command and waits for response up to timeout.
 func (c *Client) RequestWithTimeout(target string, payload any, timeout time.Duration) (json.RawMessage, error) {
+	return c.request(context.Background(), target, payload, timeout)
+}
+
+func (c *Client) request(ctx context.Context, target string, payload any, timeout time.Duration) (json.RawMessage, error) {
 	c.reqMu.Lock()
 	defer c.reqMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -114,24 +127,53 @@ func (c *Client) RequestWithTimeout(target string, payload any, timeout time.Dur
 		Payload: payloadBytes,
 	}
 
-	if err := protocol.WriteEnvelope(c.conn, &env); err != nil {
-		return nil, fmt.Errorf("sending request: %w", err)
-	}
-
 	if timeout <= 0 {
 		timeout = requestTimeout
 	}
 
-	if err := c.conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+	deadline := time.Now().Add(timeout)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	if err := c.conn.SetDeadline(deadline); err != nil {
 		return nil, fmt.Errorf("setting request deadline: %w", err)
 	}
-	defer c.conn.SetDeadline(time.Time{})
+	if ctx.Done() != nil {
+		stop := make(chan struct{})
+		stopped := make(chan struct{})
+		go func() {
+			defer close(stopped)
+			select {
+			case <-ctx.Done():
+				_ = c.conn.SetDeadline(time.Now())
+			case <-stop:
+			}
+		}()
+		defer func() {
+			close(stop)
+			<-stopped
+			_ = c.conn.SetDeadline(time.Time{})
+		}()
+	} else {
+		defer c.conn.SetDeadline(time.Time{})
+	}
+	if err := protocol.WriteEnvelope(c.conn, &env); err != nil {
+		_ = c.conn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, fmt.Errorf("sending request: %w", err)
+	}
 
 	// read until this request's response arrives
 	var resp *protocol.Envelope
 	for {
 		resp, err = protocol.ReadEnvelope(c.conn)
 		if err != nil {
+			_ = c.conn.Close()
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
 				return nil, fmt.Errorf("request timed out after %v waiting for %q response", timeout, target)

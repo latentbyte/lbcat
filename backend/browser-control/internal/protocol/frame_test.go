@@ -175,8 +175,8 @@ func TestReadFrameNRejectsOverLimit(t *testing.T) {
 }
 
 func TestBrowserMaxFrameSize(t *testing.T) {
-	if BrowserMaxFrameSize != 4*1024*1024 {
-		t.Fatalf("BrowserMaxFrameSize: expected %d, got %d", 4*1024*1024, BrowserMaxFrameSize)
+	if BrowserMaxFrameSize != 64*1024*1024 {
+		t.Fatalf("BrowserMaxFrameSize: expected %d, got %d", 64*1024*1024, BrowserMaxFrameSize)
 	}
 	if MaxFrameSize != 1024*1024 {
 		t.Fatalf("MaxFrameSize: expected %d, got %d", 1024*1024, MaxFrameSize)

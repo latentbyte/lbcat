@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "__MSG_scriptcat_az__",
-  "version": "3.0.13",
-  "version_name": "3.0.13-az",
+  "version": "3.0.14",
+  "version_name": "3.0.14-az",
   "author": "CodFrm",
   "description": "__MSG_scriptcat_description__",
   "options_ui": {

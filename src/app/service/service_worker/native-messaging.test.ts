@@ -2,9 +2,32 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   browserIdentityFromUserAgent,
   focusNativeTab,
+  limitNativeResponse,
   normalizeNativeTabEvent,
   tabToBrowserControlTab,
 } from "./native-messaging";
+
+describe("原生消息大小限制", () => {
+  it("超限响应返回错误并保留请求 ID", () => {
+    const response = {
+      id: "request-1",
+      type: "response" as const,
+      payload: { cmd: "page.content", data: "é".repeat(30) },
+    };
+
+    expect(limitNativeResponse(response, 90)).toMatchObject({
+      id: "request-1",
+      type: "response",
+      payload: { cmd: "error", error: { code: "RESPONSE_TOO_LARGE" } },
+    });
+  });
+
+  it("保留未超限响应", () => {
+    const response = { id: "request-2", type: "response" as const, payload: { cmd: "tabs.list", data: [] } };
+
+    expect(limitNativeResponse(response, 90)).toBe(response);
+  });
+});
 
 describe("focusNativeTab", () => {
   const tabsUpdate = vi.fn();
