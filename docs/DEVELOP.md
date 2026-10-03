@@ -88,6 +88,48 @@ i18next, 7 locales (`src/locales/`: en-US, zh-CN, zh-TW, ja-JP, de-DE, vi-VN, ru
 
 Do not commit secrets, local certificates, build output, coverage, Playwright reports, test results, or local `.env` changes.
 
+## Future plan: self-hosted Firefox updates
+
+**Status: planned, not implemented.** Use LB Stash to host Mozilla-signed Firefox releases and a stable,
+public HTTPS update manifest. Hosting URLs and stable/beta channel separation remain undecided.
+
+Reuse the Android APK publisher's artifact-first, catalog-last workflow. Firefox supplies update checking
+and installation, so no Android updater module or custom extension updater is needed. The Firefox feed
+must use Mozilla's JSON format rather than the Android catalog format.
+
+Planned implementation:
+
+1. Choose a permanent, app-owned feed path, such as
+   `https://updates.example.com/extensions/scriptcat/firefox/updates.json`, with immutable versioned XPI
+   URLs beside it. Use separate feeds if stable and prerelease channels are introduced.
+2. Set `browser_specific_settings.gecko.update_url` in both Firefox manifest generation paths
+   (`rspack.config.ts` and `scripts/pack.js`). Preserve the existing add-on ID,
+   `scriptcat@latentbyte.com`. Include the URL before submitting the package for Mozilla signing.
+3. Submit each release through Mozilla's self-distribution ("On your own" / unlisted) channel and obtain
+   the signed XPI. Publish that signed file without modifying it.
+4. Upload the XPI as a public, immutable versioned file. Verify its public download, SHA-256, and
+   `Content-Type: application/x-xpinstall` before advertising it.
+5. Generate an `updates.json` feed keyed by the add-on ID. Each update entry contains the exact packaged
+   manifest `version`, HTTPS `update_link`, `update_hash` in `sha256:<hex>` form, and matching Firefox
+   compatibility information. Derive metadata from the signed package rather than the package.json
+   prerelease label.
+6. Upload and verify a staged public feed, then atomically promote it to the permanent feed path using
+   Stash's name-swap operation. Retain the previous feed for inspection. Serialize publishers and refuse
+   immutable filename collisions; do not advertise artifacts before their downloads are verified.
+7. Verify an older signed installation discovers and installs a newer signed release through Firefox's
+   native update flow. Check public redirect behavior, feed caching, MIME types, hashes, and channel
+   isolation before enabling publication.
+
+Keep release configuration in this repository and provide an offline feed-generation command plus a
+read-only publication check. Public upload and feed promotion should remain explicit release actions.
+Keep the feed path available for existing installations; they cannot discover a replacement URL while
+their installed update endpoint is unavailable. Private presigned URLs are unsuitable for the feed or
+release links.
+
+References: [Mozilla update manifest and automatic updates](https://extensionworkshop.com/documentation/manage/updating-your-extension/),
+[self-distribution and XPI delivery](https://extensionworkshop.com/documentation/publish/self-distribution/),
+and [separate prerelease channels](https://extensionworkshop.com/documentation/publish/distribute-pre-release-versions/).
+
 ## Commit & Pull Request Guidelines
 
 Commits must be single-purpose and **start with a gitmoji emoji** — use the actual emoji character, not the `:code:` text form, for example `git commit -m "🐛 fix template matching"` or `git commit -m "✨ add script filter"`. The leading emoji drives release changelog grouping (see the `release` skill), so pick the one that matches the change:
