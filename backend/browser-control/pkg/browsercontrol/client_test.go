@@ -75,17 +75,18 @@ func TestDecodeEventEnvelopeFillsSourceBrowser(t *testing.T) {
 			"type":      "tab-focused",
 			"browserId": "",
 			"tab": map[string]any{
-				"browserId":   "",
-				"browserName": "firefox",
-				"appName":     "Firefox",
-				"id":          123,
-				"windowId":    7,
-				"index":       2,
-				"title":       "Example",
-				"url":         "https://example.com/",
-				"active":      true,
-				"incognito":   false,
-				"audible":     false,
+				"browserId":    "",
+				"browserName":  "firefox",
+				"appName":      "Firefox",
+				"id":           123,
+				"windowId":     7,
+				"index":        2,
+				"title":        "Example",
+				"url":          "https://example.com/",
+				"active":       true,
+				"incognito":    false,
+				"audible":      false,
+				"sharingState": map[string]any{"camera": true, "microphone": false, "screen": "Window"},
 			},
 		},
 	}
@@ -111,6 +112,9 @@ func TestDecodeEventEnvelopeFillsSourceBrowser(t *testing.T) {
 	}
 	if evt.Tab.BrowserName != "zen" || evt.Tab.AppName != "Zen" {
 		t.Fatalf("Tab browser fields = %#v, want zen/Zen", evt.Tab)
+	}
+	if evt.Tab.SharingState == nil || !evt.Tab.SharingState.Camera || evt.Tab.SharingState.Microphone || evt.Tab.SharingState.Screen != "Window" {
+		t.Fatalf("sharing state lost in event decoding: %#v", evt.Tab.SharingState)
 	}
 	if evt.TabID == nil || evt.TabID.Browser != "zen-01" || evt.TabID.TabID != 123 {
 		t.Fatalf("TabID = %#v, want zen-01/123", evt.TabID)

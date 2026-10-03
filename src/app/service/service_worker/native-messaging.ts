@@ -171,6 +171,16 @@ type TabActiveInfo = {
   windowId: number;
 };
 
+export type BrowserControlSharingState = {
+  camera: boolean;
+  microphone: boolean;
+  screen?: string;
+};
+
+type BrowserTab = chrome.tabs.Tab & {
+  sharingState?: BrowserControlSharingState;
+};
+
 export type BrowserControlTab = {
   browserId: string;
   browserName: string;
@@ -183,6 +193,7 @@ export type BrowserControlTab = {
   active: boolean;
   incognito: boolean;
   audible: boolean;
+  sharingState?: BrowserControlSharingState;
 };
 
 export type BrowserControlTabID = {
@@ -199,7 +210,7 @@ export type BrowserControlEvent = {
 };
 
 export function tabToBrowserControlTab(
-  tab: chrome.tabs.Tab,
+  tab: BrowserTab,
   identity: BrowserControlIdentity = browserIdentityFromUserAgent()
 ): BrowserControlTab {
   return {
@@ -214,6 +225,7 @@ export function tabToBrowserControlTab(
     active: Boolean(tab.active),
     incognito: Boolean(tab.incognito),
     audible: Boolean(tab.audible),
+    ...(tab.sharingState ? { sharingState: { ...tab.sharingState } } : {}),
   };
 }
 

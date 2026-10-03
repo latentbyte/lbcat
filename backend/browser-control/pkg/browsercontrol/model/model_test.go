@@ -5,6 +5,36 @@ import (
 	"testing"
 )
 
+func TestSharingStateJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, state := range []string{
+		`{"camera":true,"microphone":true,"screen":"Window"}`,
+		`{"camera":false,"microphone":false}`,
+	} {
+		t.Run(state, func(t *testing.T) {
+			var event Event
+			if err := json.Unmarshal([]byte(`{"type":"tab-updated","tab":{"sharingState":`+state+`}}`), &event); err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result struct {
+				Tab struct {
+					SharingState json.RawMessage `json:"sharingState"`
+				} `json:"tab"`
+			}
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Fatal(err)
+			}
+			if string(result.Tab.SharingState) != state {
+				t.Fatalf("sharingState = %s, want %s", result.Tab.SharingState, state)
+			}
+		})
+	}
+}
+
 func TestTabJSONStability(t *testing.T) {
 	t.Parallel()
 

@@ -121,6 +121,41 @@ describe("normalizeNativeTabEvent", () => {
 });
 
 describe("tabToBrowserControlTab", () => {
+  it("保留 Firefox 的摄像头、麦克风和屏幕共享状态", () => {
+    const tab = {
+      id: 123,
+      index: 0,
+      windowId: 7,
+      pinned: false,
+      highlighted: false,
+      active: true,
+      incognito: false,
+      selected: true,
+      discarded: false,
+      autoDiscardable: true,
+      groupId: -1,
+      frozen: false,
+      sharingState: { camera: true, microphone: true, screen: "Window" },
+    };
+
+    expect(tabToBrowserControlTab(tab)).toMatchObject({ sharingState: tab.sharingState });
+  });
+
+  it("保留停止共享后的状态", async () => {
+    const tab = {
+      id: 123,
+      windowId: 7,
+      sharingState: { camera: false, microphone: false },
+    };
+
+    await expect(
+      normalizeNativeTabEvent("onUpdated", [123, { sharingState: tab.sharingState }, tab])
+    ).resolves.toMatchObject({
+      type: "tab-updated",
+      tab: { sharingState: { camera: false, microphone: false } },
+    });
+  });
+
   it("maps Chrome tabs into the public tab shape", () => {
     const tab = {
       id: 123,

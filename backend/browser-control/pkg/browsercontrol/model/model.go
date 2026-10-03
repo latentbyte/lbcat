@@ -12,17 +12,25 @@ type TabID struct {
 
 // Tab is the stable public browser tab model
 type Tab struct {
-	BrowserID   BrowserID `json:"browserId"`
-	BrowserName string    `json:"browserName"`
-	AppName     string    `json:"appName"`
-	ID          int64     `json:"id"`
-	WindowID    int       `json:"windowId"`
-	Index       int       `json:"index"`
-	Title       string    `json:"title"`
-	URL         string    `json:"url"`
-	Active      bool      `json:"active"`
-	Incognito   bool      `json:"incognito"`
-	Audible     bool      `json:"audible"`
+	BrowserID    BrowserID     `json:"browserId"`
+	BrowserName  string        `json:"browserName"`
+	AppName      string        `json:"appName"`
+	ID           int64         `json:"id"`
+	WindowID     int           `json:"windowId"`
+	Index        int           `json:"index"`
+	Title        string        `json:"title"`
+	URL          string        `json:"url"`
+	Active       bool          `json:"active"`
+	Incognito    bool          `json:"incognito"`
+	Audible      bool          `json:"audible"`
+	SharingState *SharingState `json:"sharingState,omitempty"`
+}
+
+// SharingState reports browser-provided capture status; nil means unavailable
+type SharingState struct {
+	Camera     bool   `json:"camera"`
+	Microphone bool   `json:"microphone"`
+	Screen     string `json:"screen,omitempty"`
 }
 
 // EventType identifies a public Browser Control event kind
