@@ -3,7 +3,7 @@ const DEFAULT_TTL = 15 * 60 * 1000;
 const MAX_TTL = 24 * 60 * 60 * 1000;
 
 export type AgentWindowStatus = { windowId: number; markerTabId: number };
-type Registration = AgentWindowStatus & { markerUrl: string };
+type Registration = AgentWindowStatus & { markerUrl: string; eligibleTabIds?: number[] };
 type Session = { sessionId: string; expiresAt: number; ttlMs: number; paused: boolean; tabIds: number[] };
 type State = { registration?: Registration; sessions: Session[] };
 
@@ -96,16 +96,48 @@ export class AgentWindowService implements AgentWindowScope {
       .map((window) => ({ id: window.id!, focused: window.focused, type: window.type }));
   }
 
+  private isMarker(tab: chrome.tabs.Tab): boolean {
+    const markerUrl = this.deps.markerUrl();
+    return [tab.url, tab.pendingUrl].some((url) => url?.split(/[?#]/, 1)[0] === markerUrl);
+  }
+
+  private async readyMarker(tabId: number, windowId: number, markerUrl: string): Promise<void> {
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const tab = await this.deps.getTab(tabId);
+      if (tab.windowId !== windowId) throw missingWindow();
+      if (tab.url === markerUrl) return;
+      if (tab.pendingUrl !== markerUrl && tab.url && tab.url !== "about:blank") throw missingWindow();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw missingWindow();
+  }
+
   async create(): Promise<AgentWindowStatus> {
     return this.withState(async (state) => {
       const markerUrl = this.deps.markerUrl() + "?registration=" + this.deps.id();
       const window = await this.deps.createWindow({ url: markerUrl, focused: false, type: "normal" });
-      const tab = window?.tabs?.[0];
-      if (window?.id === undefined || tab?.id === undefined) throw new Error("Could not create agent window marker");
-      await this.deps.pinTab(tab.id);
-      state.registration = { windowId: window.id, markerTabId: tab.id, markerUrl };
+      if (window?.id === undefined) throw new Error("Could not create agent window marker");
+      if (window.incognito || window.type !== "normal") {
+        throw new BrowserControlScopeError(
+          "INVALID_AGENT_WINDOW",
+          "Agent window must be a normal, non-incognito window"
+        );
+      }
+      const matchesMarker = (tab: chrome.tabs.Tab): boolean => tab.url === markerUrl || tab.pendingUrl === markerUrl;
+      const marker = window.tabs?.find(matchesMarker) || (await this.deps.listTabs(window.id)).find(matchesMarker);
+      if (marker?.id === undefined) throw new Error("Could not identify agent window marker");
+      await this.readyMarker(marker.id, window.id, markerUrl);
+      await this.deps.pinTab(marker.id);
+      const registration: Registration = {
+        windowId: window.id,
+        markerTabId: marker.id,
+        markerUrl,
+        eligibleTabIds: [],
+      };
+      await this.registration({ registration, sessions: [] });
+      state.registration = registration;
       state.sessions = [];
-      return { windowId: window.id, markerTabId: tab.id };
+      return { windowId: window.id, markerTabId: marker.id };
     });
   }
 
@@ -118,10 +150,16 @@ export class AgentWindowService implements AgentWindowScope {
           "Agent window must be a normal, non-incognito window"
         );
       }
+      const eligibleTabIds = (await this.deps.listTabs(windowId))
+        .filter((tab) => tab.id !== undefined && !this.isMarker(tab))
+        .map((tab) => tab.id!);
       const markerUrl = this.deps.markerUrl() + "?registration=" + this.deps.id();
       const marker = await this.deps.createTab({ windowId, url: markerUrl, active: false, pinned: true });
       if (marker.id === undefined) throw new Error("Could not create agent window marker");
-      state.registration = { windowId, markerTabId: marker.id, markerUrl };
+      await this.readyMarker(marker.id, windowId, markerUrl);
+      const registration: Registration = { windowId, markerTabId: marker.id, markerUrl, eligibleTabIds };
+      await this.registration({ registration, sessions: [] });
+      state.registration = registration;
       state.sessions = [];
       return { windowId, markerTabId: marker.id };
     });
@@ -150,16 +188,33 @@ export class AgentWindowService implements AgentWindowScope {
       throw new Error("Session TTL must be between 1s and 24h");
     return this.withState(async (state) => {
       await this.registration(state);
-      state.sessions = state.sessions.filter((item) => item.expiresAt > this.deps.now());
-      const session: Session = {
-        sessionId: this.deps.id(),
-        expiresAt: this.deps.now() + ttlMs,
-        ttlMs,
-        paused: false,
-        tabIds: [],
-      };
-      state.sessions.push(session);
-      return { sessionId: session.sessionId, expiresAt: session.expiresAt };
+      return this.startSession(state, ttlMs);
+    });
+  }
+
+  private startSession(state: State, ttlMs: number): { sessionId: string; expiresAt: number } {
+    // 保留过期暂停记录，避免其他任务清理租约后绕过人工接管
+    state.sessions = state.sessions.filter((item) => item.paused || item.expiresAt > this.deps.now());
+    const session: Session = {
+      sessionId: this.deps.id(),
+      expiresAt: this.deps.now() + ttlMs,
+      ttlMs,
+      paused: false,
+      tabIds: [],
+    };
+    state.sessions.push(session);
+    return { sessionId: session.sessionId, expiresAt: session.expiresAt };
+  }
+
+  async recoverSession(sessionId: string): Promise<{ sessionId: string; expiresAt: number }> {
+    return this.withState(async (state) => {
+      await this.registration(state);
+      const previous = state.sessions.find((item) => item.sessionId === sessionId);
+      if (previous?.paused) throw new BrowserControlScopeError("SESSION_PAUSED", "Browser task is paused");
+      if (previous && previous.expiresAt > this.deps.now()) {
+        return { sessionId: previous.sessionId, expiresAt: previous.expiresAt };
+      }
+      return this.startSession(state, DEFAULT_TTL);
     });
   }
 
@@ -210,10 +265,16 @@ export class AgentWindowService implements AgentWindowScope {
       throw new BrowserControlScopeError("AGENT_MARKER_PROTECTED", "Agent window marker is not a work tab");
     }
     const tab = await this.deps.getTab(tabId);
-    if (tab.windowId !== registration.windowId && personalTabId !== tabId) {
+    if (this.isMarker(tab)) {
+      throw new BrowserControlScopeError("AGENT_MARKER_PROTECTED", "Agent window marker is not a work tab");
+    }
+    if (
+      (tab.windowId !== registration.windowId || !registration.eligibleTabIds?.includes(tabId)) &&
+      personalTabId !== tabId
+    ) {
       throw new BrowserControlScopeError(
         "PERSONAL_TAB_DENIED",
-        "Tab is outside the agent window; explicit per-tab permission required"
+        "Tab lacks an agent-window grant; explicit per-tab permission required"
       );
     }
     return tab;
@@ -248,9 +309,23 @@ export class AgentWindowService implements AgentWindowScope {
       const session = this.session(state, sessionId);
       const tab = await this.deps.createTab({ windowId: registration.windowId, url, active: false });
       if (tab.id === undefined) throw new Error("Could not create browser task tab");
+      registration.eligibleTabIds ??= [];
+      registration.eligibleTabIds.push(tab.id);
       session.tabIds.push(tab.id);
       session.expiresAt = this.deps.now() + session.ttlMs;
       return tab;
+    });
+  }
+
+  async allowsTabEvent(tabId: number, windowId: number, url?: string): Promise<boolean> {
+    return this.withState(async (state) => {
+      const registration = await this.registration(state);
+      return (
+        registration.windowId === windowId &&
+        registration.markerTabId !== tabId &&
+        !!registration.eligibleTabIds?.includes(tabId) &&
+        url?.split(/[?#]/, 1)[0] !== this.deps.markerUrl()
+      );
     });
   }
 
@@ -260,7 +335,13 @@ export class AgentWindowService implements AgentWindowScope {
       if (sessionId) this.session(state, sessionId).expiresAt = this.deps.now() + this.session(state, sessionId).ttlMs;
       const tabs = await this.deps.listTabs(registration.windowId);
       return tabs.filter((tab) => {
-        if (tab.id === undefined || tab.id === registration.markerTabId) return false;
+        if (
+          tab.id === undefined ||
+          tab.id === registration.markerTabId ||
+          this.isMarker(tab) ||
+          !registration.eligibleTabIds?.includes(tab.id)
+        )
+          return false;
         const owner = this.owner(state, tab.id);
         return !owner || owner.sessionId === sessionId;
       });
@@ -306,20 +387,42 @@ export class AgentTaskWindowScope implements AgentBrowserTaskScope {
     return this.sessionId;
   }
 
+  private async withSession<T>(action: (sessionId: string) => Promise<T>): Promise<T> {
+    const pending = this.session();
+    const sessionId = await pending;
+    try {
+      return await action(sessionId);
+    } catch (error) {
+      if (!(error instanceof BrowserControlScopeError) || error.code !== "SESSION_EXPIRED") throw error;
+      if (this.closed) throw new BrowserControlScopeError("SESSION_CLOSED", "Browser task has ended");
+      if (this.sessionId === pending) {
+        const replacement = this.service
+          .recoverSession(sessionId)
+          .then(({ sessionId }) => sessionId)
+          .catch((error: unknown) => {
+            if (this.sessionId === replacement) this.sessionId = pending;
+            throw error;
+          });
+        this.sessionId = replacement;
+      }
+      return action(await this.session());
+    }
+  }
+
   status(): Promise<AgentWindowStatus> {
     return this.service.status();
   }
 
   async assertWindowTab(tabId: number): Promise<chrome.tabs.Tab> {
-    return this.service.assertTabAccess(tabId, await this.session());
+    return this.withSession((sessionId) => this.service.assertTabAccess(tabId, sessionId));
   }
 
   async createTab(url: string): Promise<chrome.tabs.Tab> {
-    return this.service.createTab(await this.session(), url);
+    return this.withSession((sessionId) => this.service.createTab(sessionId, url));
   }
 
   async listTabs(): Promise<chrome.tabs.Tab[]> {
-    return this.service.listTabs(await this.session());
+    return this.withSession((sessionId) => this.service.listTabs(sessionId));
   }
 
   async close(): Promise<void> {

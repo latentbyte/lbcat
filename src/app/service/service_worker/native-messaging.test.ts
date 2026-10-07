@@ -12,6 +12,12 @@ import type { ScriptService } from "./script";
 import { withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 
 describe("原生消息大小限制", () => {
+  it.each([1n, { nested: 1n }])("JSON 不兼容结果应返回结构化错误", (data) => {
+    expect(limitNativeResponse({ id: "bigint", type: "response", payload: { data } })).toMatchObject({
+      id: "bigint",
+      payload: { cmd: "error", error: { code: "RESPONSE_NOT_SERIALIZABLE" } },
+    });
+  });
   it("超限响应返回错误并保留请求 ID", () => {
     const response = {
       id: "request-1",
@@ -206,6 +212,8 @@ describe("原生消息并发控制", () => {
   const tabsUpdate = vi.fn();
   const tabsCreate = vi.fn();
   const tabsQuery = vi.fn();
+  const tabsReload = vi.fn();
+  const commits = new Set<(info: { tabId: number; frameId: number }) => void>();
   const activations = new Set<(info: { tabId: number; windowId: number }) => void>();
   const windowsUpdate = vi.fn();
   const captureTab = vi.fn();
@@ -229,6 +237,7 @@ describe("原生消息并发控制", () => {
       { id: 102, windowId: 8 },
     ]);
     activations.clear();
+    commits.clear();
     tabsCreate.mockImplementation(async ({ active }: { active: boolean }) => {
       if (active) activeTab = 103;
       return { id: 103, windowId: 7 };
@@ -251,6 +260,7 @@ describe("原生消息并发控制", () => {
               windowId: 7,
               markerTabId: 900,
               markerUrl: "chrome-extension://test/src/agent-window.html?registration=test",
+              eligibleTabIds: [101, 102],
             },
             sessions: [{ sessionId: "task", expiresAt: Date.now() + 900000, ttlMs: 900000, paused: false, tabIds: [] }],
           };
@@ -268,6 +278,8 @@ describe("原生消息并发控制", () => {
         })(),
       },
       runtime: {
+        getManifest: () => ({ version: "4.2.1", manifest_version: 3 }),
+        getURL: (path: string) => "chrome-extension://test/" + path,
         connectNative: () => ({
           postMessage,
           disconnect: vi.fn(),
@@ -287,6 +299,7 @@ describe("原生消息并发控制", () => {
             ? { id: 900, windowId: 7, url: "chrome-extension://test/src/agent-window.html?registration=test" }
             : tabsGet(id),
         update: tabsUpdate,
+        reload: tabsReload,
         captureTab,
         captureVisibleTab,
         create: tabsCreate,
@@ -295,10 +308,16 @@ describe("原生消息并发控制", () => {
           removeListener: (fn: (info: { tabId: number; windowId: number }) => void) => activations.delete(fn),
         },
         onCreated: { addListener: eventAdd, removeListener: eventRemove },
-        onRemoved: { addListener: eventAdd, removeListener: eventRemove },
+        onRemoved: { addListener: vi.fn(), removeListener: vi.fn() },
       },
       windows: { update: windowsUpdate, getCurrent: vi.fn().mockResolvedValue({ id: 7 }) },
       scripting: { executeScript },
+      webNavigation: {
+        onCommitted: {
+          addListener: (listener: (info: { tabId: number; frameId: number }) => void) => commits.add(listener),
+          removeListener: (listener: (info: { tabId: number; frameId: number }) => void) => commits.delete(listener),
+        },
+      },
     });
     initNativeMessaging({} as ScriptService);
   });
@@ -312,6 +331,112 @@ describe("原生消息并发控制", () => {
   function request(id: string, cmd: string, args: Record<string, unknown>): Promise<void> {
     return dispatch({ id, type: "request", payload: { cmd, args: { sessionId: "task", ...args } } });
   }
+
+  it("内容注入错误应保留原因且不存在元素仍返回空值", async () => {
+    executeScript.mockResolvedValueOnce([{ error: { message: "Missing host permission" } }]);
+    await request("content-error", "page.content", { tabId: 101 });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "content-error",
+        payload: expect.objectContaining({
+          cmd: "error",
+          error: expect.objectContaining({ message: "Missing host permission" }),
+        }),
+      })
+    );
+    executeScript.mockImplementationOnce(async ({ func, args }) => [{ result: await func(...args) }]);
+    await request("content-absent", "page.content", { tabId: 101, selector: "#absent" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "content-absent", payload: { cmd: "page.content", data: null } })
+    );
+  });
+
+  it("无效选择器应通过可克隆结果保留语法错误", async () => {
+    executeScript.mockImplementationOnce(async ({ func, args }) => {
+      try {
+        return [{ result: await func(...args) }];
+      } catch {
+        return [{ error: { message: "non-structured-clonable data" } }];
+      }
+    });
+    await request("content-selector", "page.content", { tabId: 101, selector: "[" });
+    const response = postMessage.mock.calls.find(([message]) => message.id === "content-selector")?.[0];
+    expect(response.payload.cmd).toBe("error");
+    expect(response.payload.error.message).toContain("selector");
+    expect(response.payload.error.message).not.toContain("non-structured-clonable");
+  });
+
+  it("运行超时后应立即拒绝同标签操作并在原执行结束后恢复", async () => {
+    let release!: () => void;
+    executeScript.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve([{ result: { success: true, value: 1 } }]);
+        })
+    );
+    const exec = request("active-timeout", "page.exec", { tabId: 101, code: "new Promise(() => {})", timeoutMs: 5 });
+    await vi.advanceTimersByTimeAsync(6);
+    await exec;
+    const content = request("blocked-content", "page.content", { tabId: 101 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "blocked-content",
+        payload: expect.objectContaining({ error: expect.objectContaining({ code: "TAB_EXECUTION_PENDING" }) }),
+      })
+    );
+    release();
+    await content;
+    await vi.advanceTimersByTimeAsync(0);
+    executeScript.mockResolvedValueOnce([{ result: { success: true, value: 2 } }]);
+    await request("recovered", "page.exec", { tabId: 101, code: "2" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "recovered", payload: { cmd: "page.exec", data: { result: 2 } } })
+    );
+  });
+
+  it("脚本列表应保留 run-at 元数据", async () => {
+    disconnect();
+    initNativeMessaging({
+      getAllScripts: async () => [{ uuid: "script", metadata: { "run-at": ["document-end"] } }],
+    } as unknown as ScriptService);
+    await request("scripts", "script.list", {});
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "scripts",
+        payload: expect.objectContaining({ data: [expect.objectContaining({ runAt: "document-end" })] }),
+      })
+    );
+  });
+
+  it("超时标签应允许授权重载并在主文档提交后恢复所有操作", async () => {
+    let release!: () => void;
+    executeScript.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve([{ result: { success: true, value: 1 } }]);
+        })
+    );
+    const running = request("never", "page.exec", { tabId: 101, code: "new Promise(() => {})", timeoutMs: 5 });
+    await vi.advanceTimersByTimeAsync(6);
+    await running;
+    await request("pause", "sessions.pause", {});
+    await request("paused-reload", "page.reload", { tabId: 101 });
+    expect(tabsReload).not.toHaveBeenCalled();
+    await request("resume", "sessions.resume", {});
+    await request("recovery-reload", "page.reload", { tabId: 101 });
+    expect(tabsReload).toHaveBeenCalledWith(101, { bypassCache: false });
+    await request("still-blocked", "page.screenshot", { tabId: 101 });
+    expect(captureTab).not.toHaveBeenCalled();
+    for (const listener of commits) listener({ tabId: 101, frameId: 0 });
+    executeScript.mockResolvedValueOnce([{ result: { success: true, value: 2 } }]);
+    await request("new-document", "page.exec", { tabId: 101, code: "2" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "new-document", payload: { cmd: "page.exec", data: { result: 2 } } })
+    );
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+  });
 
   it("人工切换器无需登记代理窗口即可列出普通窗口标签", async () => {
     await chrome.storage.local.set({ "browserControl.agentWindow": { sessions: [] } });
@@ -405,8 +530,8 @@ describe("原生消息并发控制", () => {
     await request("switcher-focus-no-agent", "switcher.tabs.focus", { tabId: 101, sessionId: undefined });
     expect(tabsUpdate).toHaveBeenCalledWith(101, { active: true });
     await request("switcher-removed", "switcher.tabs.subscribe", { events: ["onRemoved"] });
-    const [handler] = eventAdd.mock.calls[0];
-    handler(101, { windowId: 7 });
+    const [handler] = vi.mocked(chrome.tabs.onRemoved.addListener).mock.calls.at(-1)!;
+    handler(101, { windowId: 7, isWindowClosing: false });
     await vi.advanceTimersByTimeAsync(0);
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -598,7 +723,8 @@ describe("原生消息并发控制", () => {
     await request("a", "tabs.subscribe", { events: ["onCreated"] });
     await request("b", "tabs.subscribe", { events: ["onRemoved"] });
     await request("c", "tabs.subscribe", { events: ["onCreated"] });
-    expect(eventAdd).toHaveBeenCalledTimes(2);
+    expect(eventAdd).toHaveBeenCalledTimes(1);
+    expect(chrome.tabs.onRemoved.addListener).toHaveBeenCalledTimes(2);
     expect(eventRemove).not.toHaveBeenCalled();
   });
 

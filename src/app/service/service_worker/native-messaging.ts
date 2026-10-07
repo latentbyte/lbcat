@@ -10,6 +10,11 @@ import {
 } from "@App/pkg/browser-control/identity";
 import { captureNativeTab, withNativeTabOperation, withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-control/agent-window";
+import {
+  isNativeTabQuarantined,
+  startNativeTabOperations,
+  stopNativeTabOperations,
+} from "@App/pkg/browser-control/tab-operation";
 import { prepareScriptByCode } from "@App/pkg/utils/script";
 import type { ScriptService } from "./script";
 
@@ -26,7 +31,18 @@ function nativeMessageSize(message: unknown): number {
 }
 
 export function limitNativeResponse(response: NativeResponse, maxBytes = MAX_NATIVE_MESSAGE_BYTES): NativeResponse {
-  if (nativeMessageSize(response) <= maxBytes) return response;
+  try {
+    if (nativeMessageSize(response) <= maxBytes) return response;
+  } catch (error: unknown) {
+    return {
+      id: response.id,
+      type: "response",
+      payload: {
+        cmd: "error",
+        error: { code: "RESPONSE_NOT_SERIALIZABLE", message: error instanceof Error ? error.message : String(error) },
+      },
+    };
+  }
   return {
     id: response.id,
     type: "response",
@@ -136,11 +152,14 @@ function tabEventHandler(eventName: string, switcher: boolean) {
           sendEvent({ cmd: "switcher.tabs.event", data: event });
           return;
         }
-        return agentWindowService.status().then((scope) => {
-          if (event.tabId?.windowId === scope.windowId && event.tabId.tabId !== scope.markerTabId) {
-            sendEvent({ cmd: "tabs.event", data: event });
-          }
-        });
+        if (!event.tabId) return;
+        return agentWindowService
+          .allowsTabEvent(event.tabId.tabId, event.tabId.windowId, event.tab?.url)
+          .then((allowed) => {
+            if (allowed) {
+              sendEvent({ cmd: "tabs.event", data: event });
+            }
+          });
       })
       .catch((err: unknown) => {
         if (!(err instanceof BrowserControlScopeError)) log.warn("tab event normalization failed", String(err));
@@ -180,13 +199,14 @@ function subscribeNativeTabs(args: Record<string, unknown>, switcher: boolean): 
   };
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string, onTimeout?: () => void): Promise<T> {
   if (!timeoutMs || timeoutMs <= 0) return promise;
   let timer: ReturnType<typeof setTimeout>;
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => {
       timer = setTimeout(() => {
+        onTimeout?.();
         reject(new Error(`${label} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
     }),
@@ -357,7 +377,9 @@ const handlers: Record<string, Handler> = {
     return { data: await agentWindowService.designate(args.windowId) };
   },
   async "agentWindow.status"() {
-    return { data: await agentWindowService.status() };
+    const scope = await agentWindowService.status();
+    const manifest = chrome.runtime.getManifest();
+    return { data: { ...scope, extensionVersion: manifest.version, manifestVersion: manifest.manifest_version } };
   },
   async "agentWindow.clear"() {
     await agentWindowService.clear();
@@ -482,20 +504,39 @@ const handlers: Record<string, Handler> = {
       return chrome.scripting.executeScript({
         target: { tabId },
         func: (sel: string, fmt: string) => {
-          const el = document.querySelector(sel);
-          if (!el) return null;
-          return fmt === "html" ? (el as HTMLElement).innerHTML : (el as HTMLElement).innerText;
+          try {
+            const el = document.querySelector(sel);
+            return {
+              success: true,
+              value: !el ? null : fmt === "html" ? (el as HTMLElement).innerHTML : (el as HTMLElement).innerText,
+            };
+          } catch (error: unknown) {
+            return { success: false, error: error instanceof Error ? error.message : String(error) };
+          }
         },
         args: [selector, format],
       });
     });
-    return { data: results?.[0]?.result ?? null };
+    const injection = results?.[0];
+    if (injection && "error" in injection && injection.error) {
+      const error = injection.error;
+      throw new Error(typeof error === "object" && "message" in error ? String(error.message) : String(error));
+    }
+    const result = injection?.result;
+    if (!result) throw new Error("page content injection produced no result");
+    if (!result.success) throw new Error(result.error);
+    return { data: result.value ?? null };
   },
 
   async "page.reload"(args) {
     const tabId = args["tabId"] as number | undefined;
     const bypassCache = Boolean(args["bypassCache"]);
     if (!tabId) throw new Error("tabId is required");
+    await assertNativeTab(args, tabId);
+    if (isNativeTabQuarantined(tabId)) {
+      await chrome.tabs.reload(tabId, { bypassCache });
+      return { data: { tabId } };
+    }
     await withNativeTabOperation(tabId, async () => {
       await assertNativeTab(args, tabId);
       await chrome.tabs.reload(tabId, { bypassCache });
@@ -514,11 +555,14 @@ const handlers: Record<string, Handler> = {
       throw new Error("page.exec supports MAIN only; dynamic evaluation in ISOLATED is blocked by Manifest V3 CSP");
     }
     const expiresAt = Date.now() + timeoutMs;
+    let quarantine: (() => void) | undefined;
     const results = await withTimeout(
-      withNativeTabOperation(tabId, async () => {
+      withNativeTabOperation(tabId, async (operation) => {
         if (Date.now() >= expiresAt) throw new Error(`page.exec timed out after ${timeoutMs}ms`);
         await assertNativeTab(args, tabId);
         if (Date.now() >= expiresAt) throw new Error(`page.exec timed out after ${timeoutMs}ms`);
+        quarantine = operation.quarantine;
+        operation.bindToDocument();
         return chrome.scripting.executeScript({
           target: { tabId },
           world: "MAIN",
@@ -534,7 +578,8 @@ const handlers: Record<string, Handler> = {
         });
       }),
       timeoutMs,
-      "page.exec"
+      "page.exec",
+      () => quarantine?.()
     );
     const injection = results?.[0];
     if (injection && "error" in injection && injection.error) {
@@ -586,7 +631,7 @@ const handlers: Record<string, Handler> = {
         enabled: s.status === SCRIPT_STATUS_ENABLE,
         sort: s.sort,
         type: s.type,
-        runAt: s.metadata.runat?.[0] || "",
+        runAt: s.metadata["run-at"]?.[0] || "",
         createtime: s.createtime,
         updatetime: s.updatetime,
       })),
@@ -701,6 +746,7 @@ function connect() {
 }
 
 export function disconnect() {
+  stopNativeTabOperations();
   shouldReconnect = false;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
@@ -788,6 +834,7 @@ async function onMessage(envelope: Envelope) {
 
 // connect on load; the shim handles handshake with the daemon
 export function initNativeMessaging(svc: ScriptService) {
+  startNativeTabOperations();
   scriptService = svc;
   registerStatusListener();
   connect();

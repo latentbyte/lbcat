@@ -30,8 +30,10 @@ browser-control --browser zen-01 session list
 ## Same-profile agent window
 
 Register one dedicated normal window per connected profile. `agent-window create` opens an unfocused window with a
-pinned extension marker. To choose an existing window, inspect `agent-window list` (window IDs and state only), then
-explicitly run `agent-window designate <window-id>`. Designating a window grants access to its existing work tabs too.
+pinned extension marker. Only tabs created through task commands become eligible in a freshly created window;
+tabs inherited or replicated by the browser remain outside scope. To choose an existing window, inspect
+`agent-window list` (window IDs and state only), then explicitly run `agent-window designate <window-id>`.
+Designation grants access to the work tabs present at that moment, not tabs later moved into the window.
 Keep personal browsing in other windows. `agent-window clear` removes registration and all leases without closing tabs.
 
 Registration validates the marker's saved tab ID, window ID, and unique extension URL on each operation. Closing,
@@ -39,6 +41,9 @@ moving, or navigating the marker makes scope unavailable; stale numeric IDs neve
 Browser restoration may require explicit designation again. Missing scope fails with `AGENT_WINDOW_MISSING`, and the
 CLI invokes `notify.sh` once per outage to request operator setup. Successful scope validation clears the notification
 latch. No command falls back to the current personal window. SDK callers receive the error without desktop notification.
+Registrations predating explicit tab grants require operator re-designation to grant access to existing tabs.
+All extension marker pages remain protected, including markers from earlier registrations.
+`agent-window status --json` reports the connected extension's `extensionVersion` and `manifestVersion`.
 
 For workspace placement, move the chosen macOS window to an AeroSpace workspace such as `Agents`. Browser window IDs
 and AeroSpace window IDs are different; use the operator-selected OS ID with `aerospace move-node-to-workspace --window-id
@@ -79,6 +84,11 @@ setup, resume, or override commands to defeat a restriction without the user's i
 Different tabs run concurrently. Native page operations on the same tab run in order. A queued `page exec` that expires before
 execution does not run later; already-running JavaScript cannot be cancelled by its timeout. Tabs still share their
 browser profile's cookies and website state.
+An active timeout quarantines the tab: further page execution, content, and capture return `TAB_EXECUTION_PENDING`
+until the original execution settles or a new top-level document commits. Authorized `page reload` remains available
+for recovery. Subframe, hash, and history-state navigation do not clear quarantine. Queued work is rejected rather than
+carried into the new document; retry it explicitly. Internal task scopes recover expired sessions without bypassing pause
+or another task's ownership.
 
 Screenshots select capabilities automatically: Zen/Firefox use `tabs.captureTab`, including document-region capture for
 selectors and full pages; Chrome uses tab-targeted CDP when debugger permission is granted. Neither path activates tabs
@@ -86,6 +96,10 @@ or scrolls them. Without either capability, default screenshots fail with `BACKG
 Only explicitly authorized `page screenshot --foreground` enables visible capture, serialized per window, rate-limited across windows, and
 checks target focus before and after capture. The fallback restores scroll position, including after errors. External
 focus changes can make fallback captures fail.
+Foreground full-page capture stitches both horizontal and vertical overflow. Foreground selector capture requires the
+whole element to fit in the viewport after scrolling; otherwise it fails explicitly. It leaves the target tab active.
+JPEG quality applies to the final cropped or stitched image. Screenshot file output enforces `--max-pixels` against
+decoded bitmap dimensions and reports saved bitmap dimensions; raw screenshot JSON retains CSS region dimensions.
 
 Tab creation defaults inactive. `tabs focus --foreground` and `tabs create --active=true` explicitly opt into foreground
 activation. Screenshot `--focus-on-error` additionally requires `--foreground` to enable caller capture recovery.

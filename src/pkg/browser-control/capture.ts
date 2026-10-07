@@ -1,5 +1,8 @@
 import { withDebugger } from "@App/app/service/agent/service_worker/dom_cdp";
 import { BrowserControlScopeError } from "./agent-window";
+import { withNativeTabOperation } from "./tab-operation";
+
+export { withNativeTabOperation } from "./tab-operation";
 
 export type NativeScreenshotOptions = {
   selector?: string;
@@ -40,49 +43,64 @@ async function withOperation<T>(key: string, action: () => Promise<T>): Promise<
   }
 }
 
-export function withNativeTabOperation<T>(tabId: number, action: () => Promise<T>): Promise<T> {
-  return withOperation("tab-" + tabId, action);
-}
-
 export function withNativeWindowOperation<T>(windowId: number, action: () => Promise<T>): Promise<T> {
   return withOperation("window-" + windowId, action);
+}
+
+function readCaptureResult<T>(
+  injection: { result?: T | { error: string } | null; error?: unknown } | undefined
+): T | undefined {
+  const result = injection?.result;
+  const error =
+    injection?.error ?? (result && typeof result === "object" && "error" in result ? result.error : undefined);
+  if (error !== undefined) {
+    if (error instanceof Error) throw error;
+    const message = typeof error === "object" && error && "message" in error ? String(error.message) : String(error);
+    throw new Error(message);
+  }
+  return result == null ? undefined : (result as T);
 }
 
 async function captureArea(tabId: number, options: NativeScreenshotOptions): Promise<CaptureArea> {
   const [result] = await chrome.scripting.executeScript({
     target: { tabId },
     func: (selector: string | null, fullPage: boolean) => {
-      if (selector) {
-        const element = document.querySelector(selector);
-        if (!element) throw new Error("element not found: " + selector);
-        const rect = element.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) throw new Error("screenshot target has no visible area");
-        const x = Math.floor(rect.left + window.scrollX);
-        const y = Math.floor(rect.top + window.scrollY);
+      try {
+        if (selector) {
+          const element = document.querySelector(selector);
+          if (!element) throw new Error("element not found: " + selector);
+          const rect = element.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) throw new Error("screenshot target has no visible area");
+          const x = Math.floor(rect.left + window.scrollX);
+          const y = Math.floor(rect.top + window.scrollY);
+          return {
+            x,
+            y,
+            width: Math.ceil(rect.right + window.scrollX) - x,
+            height: Math.ceil(rect.bottom + window.scrollY) - y,
+          };
+        }
+        const root = document.documentElement;
+        const body = document.body;
         return {
-          x,
-          y,
-          width: Math.ceil(rect.right + window.scrollX) - x,
-          height: Math.ceil(rect.bottom + window.scrollY) - y,
+          x: fullPage ? 0 : window.scrollX,
+          y: fullPage ? 0 : window.scrollY,
+          width: fullPage ? Math.max(root.scrollWidth, body?.scrollWidth ?? 0, window.innerWidth) : window.innerWidth,
+          height: fullPage
+            ? Math.max(root.scrollHeight, body?.scrollHeight ?? 0, window.innerHeight)
+            : window.innerHeight,
         };
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
       }
-      const root = document.documentElement;
-      const body = document.body;
-      return {
-        x: fullPage ? 0 : window.scrollX,
-        y: fullPage ? 0 : window.scrollY,
-        width: fullPage ? Math.max(root.scrollWidth, body?.scrollWidth ?? 0, window.innerWidth) : window.innerWidth,
-        height: fullPage
-          ? Math.max(root.scrollHeight, body?.scrollHeight ?? 0, window.innerHeight)
-          : window.innerHeight,
-      };
     },
     args: [options.selector ?? null, Boolean(options.fullPage)],
   });
-  if (!result?.result || result.result.width <= 0 || result.result.height <= 0) {
+  const area = readCaptureResult<CaptureArea>(result);
+  if (!area || area.width <= 0 || area.height <= 0) {
     throw new Error("screenshot target has no visible area");
   }
-  return result.result;
+  return area;
 }
 
 export function captureNativeTab(
@@ -177,7 +195,7 @@ async function captureVisibleScreenshot(tabId: number, options: NativeScreenshot
       target: { tabId },
       func: () => ({ x: window.scrollX, y: window.scrollY }),
     });
-    scroll = position.result;
+    scroll = readCaptureResult<{ x: number; y: number }>(position);
   }
   try {
     await chrome.tabs.update(tabId, { active: true });
@@ -192,56 +210,77 @@ async function captureVisibleScreenshot(tabId: number, options: NativeScreenshot
       const [dimsResult] = await chrome.scripting.executeScript({
         target: { tabId },
         func: () => ({
-          scrollWidth: document.documentElement.scrollWidth,
-          scrollHeight: document.documentElement.scrollHeight,
+          scrollWidth: Math.max(
+            document.documentElement.scrollWidth,
+            document.body?.scrollWidth ?? 0,
+            window.innerWidth
+          ),
+          scrollHeight: Math.max(
+            document.documentElement.scrollHeight,
+            document.body?.scrollHeight ?? 0,
+            window.innerHeight
+          ),
           viewportWidth: window.innerWidth,
           viewportHeight: window.innerHeight,
           dpr: window.devicePixelRatio || 1,
         }),
       });
-      const dims = dimsResult.result as {
+      const dims = readCaptureResult<{
         scrollWidth: number;
         scrollHeight: number;
         viewportWidth: number;
         viewportHeight: number;
         dpr: number;
-      };
+      }>(dimsResult);
+      if (!dims) throw new Error("could not determine screenshot dimensions");
 
-      if (dims.scrollHeight <= dims.viewportHeight) {
+      if (dims.scrollHeight <= dims.viewportHeight && dims.scrollWidth <= dims.viewportWidth) {
         const dataUrl = await captureVisible(tabId, tab.windowId!, captureOpts);
         return { dataUrl, width: dims.viewportWidth, height: dims.viewportHeight };
       }
 
-      const captures: { y: number; dataUrl: string }[] = [];
+      const captures: { x: number; y: number; dataUrl: string }[] = [];
       for (let y = 0; y < dims.scrollHeight; y += dims.viewportHeight) {
-        const [scrollResult] = await chrome.scripting.executeScript({
-          target: { tabId },
-          func: (scrollY: number) => {
-            window.scrollTo(0, scrollY);
-            return window.scrollY;
-          },
-          args: [y],
-        });
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        const actualY = scrollResult.result ?? y;
-        if (captures.at(-1)?.y === actualY) break;
-        const dataUrl = await captureVisible(tabId, tab.windowId!, captureOpts);
-        captures.push({ y: actualY, dataUrl });
+        for (let x = 0; x < dims.scrollWidth; x += dims.viewportWidth) {
+          const [scrollResult] = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: (scrollX: number, scrollY: number) => {
+              window.scrollTo(scrollX, scrollY);
+              return { x: window.scrollX, y: window.scrollY };
+            },
+            args: [x, y],
+          });
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          const position = readCaptureResult<{ x: number; y: number }>(scrollResult);
+          if (!position) throw new Error("could not determine screenshot scroll position");
+          if (
+            position.x > x ||
+            position.x + dims.viewportWidth < Math.min(x + dims.viewportWidth, dims.scrollWidth) ||
+            position.y > y ||
+            position.y + dims.viewportHeight < Math.min(y + dims.viewportHeight, dims.scrollHeight)
+          ) {
+            throw new Error("could not scroll to the full screenshot area");
+          }
+          const dataUrl = await captureVisible(tabId, tab.windowId!, captureOpts);
+          captures.push({ ...position, dataUrl });
+        }
       }
 
       const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
       const [stitchResult] = await chrome.scripting.executeScript({
         target: { tabId },
         func: async (
-          capturesList: { y: number; dataUrl: string }[],
+          capturesList: { x: number; y: number; dataUrl: string }[],
+          totalWidth: number,
           totalHeight: number,
           vpWidth: number,
           vpHeight: number,
           dpr: number,
-          mime: string
+          mime: string,
+          encodeQuality: number
         ) => {
           const canvas = document.createElement("canvas");
-          canvas.width = Math.round(vpWidth * dpr);
+          canvas.width = Math.round(totalWidth * dpr);
           canvas.height = Math.round(totalHeight * dpr);
           const ctx = canvas.getContext("2d")!;
           for (const capture of capturesList) {
@@ -252,46 +291,71 @@ async function captureVisibleScreenshot(tabId: number, options: NativeScreenshot
               img.onerror = rej;
             });
             const sliceH = Math.min(vpHeight, totalHeight - capture.y);
+            const sliceW = Math.min(vpWidth, totalWidth - capture.x);
             ctx.drawImage(
               img,
               0,
               0,
-              Math.round(vpWidth * dpr),
+              Math.round(sliceW * dpr),
               Math.round(sliceH * dpr),
-              0,
+              Math.round(capture.x * dpr),
               Math.round(capture.y * dpr),
-              Math.round(vpWidth * dpr),
+              Math.round(sliceW * dpr),
               Math.round(sliceH * dpr)
             );
           }
-          return canvas.toDataURL(mime);
+          return canvas.toDataURL(mime, mime === "image/jpeg" ? encodeQuality / 100 : undefined);
         },
-        args: [captures, dims.scrollHeight, dims.viewportWidth, dims.viewportHeight, dims.dpr, mimeType],
+        args: [
+          captures,
+          dims.scrollWidth,
+          dims.scrollHeight,
+          dims.viewportWidth,
+          dims.viewportHeight,
+          dims.dpr,
+          mimeType,
+          quality,
+        ],
       });
-      if (!stitchResult.result) throw new Error("could not stitch screenshot");
-      return { dataUrl: stitchResult.result, width: dims.viewportWidth, height: dims.scrollHeight };
+      const dataUrl = readCaptureResult<string>(stitchResult);
+      if (!dataUrl) throw new Error("could not stitch screenshot");
+      return { dataUrl, width: dims.scrollWidth, height: dims.scrollHeight };
     }
 
     if (selector) {
       const [rectResult] = await chrome.scripting.executeScript({
         target: { tabId },
         func: (sel: string) => {
-          const el = document.querySelector(sel);
-          if (!el) return null;
-          el.scrollIntoView({ block: "center", inline: "center" });
-          const r = el.getBoundingClientRect();
-          return {
-            x: Math.round(r.x),
-            y: Math.round(r.y),
-            width: Math.round(r.width),
-            height: Math.round(r.height),
-            dpr: window.devicePixelRatio || 1,
-          };
+          try {
+            const el = document.querySelector(sel);
+            if (!el) return null;
+            el.scrollIntoView({ block: "center", inline: "center" });
+            const r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) throw new Error("screenshot target has no visible area");
+            const x = Math.floor(r.x);
+            const y = Math.floor(r.y);
+            const width = Math.ceil(r.right) - x;
+            const height = Math.ceil(r.bottom) - y;
+            if (x < 0 || y < 0 || x + width > window.innerWidth || y + height > window.innerHeight) {
+              throw new Error(
+                "foreground screenshot cannot capture an element outside the viewport; use background capture"
+              );
+            }
+            return {
+              x,
+              y,
+              width,
+              height,
+              dpr: window.devicePixelRatio || 1,
+            };
+          } catch (error) {
+            return { error: error instanceof Error ? error.message : String(error) };
+          }
         },
         args: [selector],
       });
-      if (!rectResult.result) throw new Error(`element not found: ${selector}`);
-      const rect = rectResult.result as { x: number; y: number; width: number; height: number; dpr: number };
+      const rect = readCaptureResult<{ x: number; y: number; width: number; height: number; dpr: number }>(rectResult);
+      if (!rect) throw new Error(`element not found: ${selector}`);
 
       await new Promise((resolve) => setTimeout(resolve, 150));
       const dataUrl = await captureVisible(tabId, tab.windowId!, captureOpts);
@@ -299,7 +363,16 @@ async function captureVisibleScreenshot(tabId: number, options: NativeScreenshot
 
       const [cropResult] = await chrome.scripting.executeScript({
         target: { tabId },
-        func: async (src: string, rx: number, ry: number, rw: number, rh: number, dpr: number, mime: string) => {
+        func: async (
+          src: string,
+          rx: number,
+          ry: number,
+          rw: number,
+          rh: number,
+          dpr: number,
+          mime: string,
+          encodeQuality: number
+        ) => {
           const img = new Image();
           img.src = src;
           await new Promise((res, rej) => {
@@ -311,12 +384,13 @@ async function captureVisibleScreenshot(tabId: number, options: NativeScreenshot
           canvas.height = rh * dpr;
           const ctx = canvas.getContext("2d")!;
           ctx.drawImage(img, rx * dpr, ry * dpr, rw * dpr, rh * dpr, 0, 0, rw * dpr, rh * dpr);
-          return canvas.toDataURL(mime);
+          return canvas.toDataURL(mime, mime === "image/jpeg" ? encodeQuality / 100 : undefined);
         },
-        args: [dataUrl, rect.x, rect.y, rect.width, rect.height, rect.dpr, mimeType],
+        args: [dataUrl, rect.x, rect.y, rect.width, rect.height, rect.dpr, mimeType, quality],
       });
-      if (!cropResult.result) throw new Error("could not crop screenshot");
-      return { dataUrl: cropResult.result, width: rect.width, height: rect.height };
+      const cropped = readCaptureResult<string>(cropResult);
+      if (!cropped) throw new Error("could not crop screenshot");
+      return { dataUrl: cropped, width: rect.width, height: rect.height };
     }
 
     // 捕获当前可见视口
@@ -325,7 +399,7 @@ async function captureVisibleScreenshot(tabId: number, options: NativeScreenshot
       target: { tabId },
       func: () => ({ width: window.innerWidth, height: window.innerHeight }),
     });
-    const vp = vpResult.result as { width: number; height: number } | null;
+    const vp = readCaptureResult<{ width: number; height: number }>(vpResult);
     return { dataUrl, width: vp?.width || 0, height: vp?.height || 0 };
   } finally {
     if (scroll) {
