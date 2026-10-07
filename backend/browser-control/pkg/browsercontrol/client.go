@@ -220,7 +220,7 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 		}
 	}()
 	if wantsTabEvents(opts.Events) {
-		targets, err := c.browserTargets(ctx, targetOptions{BrowserID: opts.BrowserID, AllBrowsers: opts.AllBrowsers})
+		targets, err := (&daemonClient{cli: subscription}).browserTargets(ctx, targetOptions{BrowserID: opts.BrowserID, AllBrowsers: opts.AllBrowsers})
 		if err != nil {
 			if !opts.AllBrowsers || !wantsLifecycleEvents(opts.Events) {
 				return nil, err

@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -162,6 +163,106 @@ func TestSubscriptionCancelPreservesClient(t *testing.T) {
 		waitSubscriptionEvent(t, other, model.EventTypeTabFocused)
 		if _, err := client.Status(context.Background()); err != nil {
 			t.Fatalf("Status after subscription cancellation: %v", err)
+		}
+	})
+}
+
+func TestSubscriptionDiscoveryCancelPreservesClient(t *testing.T) {
+	t.Run("取消订阅的浏览器发现不会关闭主连接", func(t *testing.T) {
+		stateDir, err := os.MkdirTemp("/tmp", "bc-discovery-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(stateDir) })
+		t.Setenv("XDG_STATE_HOME", stateDir)
+		if err := os.MkdirAll(protocol.StateDir(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		listener, err := net.Listen("unix", protocol.SocketPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		statusStarted := make(chan struct{})
+		releaseStatus := make(chan struct{})
+		var releaseOnce sync.Once
+		release := func() { releaseOnce.Do(func() { close(releaseStatus) }) }
+		var held atomic.Bool
+		var workers sync.WaitGroup
+		accepted := make(chan struct{})
+		go func() {
+			defer close(accepted)
+			for {
+				conn, err := listener.Accept()
+				if err != nil {
+					return
+				}
+				workers.Add(1)
+				go func() {
+					defer workers.Done()
+					defer conn.Close()
+					if _, err := protocol.ReadFrame(conn); err != nil {
+						return
+					}
+					if err := protocol.WriteJSON(conn, &protocol.HandshakeAck{Type: protocol.MsgHandshakeAck, ConnID: "test-cli"}); err != nil {
+						return
+					}
+					for {
+						env, err := protocol.ReadEnvelope(conn)
+						if err != nil {
+							return
+						}
+						if held.CompareAndSwap(false, true) {
+							close(statusStarted)
+							<-releaseStatus
+						}
+						if err := protocol.WriteEnvelope(conn, &protocol.Envelope{ID: env.ID, Type: protocol.MsgResponse, Payload: json.RawMessage(`{"cmd":"status","data":{"pid":12,"connections":[]}}`)}); err != nil {
+							return
+						}
+					}
+				}()
+			}
+		}()
+		t.Cleanup(func() {
+			release()
+			_ = listener.Close()
+			<-accepted
+			workers.Wait()
+		})
+		client, err := New(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = client.Close() })
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() {
+			_, err := client.Subscribe(ctx, SubscribeOptions{Events: []model.EventType{model.EventTypeTabFocused}})
+			done <- err
+		}()
+		select {
+		case <-statusStarted:
+		case <-time.After(time.Second):
+			t.Fatal("subscription did not start browser discovery")
+		}
+		cancel()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("Subscribe error = %v, want context.Canceled", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("subscription discovery ignored cancellation")
+		}
+		release()
+		requestCtx, requestCancel := context.WithTimeout(context.Background(), time.Second)
+		defer requestCancel()
+		status, err := client.Status(requestCtx)
+		if err != nil {
+			t.Fatalf("Status after discovery cancellation: %v", err)
+		}
+		if status.PID != 12 {
+			t.Fatalf("Status PID = %d, want 12", status.PID)
 		}
 	})
 }
