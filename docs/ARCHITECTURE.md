@@ -233,7 +233,8 @@ class ScriptService {
     private readonly mq: IMessageQueue,        // broadcast bus
     private readonly valueService: ValueService,
     private readonly resourceService: ResourceService,
-    private readonly scriptDAO: ScriptDAO      // data access
+    private readonly scriptDAO: ScriptDAO,     // data access
+    private readonly prepareInstalledScript: (script: Script) => Promise<void>
   ) {}
 
   init() {
@@ -263,9 +264,10 @@ scriptDAO.enableCache();
 
 const resource = new ResourceService(this.api.group("resource"), this.mq); resource.init();
 const value    = new ValueService(this.api.group("value"), this.mq);
-const script   = new ScriptService(systemConfig, this.api.group("script"), this.mq, value, resource, scriptDAO);
+const script   = new ScriptService(systemConfig, this.api.group("script"), this.mq, value, resource, scriptDAO,
+                                  (script) => runtime.prepareInstalledScript(script));
 script.init();
-const runtime  = new RuntimeService(systemConfig, this.api.group("runtime"), this.offscreenSend, this.mq,
+const runtime: RuntimeService = new RuntimeService(systemConfig, this.api.group("runtime"), this.offscreenSend, this.mq,
                                     value, script, resource, scriptDAO, localStorageDAO); runtime.init();
 const popup    = new PopupService(this.api.group("popup"), this.mq, runtime, scriptDAO, systemConfig); popup.init();
 value.init(runtime, popup);   // late-bound cross deps resolved after construction
@@ -275,6 +277,10 @@ value.init(runtime, popup);   // late-bound cross deps resolved after constructi
 The `group("name")` call is what gives each service its action prefix (`resource/*`, `value/*`, `script/*`, …)
 on the single `serviceWorker` `Server`. Other contexts have their own managers (`OffscreenManager`,
 `SandboxManager`, `ScriptRuntime` for content/inject) following the same shape.
+
+`ScriptService` awaits the injected preparation callback before publishing `installScript` or returning install
+success. `RuntimeService.prepareInstalledScript` waits for runtime initialization, compiled-resource persistence,
+and enabled page-script registration. The broadcast then notifies observers; it does not trigger registration.
 
 ---
 

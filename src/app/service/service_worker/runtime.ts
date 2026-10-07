@@ -7,7 +7,7 @@ import type { Script, ScriptDAO, ScriptRunResource, ScriptSite, TScriptInfo } fr
 import { SCRIPT_STATUS_DISABLE, SCRIPT_STATUS_ENABLE, SCRIPT_TYPE_NORMAL } from "@App/app/repo/scripts";
 import { type ValueService } from "./value";
 import GMApi, { GMExternalDependencies } from "./gm_api/gm_api";
-import type { TDeleteScript, TEnableScript, TInstallScript, TSortedScript } from "../queue";
+import type { TDeleteScript, TEnableScript, TSortedScript } from "../queue";
 import { type ScriptService } from "./script";
 import { runScript, stopScript } from "../offscreen/client";
 import {
@@ -372,6 +372,21 @@ export class RuntimeService {
     await this.loadPageScript(script, apiScript!);
   }
 
+  public async prepareInstalledScript(script: Script): Promise<void> {
+    await this.initReady;
+    // 代码更新时脚本类别不会更改
+    if (script.type === SCRIPT_TYPE_NORMAL) {
+      if (script.status === SCRIPT_STATUS_ENABLE) {
+        await this.updateResourceOnScriptChange(script);
+      } else {
+        // 禁用脚本仍需编译资源，以便 Popup 显示
+        await this.buildAndSaveCompiledResourceFromScript(script, false);
+      }
+    } else {
+      bgScriptStorageNames.add(getStorageName(script));
+    }
+  }
+
   public async pushValueUpdate(script: Script, sendData: ValueUpdateDataEncoded) {
     try {
       // 前台腳本 （推送值到tab）
@@ -463,29 +478,6 @@ export class RuntimeService {
         }
       }
       await this.unregistryPageScripts(unregisteyUuids);
-    });
-
-    // 监听脚本安装
-    this.mq.subscribe<TInstallScript>("installScript", async (data) => {
-      const script = await this.scriptDAO.get(data.script.uuid);
-      if (!script) {
-        this.logger.error("script install failed, script not found", {
-          uuid: data.script.uuid,
-        });
-        return;
-      }
-      // 代码更新时脚本类别不会更改
-      if (script.type === SCRIPT_TYPE_NORMAL) {
-        const enable = script.status === SCRIPT_STATUS_ENABLE;
-        if (enable) {
-          await this.updateResourceOnScriptChange(script);
-        } else {
-          // 还是要建立 CompiledResoure, 否则 Popup 看不到 Script
-          await this.buildAndSaveCompiledResourceFromScript(script, false);
-        }
-      } else {
-        bgScriptStorageNames.add(getStorageName(script));
-      }
     });
 
     // 监听脚本删除
@@ -809,7 +801,7 @@ export class RuntimeService {
       originalUrlPatterns: scriptUrlPatterns === originalUrlPatterns ? null : originalUrlPatterns,
     } as CompiledResource;
 
-    this.compiledResourceDAO.save(result);
+    await this.compiledResourceDAO.save(result);
 
     return { compiledResource: result, jsCode, apiScript: registerScript };
   }
@@ -1570,12 +1562,14 @@ export class RuntimeService {
         await chrome.userScripts.update([registerScript]);
       } catch (e) {
         logger.error("update registerScript error", Logger.E(e));
+        throw e;
       }
     } else {
       try {
         await chrome.userScripts.register([registerScript]);
       } catch (e) {
         logger.error("registerScript error", Logger.E(e));
+        throw e;
       }
     }
   }

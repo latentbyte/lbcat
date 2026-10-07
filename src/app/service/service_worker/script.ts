@@ -81,7 +81,8 @@ export class ScriptService {
     private readonly mq: IMessageQueue,
     private readonly valueService: ValueService,
     private readonly resourceService: ResourceService,
-    private readonly scriptDAO: ScriptDAO
+    private readonly scriptDAO: ScriptDAO,
+    private readonly prepareInstalledScript: (script: Script) => Promise<void>
   ) {
     this.logger = LoggerCore.logger().with({ service: "script" });
     this.scriptCodeDAO.enableCache();
@@ -408,7 +409,8 @@ export class ScriptService {
     return <[boolean, ScriptInfo, Record<string, any>]>entry?.value;
   }
 
-  publishInstallScript(scriptFull: Script, options: any) {
+  async publishInstallScript(scriptFull: Script, options: Omit<TInstallScript, "script">): Promise<void> {
+    await this.prepareInstalledScript(scriptFull);
     const { uuid, type, status, name, namespace, origin, checkUpdateUrl, downloadUrl } = scriptFull;
     const script = { uuid, type, status, name, namespace, origin, checkUpdateUrl, downloadUrl } as TInstallScriptParams;
     return this.mq.publish<TInstallScript>("installScript", { script, ...options });
@@ -480,8 +482,6 @@ export class ScriptService {
           uuid: script.uuid,
           code: param.code,
         });
-        logger.info("install success");
-
         // Cache更新 & 下载资源
         await Promise.all([
           compiledResourceUpdatePromise,
@@ -489,9 +489,9 @@ export class ScriptService {
         ]);
         // 资源下载失败不阻止安装，失败不影响安装
 
-        // 广播一下
-        // Runtime 会负责更新 CompiledResource
-        this.publishInstallScript(script, { update, upsertBy });
+        // 等待运行时准备完成后再广播安装成功
+        await this.publishInstallScript(script, { update, upsertBy });
+        logger.info("install success");
 
         // 传回(由后台控制的)实际更新时间，让 editor 中的script能保持正确的更新时间
         return { update, updatetime: script.updatetime };
@@ -751,9 +751,9 @@ export class ScriptService {
     script = selfMetadataUpdate(script, "exclude", excludeSet);
     return this.scriptDAO
       .update(uuid, script)
-      .then(() => {
+      .then(async () => {
         // 广播一下
-        this.publishInstallScript(script, { update: true });
+        await this.publishInstallScript(script, { update: true });
         return true;
       })
       .catch((e) => {
@@ -773,9 +773,9 @@ export class ScriptService {
     script = selfMetadataUpdate(script, "exclude", excludeSet);
     return this.scriptDAO
       .update(uuid, script)
-      .then(() => {
+      .then(async () => {
         // 广播一下
-        this.publishInstallScript(script, { update: true });
+        await this.publishInstallScript(script, { update: true });
         return true;
       })
       .catch((e) => {
@@ -795,9 +795,9 @@ export class ScriptService {
     script = selfMetadataUpdate(script, "match", matchSet);
     return this.scriptDAO
       .update(uuid, script)
-      .then(() => {
+      .then(async () => {
         // 广播一下
-        this.publishInstallScript(script, { update: true });
+        await this.publishInstallScript(script, { update: true });
         return true;
       })
       .catch((e) => {
@@ -1396,9 +1396,9 @@ export class ScriptService {
     script = selfMetadataUpdate(script, key, valueSet);
     return this.scriptDAO
       .update(uuid, script)
-      .then(() => {
+      .then(async () => {
         // 广播一下
-        this.mq.publish<TInstallScript>("installScript", { script, update: true });
+        await this.publishInstallScript(script, { update: true });
         return true;
       })
       .catch((e) => {
