@@ -19,15 +19,16 @@ export function resolveAgentEnabled({ isDev, isBeta, envValue }) {
 }
 
 /**
- * 正式版本不提供 agent，移除仅 agent 使用的 debugger 权限；
- * 其余权限保持不变。启用 agent 时原样返回，禁用时返回新对象，不修改入参。
+ * 正式版本不提供 agent；Firefox 不支持 debugger，均移除该权限。
+ * 其余权限保持不变，不修改入参。
  * @template {{ permissions?: string[] }} T
  * @param {T} manifest
  * @param {boolean} agentEnabled
+ * @param {string} [targetBrowser="chrome"]
  * @returns {T}
  */
-export function applyAgentManifest(manifest, agentEnabled) {
-  if (agentEnabled) return manifest;
+export function applyAgentManifest(manifest, agentEnabled, targetBrowser = "chrome") {
+  if (agentEnabled && targetBrowser !== "firefox") return manifest;
   return {
     ...manifest,
     permissions: (manifest.permissions || []).filter((permission) => permission !== "debugger"),

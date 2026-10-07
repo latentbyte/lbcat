@@ -86,7 +86,11 @@ execSync("pnpm run build", { stdio: "inherit" });
 // 处理firefox和chrome的zip压缩包
 
 // 浅拷贝防止后续修改
-const firefoxManifest = applyAgentManifest({ ...manifest, background: { ...manifest.background } }, agentEnabled);
+const firefoxManifest = applyAgentManifest(
+  { ...manifest, background: { ...manifest.background } },
+  agentEnabled,
+  "firefox"
+);
 const chromeManifest = applyAgentManifest({ ...manifest, background: { ...manifest.background } }, agentEnabled);
 
 chromeManifest.optional_permissions = chromeManifest.optional_permissions.filter((val) => val !== "userScripts");

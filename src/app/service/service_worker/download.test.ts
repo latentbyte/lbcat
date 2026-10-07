@@ -214,4 +214,58 @@ describe("startDownload", () => {
     expect(chrome.downloads.onChanged.hasListeners()).toBe(false);
     expect(chrome.downloads.onDeterminingFilename.hasListeners()).toBe(false);
   });
+
+  describe("Firefox 不支持 onDeterminingFilename 时", () => {
+    const filenameEvent = chrome.downloads.onDeterminingFilename;
+
+    beforeEach(() => {
+      Object.defineProperty(chrome.downloads, "onDeterminingFilename", { value: undefined, configurable: true });
+      downloadsMock.autoComplete = false;
+    });
+
+    afterEach(async () => {
+      Object.defineProperty(chrome.downloads, "onDeterminingFilename", { value: filenameEvent, configurable: true });
+      await detachDownloadCallback(1);
+    });
+
+    it("没有待跟踪下载时可以卸载监听", async () => {
+      await expect(detachDownloadCallback()).resolves.toBeUndefined();
+    });
+
+    it.each([
+      { state: "complete", error: undefined },
+      { state: "interrupted", error: "NETWORK_FAILED" },
+      { state: "save_cancelled", error: "USER_CANCELED" },
+    ] as const)("下载状态为 $state 时仍通知回调并卸载监听", async ({ state, error }) => {
+      const callback = vi.fn<(o: DownloadCallback) => void>();
+      const options = {
+        url: "blob:https://scriptcat.test/firefox",
+        filename: "exports/firefox.zip",
+        conflictAction: "overwrite",
+      } as const;
+      const download = vi.spyOn(chrome.downloads, "download");
+      const id = await startDownload(options, callback);
+
+      expect(id).toBe(1);
+      expect(download).toHaveBeenCalledWith(options);
+      expect(chrome.downloads.onChanged.hasListeners()).toBe(true);
+
+      downloadsMock.items.get(id!)!.totalBytes = 128;
+      if (error) downloadsMock.interrupt(id!, error);
+      else downloadsMock.complete(id!);
+      await waitForQueue();
+
+      expect(callback).toHaveBeenCalledExactlyOnceWith({ downloadId: id, state, loaded: 128, total: 128 });
+      expect(chrome.downloads.onChanged.hasListeners()).toBe(false);
+      expect(console.error).not.toHaveBeenCalled();
+    });
+
+    it("download API 失败时仍返回 undefined 并卸载监听", async () => {
+      const id = await startDownload({} as chrome.downloads.DownloadOptions);
+
+      expect(id).toBeUndefined();
+      expect(console.error).toHaveBeenCalled();
+      expect(chrome.downloads.onChanged.hasListeners()).toBe(false);
+    });
+  });
 });

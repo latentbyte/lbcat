@@ -229,7 +229,11 @@ export default {
           to: `${dist}/ext`,
           // 将manifest.json内版本号替换为package.json中版本号
           transform(content: Buffer) {
-            const manifest = applyAgentManifest(JSON.parse(content.toString()) as ScriptCatManifest, enableAgent);
+            const manifest = applyAgentManifest(
+              JSON.parse(content.toString()) as ScriptCatManifest,
+              enableAgent,
+              targetBrowser
+            );
             manifest.version = versionInfo.manifestVersion;
             if (versionInfo.versionName) {
               manifest.version_name = versionInfo.versionName;

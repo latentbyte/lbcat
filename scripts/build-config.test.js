@@ -47,6 +47,19 @@ describe("构建配置 - agent 开关", () => {
       expect(result.permissions).toContain("debugger");
     });
 
+    it("Firefox 启用 agent 时也不请求不支持的 debugger 权限", () => {
+      const manifest = makeManifest();
+      const result = applyAgentManifest(manifest, true, "firefox");
+      expect(result.permissions).toEqual(["tabs", "storage"]);
+      expect(result.optional_permissions).toEqual(["background", "userScripts"]);
+      expect(manifest.permissions).toContain("debugger");
+    });
+
+    it("Chrome 启用 agent 时保留 debugger 权限", () => {
+      const manifest = makeManifest();
+      expect(applyAgentManifest(manifest, true, "chrome")).toBe(manifest);
+    });
+
     it("禁用 agent 时移除 debugger 权限", () => {
       const result = applyAgentManifest(makeManifest(), false);
       expect(result.permissions).not.toContain("debugger");

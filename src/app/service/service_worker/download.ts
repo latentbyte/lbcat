@@ -161,15 +161,12 @@ const onChangedListener = (downloadDelta: chrome.downloads.DownloadDelta) => {
   });
 };
 
-const attachDownloadCallback = async () => {
-  try {
-    // 先移除再注册，防止 service worker 重载或测试重复导入时产生重复监听。
-    chrome.downloads.onDeterminingFilename.removeListener(onDeterminingFilename);
-    chrome.downloads.onChanged.removeListener(onChangedListener);
-  } catch {
-    // ignored
-  }
-  chrome.downloads.onDeterminingFilename.addListener(onDeterminingFilename);
+const attachDownloadCallback = () => {
+  // Firefox 不支持 onDeterminingFilename，文件名和冲突策略由 downloadOptions 提供。
+  // 先移除再注册，防止 service worker 重载或测试重复导入时产生重复监听。
+  chrome.downloads.onDeterminingFilename?.removeListener(onDeterminingFilename);
+  chrome.downloads.onChanged.removeListener(onChangedListener);
+  chrome.downloads.onDeterminingFilename?.addListener(onDeterminingFilename);
   chrome.downloads.onChanged.addListener(onChangedListener);
 };
 
@@ -180,7 +177,7 @@ export const detachDownloadCallback = async (downloadId: number | undefined = un
   }
   if (requestMap.size === 0) {
     // 没有待跟踪下载时及时卸载监听，减少后台常驻逻辑和误处理其他下载的风险。
-    chrome.downloads.onDeterminingFilename.removeListener(onDeterminingFilename);
+    chrome.downloads.onDeterminingFilename?.removeListener(onDeterminingFilename);
     chrome.downloads.onChanged.removeListener(onChangedListener);
   }
 };
