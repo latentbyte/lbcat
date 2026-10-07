@@ -38,13 +38,13 @@ func main() {
 		cfg.ManifestVersion = v
 	}
 
-	// chrome passes the extension origin as the first arg after the binary
-	// e.g., lbcat-shim chrome-extension://abcdef1234/
+	// Chrome 传入来源和可选窗口句柄，Firefox 传入清单路径和扩展 ID
 	if len(os.Args) > 1 {
 		arg := os.Args[1]
-		cfg.ExtensionID = arg
 		if strings.HasPrefix(arg, "chrome-extension://") {
-			cfg.ManifestVersion = 2 // MV2 uses background page which keeps NM alive
+			cfg.ExtensionID = arg
+		} else if len(os.Args) > 2 {
+			cfg.ExtensionID = os.Args[2]
 		}
 	}
 

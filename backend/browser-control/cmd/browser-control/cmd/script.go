@@ -805,22 +805,8 @@ Examples:
 		fmt.Fprintf(os.Stderr, "Watching for changes in: %s\n", targetPath)
 		fmt.Fprintf(os.Stderr, "Press Ctrl+C to stop\n\n")
 
-		// debounce map: file -> last event time
-		debounceMap := make(map[string]time.Time)
-		var debounceMu sync.Mutex
-
 		// process file change
 		processFile := func(path string) {
-			debounceMu.Lock()
-			lastEvent, exists := debounceMap[path]
-			now := time.Now()
-			if exists && now.Sub(lastEvent) < time.Duration(debounce)*time.Second {
-				debounceMu.Unlock()
-				return // skip, too soon
-			}
-			debounceMap[path] = now
-			debounceMu.Unlock()
-
 			// push the file
 			fmt.Fprintf(os.Stderr, "Pushing %s...\n", filepath.Base(path))
 
@@ -843,9 +829,38 @@ Examples:
 			}
 		}
 
+		// 每个文件在最后一次编辑后推送，单次推送完成后再处理后续任务
+		pending := make(map[string]time.Time)
+		timer := time.NewTimer(time.Hour)
+		timer.Stop()
+		defer timer.Stop()
+		resetTimer := func() {
+			timer.Stop()
+			var earliest time.Time
+			for _, deadline := range pending {
+				if earliest.IsZero() || deadline.Before(earliest) {
+					earliest = deadline
+				}
+			}
+			if !earliest.IsZero() {
+				timer.Reset(time.Until(earliest))
+			}
+		}
+
 		// watch loop
 		for {
 			select {
+			case <-cmd.Context().Done():
+				return cmd.Context().Err()
+			case <-timer.C:
+				now := time.Now()
+				for path, deadline := range pending {
+					if !deadline.After(now) {
+						delete(pending, path)
+						processFile(path)
+					}
+				}
+				resetTimer()
 			case event, ok := <-watcher.Events:
 				if !ok {
 					return nil
@@ -859,7 +874,8 @@ Examples:
 				// process write and create events
 				if event.Op&fsnotify.Write == fsnotify.Write ||
 					event.Op&fsnotify.Create == fsnotify.Create {
-					go processFile(event.Name)
+					pending[event.Name] = time.Now().Add(time.Duration(debounce) * time.Second)
+					resetTimer()
 				}
 
 			case err, ok := <-watcher.Errors:

@@ -289,18 +289,14 @@ var pageScreenshotCmd = &cobra.Command{
 				if err != nil {
 					return fmt.Errorf("decoding screenshot data: %w", err)
 				}
-				outWidth := result.Data.Width
-				outHeight := result.Data.Height
-				if maxPixels > 0 && outWidth*outHeight > maxPixels {
-					decoded, outWidth, outHeight, err = resizeImage(decoded, format, quality, maxPixels, outWidth, outHeight)
-					if err != nil {
-						return fmt.Errorf("resizing screenshot: %w", err)
-					}
+				decoded, outWidth, outHeight, err := resizeImage(decoded, format, quality, maxPixels)
+				if err != nil {
+					return fmt.Errorf("resizing screenshot: %w", err)
 				}
 				if err := os.WriteFile(output, decoded, 0o644); err != nil {
 					return fmt.Errorf("writing screenshot: %w", err)
 				}
-				fmt.Printf("screenshot saved to %s (%dx%d)\n", output, outWidth, outHeight)
+				fmt.Printf("screenshot saved to %s (%dx%d bitmap pixels)\n", output, outWidth, outHeight)
 			} else {
 				return fmt.Errorf("unexpected data URL format")
 			}
@@ -428,15 +424,23 @@ func base64Decode(s string) ([]byte, error) {
 
 // resizeImage scales imageData down so total pixels stay within maxPixels, preserving aspect ratio.
 // format is "png" or "jpeg"; quality is used only for jpeg output.
-func resizeImage(imageData []byte, format string, quality, maxPixels, origWidth, origHeight int) ([]byte, int, int, error) {
+func resizeImage(imageData []byte, format string, quality, maxPixels int) ([]byte, int, int, error) {
+	config, _, err := image.DecodeConfig(bytes.NewReader(imageData))
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("decoding image dimensions: %w", err)
+	}
+	origWidth, origHeight := config.Width, config.Height
+	if maxPixels <= 0 || float64(origWidth)*float64(origHeight) <= float64(maxPixels) {
+		return imageData, origWidth, origHeight, nil
+	}
 	src, _, err := image.Decode(bytes.NewReader(imageData))
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("decoding image: %w", err)
 	}
 	// scale = sqrt(maxPixels / totalPixels), applied to both dimensions
-	scale := math.Sqrt(float64(maxPixels) / float64(origWidth*origHeight))
-	newWidth := int(float64(origWidth) * scale)
-	newHeight := int(float64(origHeight) * scale)
+	scale := math.Sqrt(float64(maxPixels) / (float64(origWidth) * float64(origHeight)))
+	newWidth := min(maxPixels, max(1, int(float64(origWidth)*scale)))
+	newHeight := min(maxPixels/newWidth, max(1, int(float64(origHeight)*scale)))
 	dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
 	draw.BiLinear.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
 	var buf bytes.Buffer

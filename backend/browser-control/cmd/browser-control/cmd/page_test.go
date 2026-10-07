@@ -1,11 +1,18 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"net"
 	"os"
+	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +20,72 @@ import (
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 	"github.com/spf13/cobra"
 )
+
+func TestScreenshotFileUsesBitmapPixelLimit(t *testing.T) {
+	for _, test := range []struct {
+		name, format                              string
+		width, height, cssWidth, cssHeight, limit int
+	}{
+		{"一倍像素密度未超限保留原图", "png", 200, 100, 200, 100, 30000},
+		{"二倍像素密度按位图缩放PNG", "png", 400, 200, 200, 100, 30000},
+		{"二倍像素密度按位图缩放JPEG", "jpeg", 400, 200, 200, 100, 30000},
+		{"CSS尺寸超限时仍按位图比例缩放", "png", 400, 200, 200, 100, 10000},
+		{"禁用限制时保留设备像素", "png", 400, 200, 200, 100, 0},
+		{"极窄图片缩放后至少保留一像素", "png", 1, 1000, 1, 1000, 10},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var source bytes.Buffer
+			bitmap := image.NewRGBA(image.Rect(0, 0, test.width, test.height))
+			var err error
+			if test.format == "jpeg" {
+				err = jpeg.Encode(&source, bitmap, nil)
+			} else {
+				err = png.Encode(&source, bitmap)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			output := filepath.Join(t.TempDir(), "screenshot."+test.format)
+			for name, value := range map[string]string{"output": output, "format": test.format, "max-pixels": strconv.Itoa(test.limit)} {
+				flag := pageScreenshotCmd.Flags().Lookup(name)
+				previous := flag.Value.String()
+				if err := flag.Value.Set(value); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = flag.Value.Set(previous) })
+			}
+			response, err := json.Marshal(map[string]any{"data": map[string]any{
+				"dataUrl": "data:image/" + test.format + ";base64," + base64.StdEncoding.EncodeToString(source.Bytes()),
+				"width":   test.cssWidth, "height": test.cssHeight,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := startPageCommandDaemon(t, map[string]json.RawMessage{"page.screenshot": response})
+			if err := pageScreenshotCmd.RunE(pageScreenshotCmd, []string{"123"}); err != nil {
+				t.Fatal(err)
+			}
+			waitPageCommandRequests(t, result)
+			data, err := os.ReadFile(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config, _, err := image.DecodeConfig(bytes.NewReader(data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.limit > 0 && config.Width*config.Height > test.limit {
+				t.Fatalf("bitmap = %dx%d, exceeds %d pixels", config.Width, config.Height, test.limit)
+			}
+			if (test.limit == 0 || test.width*test.height <= test.limit) && !bytes.Equal(data, source.Bytes()) {
+				t.Fatal("image below limit was re-encoded")
+			}
+			if config.Width < 1 || config.Height < 1 {
+				t.Fatal("empty image")
+			}
+		})
+	}
+}
 
 type fakeRequestClient struct {
 	responses map[string]json.RawMessage
