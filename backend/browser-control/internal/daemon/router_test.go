@@ -460,9 +460,10 @@ func TestRouterDaemonStatus(t *testing.T) {
 	var resp struct {
 		Cmd  string `json:"cmd"`
 		Data struct {
-			PID         int             `json:"pid"`
-			Socket      string          `json:"socket"`
-			Connections json.RawMessage `json:"connections"`
+			PID          int             `json:"pid"`
+			Capabilities []string        `json:"capabilities"`
+			Socket       string          `json:"socket"`
+			Connections  json.RawMessage `json:"connections"`
 		} `json:"data"`
 	}
 	json.Unmarshal(got.Payload, &resp)
@@ -478,7 +479,100 @@ func TestRouterDaemonStatus(t *testing.T) {
 		Role string `json:"role"`
 	}
 	json.Unmarshal(resp.Data.Connections, &conns)
+	if len(resp.Data.Capabilities) != 1 || resp.Data.Capabilities[0] != "switcher-tabs" {
+		t.Fatalf("capabilities = %#v", resp.Data.Capabilities)
+	}
 	if len(conns) < 2 {
 		t.Errorf("expected at least 2 connections, got %d", len(conns))
+	}
+}
+
+func TestRouterSwitcherSubscription(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		response     string
+		cleanup      string
+		otherBrowser bool
+		wrongSource  bool
+		pending      bool
+		want         bool
+	}{
+		{name: "仅成功订阅的客户端接收普通标签事件", response: `{"cmd":"switcher.tabs.subscribe","data":{"events":["onCreated"]}}`, want: true},
+		{name: "等待订阅响应不能授权", pending: true},
+		{name: "失败订阅不能授权", response: `{"cmd":"switcher.tabs.subscribe","error":{"code":"DENIED"}}`},
+		{name: "畸形响应不能授权", response: `{"cmd":"switcher.tabs.subscribe"}`},
+		{name: "其他命令响应不能授权", response: `{"cmd":"tabs.subscribe","data":{}}`},
+		{name: "客户端断开清除订阅", response: `{"cmd":"switcher.tabs.subscribe","data":{}}`, cleanup: "cli"},
+		{name: "浏览器断开清除订阅", response: `{"cmd":"switcher.tabs.subscribe","data":{}}`, cleanup: "browser"},
+		{name: "订阅只授权指定浏览器", response: `{"cmd":"switcher.tabs.subscribe","data":{}}`, otherBrowser: true},
+		{name: "其他来源不能冒充成功响应", response: `{"cmd":"switcher.tabs.subscribe","data":{}}`, wrongSource: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reg := NewRegistry()
+			router := NewRouter(reg)
+			cliLocal, cliRemote := pipePair(t)
+			subscriber := reg.Add(cliLocal, &protocol.Handshake{Role: protocol.RoleCLI})
+			agentLocal, agentRemote := pipePair(t)
+			agent := reg.Add(agentLocal, &protocol.Handshake{Role: protocol.RoleCLI})
+			browserLocal, browserRemote := pipePair(t)
+			browser := reg.Add(browserLocal, &protocol.Handshake{Role: protocol.RoleBrowser, Browser: "firefox"})
+			otherLocal, _ := pipePair(t)
+			other := reg.Add(otherLocal, &protocol.Handshake{Role: protocol.RoleBrowser, Browser: "chrome"})
+			for _, conn := range []*Conn{subscriber, agent, browser, other} {
+				t.Cleanup(func() { _ = conn.Close() })
+			}
+			browserRead := readEnvelopeAsync(browserRemote)
+			if err := router.Route(subscriber, &protocol.Envelope{ID: "subscribe", Type: protocol.MsgRequest, Target: browser.ID, Payload: json.RawMessage(`{"cmd":"switcher.tabs.subscribe"}`)}); err != nil {
+				t.Fatal(err)
+			}
+			waitEnvelope(t, browserRead)
+			responseSource := browser
+			if test.wrongSource {
+				responseSource = other
+			} else if !test.pending {
+				responseRead := readEnvelopeAsync(cliRemote)
+				if err := router.Route(responseSource, &protocol.Envelope{ID: "subscribe", Type: protocol.MsgResponse, Payload: json.RawMessage(test.response)}); err != nil {
+					t.Fatal(err)
+				}
+				waitEnvelope(t, responseRead)
+			}
+			if test.wrongSource {
+				// 正确浏览器尚未应答，冒充响应也不能转发或授权
+				if err := router.Route(responseSource, &protocol.Envelope{ID: "subscribe", Type: protocol.MsgResponse, Payload: json.RawMessage(test.response)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.cleanup == "cli" {
+				router.ClearPending(subscriber.ID)
+			}
+			if test.cleanup == "browser" {
+				router.ClearPending(browser.ID)
+			}
+			eventSource := browser
+			if test.otherBrowser {
+				eventSource = other
+			}
+			subscriberRead := readEnvelopeAsync(cliRemote)
+			agentRead := readEnvelopeAsync(agentRemote)
+			if err := router.Route(eventSource, &protocol.Envelope{ID: "switcher-event", Type: protocol.MsgEvent, Payload: json.RawMessage(`{"cmd":"switcher.tabs.event","data":{"event":"onCreated"}}`)}); err != nil {
+				t.Fatal(err)
+			}
+			if test.want {
+				if got := waitEnvelope(t, subscriberRead); got.ID != "switcher-event" {
+					t.Fatalf("event = %#v", got)
+				}
+			} else {
+				select {
+				case got := <-subscriberRead:
+					t.Fatalf("unauthorized event = %#v", got)
+				case <-time.After(40 * time.Millisecond):
+				}
+			}
+			select {
+			case got := <-agentRead:
+				t.Fatalf("agent received ordinary tab event = %#v", got)
+			case <-time.After(40 * time.Millisecond):
+			}
+		})
 	}
 }

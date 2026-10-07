@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -27,6 +28,32 @@ type Client interface {
 
 // New connects to the Browser Control daemon through the default Unix socket
 func New(ctx context.Context) (Client, error) {
+	client, err := newClient(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+// NewSwitcher 连接供人工标签切换器使用的窄接口，不授予页面内容访问权限
+func NewSwitcher(ctx context.Context) (Client, error) {
+	client, err := newClient(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	status, err := client.Status(ctx)
+	if err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("verifying switcher event isolation: %w", err)
+	}
+	if !slices.Contains(status.Capabilities, "switcher-tabs") {
+		_ = client.Close()
+		return nil, errors.New("daemon does not support isolated switcher tab events; upgrade browser-control daemon")
+	}
+	return client, nil
+}
+
+func newClient(ctx context.Context, switcher bool) (*daemonClient, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -34,7 +61,7 @@ func New(ctx context.Context) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &daemonClient{cli: c}, nil
+	return &daemonClient{cli: c, switcher: switcher}, nil
 }
 
 // ListTabsOptions controls tab listing
@@ -74,9 +101,10 @@ type SubscribeOptions struct {
 
 // Status reports daemon and browser connection state
 type Status struct {
-	PID      int             `json:"pid"`
-	Socket   string          `json:"socket"`
-	Browsers []BrowserStatus `json:"browsers"`
+	PID          int             `json:"pid"`
+	Socket       string          `json:"socket"`
+	Browsers     []BrowserStatus `json:"browsers"`
+	Capabilities []string        `json:"capabilities,omitempty"`
 }
 
 // BrowserStatus reports one connected browser
@@ -88,9 +116,17 @@ type BrowserStatus struct {
 
 type daemonClient struct {
 	cli           *internalcli.Client
+	switcher      bool
 	mu            sync.Mutex
 	closed        bool
 	subscriptions map[*internalcli.Client]context.CancelFunc
+}
+
+func (c *daemonClient) tabCommand(operation string) string {
+	if c.switcher {
+		return "switcher.tabs." + operation
+	}
+	return "tabs." + operation
 }
 
 func (c *daemonClient) ListTabs(ctx context.Context, opts ListTabsOptions) ([]model.Tab, error) {
@@ -112,7 +148,7 @@ func (c *daemonClient) ListTabs(ctx context.Context, opts ListTabsOptions) ([]mo
 		cli.PersonalTabID = opts.PersonalTabID
 		cli.NotifyMissingWindow = opts.NotifyMissingWindow
 		resp, err := cli.RequestContext(ctx, string(target.ID), internalcli.ExtCommand{
-			Cmd:  "tabs.list",
+			Cmd:  c.tabCommand("list"),
 			Args: map[string]any{"query": map[string]any{}},
 		})
 		if err != nil {
@@ -172,14 +208,18 @@ func (c *daemonClient) FocusTab(ctx context.Context, req FocusTabRequest) (Focus
 	if req.BrowserID == "" {
 		return FocusTabResult{}, errors.New("browserId is required")
 	}
-	args := map[string]any{"tabId": req.TabID, "sessionId": req.SessionID, "allowFocus": req.AllowFocus}
-	if req.PersonalTabID > 0 {
-		args["personalTabId"] = req.PersonalTabID
+	args := map[string]any{"tabId": req.TabID}
+	if !c.switcher {
+		args["sessionId"] = req.SessionID
+		args["allowFocus"] = req.AllowFocus
+		if req.PersonalTabID > 0 {
+			args["personalTabId"] = req.PersonalTabID
+		}
 	}
 	if req.WindowID > 0 {
 		args["windowId"] = req.WindowID
 	}
-	resp, err := c.cli.RequestContext(ctx, string(req.BrowserID), internalcli.ExtCommand{Cmd: "tabs.focus", Args: args})
+	resp, err := c.cli.RequestContext(ctx, string(req.BrowserID), internalcli.ExtCommand{Cmd: c.tabCommand("focus"), Args: args})
 	if err != nil {
 		return FocusTabResult{}, err
 	}
@@ -245,7 +285,7 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 		events := browserEventNames(opts.Events)
 		for _, target := range targets {
 			resp, err := subscription.RequestContext(ctx, string(target.ID), internalcli.ExtCommand{
-				Cmd:  "tabs.subscribe",
+				Cmd:  c.tabCommand("subscribe"),
 				Args: map[string]any{"events": events},
 			})
 			if err != nil {
@@ -271,7 +311,7 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 			if err != nil {
 				return
 			}
-			evt, ok := decodeEventEnvelope(env, opts.Events)
+			evt, ok := decodeEventEnvelope(env, opts.Events, c.tabCommand("event"))
 			if !ok {
 				continue
 			}
@@ -304,7 +344,7 @@ func (c *daemonClient) Status(ctx context.Context) (Status, error) {
 		return Status{}, decoded.Error
 	}
 
-	status := Status{PID: decoded.Data.PID, Socket: decoded.Data.Socket}
+	status := Status{PID: decoded.Data.PID, Socket: decoded.Data.Socket, Capabilities: decoded.Data.Capabilities}
 	for _, conn := range decoded.Data.Connections {
 		if conn.Role != string(protocol.RoleBrowser) {
 			continue
@@ -389,9 +429,10 @@ func decodeCommandResponse[T any](raw json.RawMessage, out *commandResponse[T]) 
 }
 
 type daemonStatus struct {
-	PID         int              `json:"pid"`
-	Socket      string           `json:"socket"`
-	Connections []daemonConnInfo `json:"connections"`
+	PID          int              `json:"pid"`
+	Socket       string           `json:"socket"`
+	Connections  []daemonConnInfo `json:"connections"`
+	Capabilities []string         `json:"capabilities"`
 }
 
 type daemonConnInfo struct {
@@ -464,7 +505,7 @@ func wantsLifecycleEvents(types []model.EventType) bool {
 	return false
 }
 
-func decodeEventEnvelope(env *protocol.Envelope, allowed []model.EventType) (model.Event, bool) {
+func decodeEventEnvelope(env *protocol.Envelope, allowed []model.EventType, tabEventCommand string) (model.Event, bool) {
 	if env == nil || env.Type != protocol.MsgEvent {
 		return model.Event{}, false
 	}
@@ -479,7 +520,7 @@ func decodeEventEnvelope(env *protocol.Envelope, allowed []model.EventType) (mod
 	var evt model.Event
 	var ok bool
 	switch payload.Cmd {
-	case "tabs.event":
+	case tabEventCommand:
 		evt, ok = decodeBrowserEvent(payload.Data)
 	case "browser.event":
 		evt, ok = decodeBrowserLifecycleEvent(payload.Data)

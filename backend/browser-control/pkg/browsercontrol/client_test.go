@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"reflect"
@@ -18,6 +19,11 @@ import (
 )
 
 func newSubscriptionTestBrowser(t *testing.T, respond ...func(json.RawMessage) json.RawMessage) (Client, func(model.EventType)) {
+	t.Helper()
+	return newNamespaceTestBrowser(t, New, "tabs.event", respond...)
+}
+
+func newNamespaceTestBrowser(t *testing.T, constructor func(context.Context) (Client, error), eventCommand string, respond ...func(json.RawMessage) json.RawMessage) (Client, func(model.EventType)) {
 	t.Helper()
 	stateDir, err := os.MkdirTemp("", "bc-sub-")
 	if err != nil {
@@ -78,13 +84,13 @@ func newSubscriptionTestBrowser(t *testing.T, respond ...func(json.RawMessage) j
 			writeMu.Unlock()
 		}
 	}()
-	client, err := New(context.Background())
+	client, err := constructor(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	return client, func(typ model.EventType) {
-		payload, err := json.Marshal(map[string]any{"cmd": "tabs.event", "data": model.Event{Type: typ}})
+		payload, err := json.Marshal(map[string]any{"cmd": eventCommand, "data": model.Event{Type: typ}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -416,7 +422,7 @@ func TestDecodeEventEnvelopeFillsSourceBrowser(t *testing.T) {
 		Type:    protocol.MsgEvent,
 		Source:  "zen-01",
 		Payload: raw,
-	}, []model.EventType{model.EventTypeTabFocused})
+	}, []model.EventType{model.EventTypeTabFocused}, "tabs.event")
 	if !ok {
 		t.Fatal("decodeEventEnvelope() ok = false")
 	}
@@ -453,7 +459,7 @@ func TestDecodeBrowserLifecycleEventEnvelope(t *testing.T) {
 	t.Parallel()
 
 	raw := json.RawMessage(`{"cmd":"browser.event","data":{"type":"browser-connected","browserId":"chrome-01","browserName":"chrome","appName":"Google Chrome"}}`)
-	evt, ok := decodeEventEnvelope(&protocol.Envelope{Type: protocol.MsgEvent, Source: "daemon", Payload: raw}, []model.EventType{model.EventTypeBrowserConnected})
+	evt, ok := decodeEventEnvelope(&protocol.Envelope{Type: protocol.MsgEvent, Source: "daemon", Payload: raw}, []model.EventType{model.EventTypeBrowserConnected}, "tabs.event")
 	if !ok {
 		t.Fatal("decodeEventEnvelope() ok = false")
 	}
@@ -469,7 +475,7 @@ func TestDecodeLegacyEventEnvelope(t *testing.T) {
 	t.Parallel()
 
 	raw := json.RawMessage(`{"cmd":"tabs.event","data":{"event":"onRemoved","tabId":123}}`)
-	evt, ok := decodeEventEnvelope(&protocol.Envelope{Type: protocol.MsgEvent, Source: "firefox-01", Payload: raw}, nil)
+	evt, ok := decodeEventEnvelope(&protocol.Envelope{Type: protocol.MsgEvent, Source: "firefox-01", Payload: raw}, nil, "tabs.event")
 	if !ok {
 		t.Fatal("decodeEventEnvelope() ok = false")
 	}
@@ -492,6 +498,9 @@ func TestSDKScope(t *testing.T) {
 				}
 				if err := json.Unmarshal(raw, &request); err != nil {
 					return json.RawMessage(`{"error":{"code":"BAD_REQUEST"}}`)
+				}
+				if request.Cmd != operation {
+					t.Errorf("default SDK command = %q, want %q", request.Cmd, operation)
 				}
 				requests <- request.Args
 				if request.Cmd == "tabs.list" {
@@ -527,6 +536,198 @@ func TestSDKScope(t *testing.T) {
 				}
 			case <-time.After(time.Second):
 				t.Fatal("request not delivered")
+			}
+		})
+	}
+}
+
+func TestSwitcherSDK(t *testing.T) {
+	for _, operation := range []string{"list", "focus", "subscribe"} {
+		t.Run("人工切换器使用专用命令"+operation, func(t *testing.T) {
+			requests := make(chan string, 4)
+			client, emit := newNamespaceTestBrowser(t, NewSwitcher, "switcher.tabs.event", func(raw json.RawMessage) json.RawMessage {
+				var request struct {
+					Cmd  string         `json:"cmd"`
+					Args map[string]any `json:"args"`
+				}
+				if err := json.Unmarshal(raw, &request); err != nil {
+					t.Error(err)
+				}
+				requests <- request.Cmd
+				for _, field := range []string{"sessionId", "personalTabId", "allowFocus"} {
+					if _, exists := request.Args[field]; exists {
+						t.Errorf("switcher sent agent authorization field %s", field)
+					}
+				}
+				if request.Cmd == "switcher.tabs.list" {
+					return json.RawMessage(`{"cmd":"switcher.tabs.list","data":[{"id":42,"windowId":7}]}`)
+				}
+				if request.Cmd == "switcher.tabs.subscribe" {
+					return json.RawMessage(`{"cmd":"switcher.tabs.subscribe","data":{"events":["onUpdated"]}}`)
+				}
+				return json.RawMessage(`{"cmd":"switcher.tabs.focus","data":{"tabId":42,"windowId":7}}`)
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			switch operation {
+			case "list":
+				tabs, err := client.ListTabs(ctx, ListTabsOptions{BrowserID: "zen-01"})
+				if err != nil || len(tabs) != 1 || tabs[0].BrowserID != "zen-01" {
+					t.Fatalf("tabs = %#v, err = %v", tabs, err)
+				}
+			case "focus":
+				focused, err := client.FocusTab(ctx, FocusTabRequest{BrowserID: "zen-01", TabID: 42})
+				if err != nil || focused.TabID != 42 {
+					t.Fatalf("focused = %#v, err = %v", focused, err)
+				}
+			case "subscribe":
+				events, err := client.Subscribe(ctx, SubscribeOptions{BrowserID: "zen-01"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				emit(model.EventTypeTabUpdated)
+				waitSubscriptionEvent(t, events, model.EventTypeTabUpdated)
+				cancel()
+				waitSubscriptionClosed(t, events)
+			}
+			select {
+			case command := <-requests:
+				if command != "switcher.tabs."+operation {
+					t.Fatalf("command = %q", command)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("command not sent")
+			}
+		})
+	}
+	t.Run("人工切换器拒绝已取消的连接", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := NewSwitcher(ctx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
+func TestDecodeEventNamespaces(t *testing.T) {
+	for _, namespace := range []string{"tabs.event", "switcher.tabs.event"} {
+		for _, command := range []string{"tabs.event", "switcher.tabs.event", "browser.event"} {
+			t.Run("事件命名空间隔离"+namespace+"/"+command, func(t *testing.T) {
+				event := model.Event{Type: model.EventTypeTabCreated}
+				if command == "browser.event" {
+					event.Type = model.EventTypeBrowserConnected
+				}
+				raw, err := json.Marshal(map[string]any{"cmd": command, "data": event})
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, ok := decodeEventEnvelope(&protocol.Envelope{Type: protocol.MsgEvent, Source: "zen-01", Payload: raw}, nil, namespace)
+				if want := command == namespace || command == "browser.event"; ok != want {
+					t.Fatalf("decoded = %v, want %v", ok, want)
+				}
+			})
+		}
+	}
+}
+
+func TestSwitcherDaemonCapability(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		constructor func(context.Context) (Client, error)
+		response    string
+		wantError   bool
+		wantStatus  bool
+	}{
+		{name: "旧守护进程缺少隔离能力时拒绝连接", constructor: NewSwitcher, response: `{"cmd":"status","data":{"pid":12}}`, wantError: true, wantStatus: true},
+		{name: "其他能力不能代替切换器隔离", constructor: NewSwitcher, response: `{"cmd":"status","data":{"capabilities":["agent-tabs"]}}`, wantError: true, wantStatus: true},
+		{name: "支持切换器隔离的守护进程允许连接", constructor: NewSwitcher, response: `{"cmd":"status","data":{"capabilities":["switcher-tabs"]}}`, wantStatus: true},
+		{name: "状态查询失败时关闭连接", constructor: NewSwitcher, response: `{"cmd":"error","error":{"code":"UNSUPPORTED"}}`, wantError: true, wantStatus: true},
+		{name: "默认代理连接保持旧守护进程兼容", constructor: New, response: `{"cmd":"status","data":{}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir, err := os.MkdirTemp("", "bc-cap-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(stateDir) })
+			t.Setenv("XDG_STATE_HOME", stateDir)
+			if err := os.MkdirAll(protocol.StateDir(), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			listener, err := net.Listen("unix", protocol.SocketPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = listener.Close() })
+			done := make(chan error, 1)
+			var requests atomic.Int32
+			go func() {
+				conn, err := listener.Accept()
+				if err != nil {
+					done <- err
+					return
+				}
+				defer conn.Close()
+				if _, err := protocol.ReadFrame(conn); err != nil {
+					done <- err
+					return
+				}
+				if err := protocol.WriteJSON(conn, &protocol.HandshakeAck{Type: protocol.MsgHandshakeAck, ConnID: "capability-client"}); err != nil {
+					done <- err
+					return
+				}
+				for {
+					env, err := protocol.ReadEnvelope(conn)
+					if err != nil {
+						done <- err
+						return
+					}
+					requests.Add(1)
+					var command struct {
+						Cmd string `json:"cmd"`
+					}
+					if err := json.Unmarshal(env.Payload, &command); err != nil {
+						done <- err
+						return
+					}
+					if env.Target != "daemon" || command.Cmd != "status" {
+						done <- errors.New("unexpected command before capability verification")
+						return
+					}
+					if err := protocol.WriteEnvelope(conn, &protocol.Envelope{ID: env.ID, Type: protocol.MsgResponse, Payload: json.RawMessage(test.response)}); err != nil {
+						done <- err
+						return
+					}
+				}
+			}()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			client, err := test.constructor(ctx)
+			if client != nil && !test.wantError && test.wantStatus {
+				status, statusErr := client.Status(ctx)
+				if statusErr != nil || !reflect.DeepEqual(status.Capabilities, []string{"switcher-tabs"}) {
+					t.Errorf("status = %#v, error = %v", status, statusErr)
+				}
+			}
+			if client != nil {
+				_ = client.Close()
+			}
+			if (err != nil) != test.wantError {
+				t.Errorf("constructor error = %v, want error = %v", err, test.wantError)
+			}
+			if test.wantError && client != nil {
+				t.Error("incompatible daemon returned a usable client")
+			}
+			select {
+			case err := <-done:
+				if !errors.Is(err, io.EOF) {
+					t.Fatalf("connection was not cleanly closed: %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("constructor did not close connection")
+			}
+			if got := requests.Load() > 0; got != test.wantStatus {
+				t.Fatalf("status check = %v, want %v", got, test.wantStatus)
 			}
 		})
 	}

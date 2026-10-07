@@ -25,8 +25,9 @@ func NewRouter(reg *Registry) *Router {
 }
 
 type pendingRequest struct {
-	originID string
-	targetID string
+	originID          string
+	targetID          string
+	switcherSubscribe bool
 }
 
 // Route handles a single envelope from the given source connection.
@@ -35,7 +36,7 @@ func (rt *Router) Route(src *Conn, env *protocol.Envelope) error {
 	case protocol.MsgRequest:
 		return rt.routeRequest(src, env)
 	case protocol.MsgResponse:
-		return rt.routeResponse(env)
+		return rt.routeResponse(src, env)
 	case protocol.MsgEvent:
 		return rt.routeEvent(src, env)
 	default:
@@ -61,10 +62,15 @@ func (rt *Router) routeRequest(src *Conn, env *protocol.Envelope) error {
 			fmt.Sprintf("target %q not connected", env.Target))
 	}
 
+	var command struct {
+		Cmd string `json:"cmd"`
+	}
+	_ = json.Unmarshal(env.Payload, &command)
 	// remember where to send the response
 	rt.pending.Store(env.ID, pendingRequest{
-		originID: src.ID,
-		targetID: env.Target,
+		originID:          src.ID,
+		targetID:          env.Target,
+		switcherSubscribe: src.Role == protocol.RoleCLI && dst.Role == protocol.RoleBrowser && command.Cmd == "switcher.tabs.subscribe",
 	})
 
 	if err := dst.WriteEnvelope(env); err != nil {
@@ -96,10 +102,11 @@ func (rt *Router) handleDaemonCommand(src *Conn, env *protocol.Envelope) error {
 		respData = map[string]any{
 			"cmd": "status",
 			"data": map[string]any{
-				"pid":         os.Getpid(),
-				"socket":      protocol.SocketPath(),
-				"connections": rt.reg.Info(),
-				"history":     rt.reg.History(),
+				"pid":          os.Getpid(),
+				"socket":       protocol.SocketPath(),
+				"connections":  rt.reg.Info(),
+				"capabilities": []string{"switcher-tabs"},
+				"history":      rt.reg.History(),
 			},
 		}
 	default:
@@ -117,8 +124,8 @@ func (rt *Router) handleDaemonCommand(src *Conn, env *protocol.Envelope) error {
 }
 
 // routeResponse forwards a response from browser back to the originating CLI.
-func (rt *Router) routeResponse(env *protocol.Envelope) error {
-	raw, ok := rt.pending.LoadAndDelete(env.ID)
+func (rt *Router) routeResponse(src *Conn, env *protocol.Envelope) error {
+	raw, ok := rt.pending.Load(env.ID)
 	if !ok {
 		log.Printf("router: no pending request for response id=%s", env.ID)
 		return nil
@@ -129,6 +136,11 @@ func (rt *Router) routeResponse(env *protocol.Envelope) error {
 		log.Printf("router: malformed pending entry for response id=%s", env.ID)
 		return nil
 	}
+	if src.ID != req.targetID {
+		log.Printf("router: unexpected response source %s for id=%s", src.ID, env.ID)
+		return nil
+	}
+	rt.pending.Delete(env.ID)
 	env.Source = req.targetID
 
 	originID := req.originID
@@ -138,12 +150,43 @@ func (rt *Router) routeResponse(env *protocol.Envelope) error {
 		return nil
 	}
 
+	if req.switcherSubscribe && successfulSwitcherSubscription(env.Payload) {
+		// 授权绑定到收到成功订阅响应的客户端连接与浏览器
+		dst.switcherSubscriptions.Store(req.targetID, struct{}{})
+	}
 	return dst.WriteEnvelope(env)
 }
 
-// routeEvent forwards an event from browser to all connected CLIs.
+func successfulSwitcherSubscription(raw json.RawMessage) bool {
+	var response struct {
+		Cmd   string                     `json:"cmd"`
+		Data  map[string]json.RawMessage `json:"data"`
+		Error json.RawMessage            `json:"error"`
+	}
+	return json.Unmarshal(raw, &response) == nil && response.Cmd == "switcher.tabs.subscribe" && response.Data != nil && (len(response.Error) == 0 || string(response.Error) == "null")
+}
+
+// routeEvent 将事件转发给客户端，人工切换器事件仅送达已授权的订阅连接
 func (rt *Router) routeEvent(src *Conn, env *protocol.Envelope) error {
 	env.Source = src.ID
+	var command struct {
+		Cmd string `json:"cmd"`
+	}
+	if json.Unmarshal(env.Payload, &command) == nil && command.Cmd == "switcher.tabs.event" {
+		if src.Role != protocol.RoleBrowser {
+			return nil
+		}
+		var firstErr error
+		for _, dst := range rt.reg.CLIs() {
+			if _, authorized := dst.switcherSubscriptions.Load(src.ID); !authorized {
+				continue
+			}
+			if err := dst.QueueEvent(env); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		return firstErr
+	}
 	return rt.broadcast(env, protocol.RoleCLI)
 }
 
@@ -214,6 +257,12 @@ func (rt *Router) sendError(dst *Conn, msgID, code, message string) error {
 // For origin disconnects, requests are dropped.
 // For target disconnects, an error is sent back to the originating CLI.
 func (rt *Router) ClearPending(connID string) {
+	if conn, ok := rt.reg.Get(connID); ok {
+		conn.switcherSubscriptions.Clear()
+	}
+	for _, cli := range rt.reg.CLIs() {
+		cli.switcherSubscriptions.Delete(connID)
+	}
 	rt.pending.Range(func(key, val any) bool {
 		msgID, ok := key.(string)
 		if !ok {

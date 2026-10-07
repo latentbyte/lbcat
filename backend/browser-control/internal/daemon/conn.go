@@ -25,6 +25,8 @@ type Conn struct {
 	eventOnce sync.Once
 	eventDone chan struct{}
 	done      chan struct{}
+
+	switcherSubscriptions sync.Map // 浏览器 ID 对应成功订阅的人工切换器连接
 }
 
 const (
@@ -101,6 +103,7 @@ func (c *Conn) writeEvents() {
 // Close closes the underlying connection.
 func (c *Conn) Close() error {
 	if c.closed.CompareAndSwap(false, true) {
+		c.switcherSubscriptions.Clear()
 		close(c.done)
 		return c.raw.Close()
 	}

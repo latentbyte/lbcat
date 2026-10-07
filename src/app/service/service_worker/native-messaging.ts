@@ -60,8 +60,8 @@ let connectionState: NativeMessagingConnectionState = "disconnected";
 let lastConnectionError = "";
 let statusListenerRegistered = false;
 
-// active tab event subscriptions keyed by chrome.tabs event name
-const tabSubscriptions: Record<string, (...args: unknown[]) => void> = {};
+// 按访问入口及浏览器事件名称保存监听器，断线时统一清理
+const tabSubscriptions: Record<string, { eventName: string; handler: (...args: unknown[]) => void }> = {};
 
 function getActionApi() {
   return chrome.action ?? (chrome as unknown as { browserAction?: typeof chrome.action }).browserAction;
@@ -127,11 +127,15 @@ function sendEvent(payload: unknown) {
   }
 }
 
-function tabEventHandler(eventName: string) {
+function tabEventHandler(eventName: string, switcher: boolean) {
   return (...eventArgs: unknown[]) => {
     void normalizeNativeTabEvent(eventName, eventArgs)
       .then((event) => {
         if (!event) return;
+        if (switcher) {
+          sendEvent({ cmd: "switcher.tabs.event", data: event });
+          return;
+        }
         return agentWindowService.status().then((scope) => {
           if (event.tabId?.windowId === scope.windowId && event.tabId.tabId !== scope.markerTabId) {
             sendEvent({ cmd: "tabs.event", data: event });
@@ -145,14 +149,35 @@ function tabEventHandler(eventName: string) {
 }
 
 function clearTabSubscriptions() {
-  for (const name of Object.keys(tabSubscriptions)) {
+  for (const [key, { eventName, handler }] of Object.entries(tabSubscriptions)) {
     const tabsObj = chrome.tabs as unknown as Record<string, chrome.events.Event<(...args: unknown[]) => void>>;
-    const event = tabsObj[name];
+    const event = tabsObj[eventName];
     if (event) {
-      event.removeListener(tabSubscriptions[name]);
+      event.removeListener(handler);
     }
-    delete tabSubscriptions[name];
+    delete tabSubscriptions[key];
   }
+}
+
+function subscribeNativeTabs(args: Record<string, unknown>, switcher: boolean): HandlerResult {
+  const events = (args.events as string[]) || ["onCreated", "onRemoved", "onUpdated", "onActivated"];
+  const tabsObj = chrome.tabs as unknown as Record<string, chrome.events.Event<(...args: unknown[]) => void>>;
+  const prefix = switcher ? "switcher.tabs" : "tabs";
+  for (const name of events) {
+    const event = tabsObj[name];
+    const key = `${prefix}:${name}`;
+    if (!event || tabSubscriptions[key]) continue;
+    const handler = tabEventHandler(name, switcher);
+    tabSubscriptions[key] = { eventName: name, handler };
+    event.addListener(handler);
+  }
+  return {
+    data: {
+      subscribed: Object.entries(tabSubscriptions)
+        .filter(([key]) => key.startsWith(`${prefix}:`))
+        .map(([, subscription]) => subscription.eventName),
+    },
+  };
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
@@ -417,16 +442,32 @@ const handlers: Record<string, Handler> = {
   },
 
   "tabs.subscribe"(args) {
-    const events = (args?.["events"] as string[]) || ["onCreated", "onRemoved", "onUpdated", "onActivated"];
-    const tabsObj = chrome.tabs as unknown as Record<string, chrome.events.Event<(...args: unknown[]) => void>>;
-    for (const name of events) {
-      const event = tabsObj[name];
-      if (!event || tabSubscriptions[name]) continue;
-      const handler = tabEventHandler(name);
-      tabSubscriptions[name] = handler;
-      event.addListener(handler);
-    }
-    return { data: { subscribed: Object.keys(tabSubscriptions) } };
+    return subscribeNativeTabs(args, false);
+  },
+
+  // 人工切换器仅提供标签元数据、聚焦及事件，不授予页面操作权限
+  async "switcher.tabs.list"() {
+    const tabs = await chrome.tabs.query({});
+    const identity = await resolveBrowserControlIdentity();
+    return { data: tabs.map((tab) => tabToBrowserControlTab(tab, identity)) };
+  },
+
+  async "switcher.tabs.focus"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number" || !Number.isInteger(tabId) || tabId < 0) throw new Error("tabId is required");
+    const tab = await chrome.tabs.get(tabId);
+    if (args.windowId !== undefined && args.windowId !== tab.windowId)
+      throw new Error("windowId does not match target tab");
+    return {
+      data: await focusNativeTab(tabId, tab.windowId, async () => {
+        const current = await chrome.tabs.get(tabId);
+        if (current.windowId !== tab.windowId) throw new Error("windowId does not match target tab");
+      }),
+    };
+  },
+
+  "switcher.tabs.subscribe"(args) {
+    return subscribeNativeTabs(args, true);
   },
 
   // --- page ---

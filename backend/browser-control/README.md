@@ -101,3 +101,22 @@ client releases all subscriptions. Tab event registrations accumulate until the 
 Daemon event queues hold at most 32 pending events per client; overflow or a socket write exceeding 2 seconds disconnects
 that client so a stalled event reader cannot block unrelated responses. Event streams end on disconnection; reconnect and
 subscribe again when continuous observation is needed.
+
+## Human-operated tab switchers
+
+Human-operated applications such as combo-switcher use the explicit Go SDK constructor
+`browsercontrol.NewSwitcher(ctx)`. The existing `browsercontrol.New(ctx)` keeps agent-window restrictions.
+The switcher client uses `switcher.tabs.list`, `switcher.tabs.focus`, and `switcher.tabs.subscribe` to list
+browser-visible tabs across windows, focus the user's chosen tab, and receive tab events without an agent
+window or task session. Tab listing includes private tabs only when the browser grants the extension access.
+
+Switcher access provides tab metadata and focus only; there are no switcher page-execution, content,
+capture, or userscript commands. `switcher.tabs.event` messages are routed only to connections whose
+switcher subscription succeeded for that browser. Ordinary agent event streams remain scoped to the
+registered window. This is an explicit application API, not authentication of a human or a separate
+operating-system trust boundary; local clients can select it. Agents must keep using the scoped API.
+
+Deploy the matching extension and daemon before updating a consumer to `NewSwitcher`; older versions
+do not support the commands or isolated event routing. `NewSwitcher` checks the daemon's `switcher-tabs`
+capability and rejects older daemons before any switcher commands are sent. combo-switcher must refresh its vendored SDK
+and use `NewSwitcher` for both tab loading and its event/focus clients.

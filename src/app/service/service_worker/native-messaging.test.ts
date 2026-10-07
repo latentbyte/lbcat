@@ -205,6 +205,7 @@ describe("原生消息并发控制", () => {
   const tabsGet = vi.fn();
   const tabsUpdate = vi.fn();
   const tabsCreate = vi.fn();
+  const tabsQuery = vi.fn();
   const activations = new Set<(info: { tabId: number; windowId: number }) => void>();
   const windowsUpdate = vi.fn();
   const captureTab = vi.fn();
@@ -223,6 +224,10 @@ describe("原生消息并发控制", () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     activeTab = 99;
+    tabsQuery.mockResolvedValue([
+      { id: 101, windowId: 7 },
+      { id: 102, windowId: 8 },
+    ]);
     activations.clear();
     tabsCreate.mockImplementation(async ({ active }: { active: boolean }) => {
       if (active) activeTab = 103;
@@ -276,6 +281,7 @@ describe("原生消息并发控制", () => {
         onMessage: { addListener: vi.fn() },
       },
       tabs: {
+        query: tabsQuery,
         get: async (id: number) =>
           id === 900
             ? { id: 900, windowId: 7, url: "chrome-extension://test/src/agent-window.html?registration=test" }
@@ -306,6 +312,138 @@ describe("原生消息并发控制", () => {
   function request(id: string, cmd: string, args: Record<string, unknown>): Promise<void> {
     return dispatch({ id, type: "request", payload: { cmd, args: { sessionId: "task", ...args } } });
   }
+
+  it("人工切换器无需登记代理窗口即可列出普通窗口标签", async () => {
+    await chrome.storage.local.set({ "browserControl.agentWindow": { sessions: [] } });
+    await request("switcher-list", "switcher.tabs.list", { sessionId: undefined });
+    expect(tabsQuery).toHaveBeenCalledWith({});
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "switcher-list",
+        payload: {
+          cmd: "switcher.tabs.list",
+          data: [expect.objectContaining({ id: 101, windowId: 7 }), expect.objectContaining({ id: 102, windowId: 8 })],
+        },
+      })
+    );
+    await request("agent-list", "tabs.list", {});
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "agent-list",
+        payload: expect.objectContaining({ error: expect.objectContaining({ code: "AGENT_WINDOW_MISSING" }) }),
+      })
+    );
+  });
+
+  it("人工切换器可聚焦个人标签且不会授权代理读取页面", async () => {
+    tabsGet.mockResolvedValue({ id: 101, windowId: 8 });
+    tabsUpdate.mockResolvedValue({ id: 101, windowId: 8 });
+    await request("switcher-focus", "switcher.tabs.focus", { tabId: 101, windowId: 8, sessionId: undefined });
+    expect(tabsUpdate).toHaveBeenCalledWith(101, { active: true });
+    expect(windowsUpdate).toHaveBeenCalledWith(8, { focused: true });
+    await request("agent-content", "page.content", { tabId: 101 });
+    expect(executeScript).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "agent-content",
+        payload: expect.objectContaining({ error: expect.objectContaining({ code: "PERSONAL_TAB_DENIED" }) }),
+      })
+    );
+  });
+
+  it("人工切换器拒绝错误窗口及未实现的页面命令", async () => {
+    await request("wrong-window", "switcher.tabs.focus", { tabId: 101, windowId: 8 });
+    await request("switcher-page", "switcher.page.exec", { tabId: 101, code: "document.title" });
+    expect(tabsUpdate).not.toHaveBeenCalled();
+    expect(executeScript).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "wrong-window",
+        payload: expect.objectContaining({
+          error: expect.objectContaining({ message: "windowId does not match target tab" }),
+        }),
+      })
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "switcher-page",
+        payload: expect.objectContaining({ error: expect.objectContaining({ code: "UNKNOWN_COMMAND" }) }),
+      })
+    );
+  });
+
+  it("人工切换器聚焦请求排队期间标签移到其他窗口时应拒绝激活", async () => {
+    let release!: () => void;
+    const held = withNativeWindowOperation(
+      7,
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        })
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    const pending = request("moved-switcher-tab", "switcher.tabs.focus", { tabId: 101 });
+    await vi.advanceTimersByTimeAsync(0);
+    tabsGet.mockResolvedValue({ id: 101, windowId: 8 });
+    release();
+    await held;
+    await pending;
+    expect(tabsUpdate).not.toHaveBeenCalled();
+    expect(windowsUpdate).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "moved-switcher-tab",
+        payload: expect.objectContaining({
+          error: expect.objectContaining({ message: "windowId does not match target tab" }),
+        }),
+      })
+    );
+  });
+
+  it("未登记代理窗口时人工切换器仍可聚焦标签并接收关闭事件", async () => {
+    await chrome.storage.local.set({ "browserControl.agentWindow": { sessions: [] } });
+    await request("switcher-focus-no-agent", "switcher.tabs.focus", { tabId: 101, sessionId: undefined });
+    expect(tabsUpdate).toHaveBeenCalledWith(101, { active: true });
+    await request("switcher-removed", "switcher.tabs.subscribe", { events: ["onRemoved"] });
+    const [handler] = eventAdd.mock.calls[0];
+    handler(101, { windowId: 7 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "event",
+        payload: {
+          cmd: "switcher.tabs.event",
+          data: expect.objectContaining({
+            type: "tab-removed",
+            tabId: expect.objectContaining({ tabId: 101, windowId: 7 }),
+          }),
+        },
+      })
+    );
+  });
+
+  it("人工切换器事件单独发送且代理事件仍限定专用窗口", async () => {
+    await request("agent-events", "tabs.subscribe", { events: ["onActivated"] });
+    await request("switcher-events", "switcher.tabs.subscribe", { events: ["onActivated"] });
+    await request("switcher-events-repeat", "switcher.tabs.subscribe", { events: ["onActivated"] });
+    tabsGet.mockResolvedValue({ id: 102, windowId: 8 });
+    for (const handler of activations) handler({ tabId: 102, windowId: 8 });
+    await vi.advanceTimersByTimeAsync(0);
+    const events = postMessage.mock.calls.map(([message]) => message).filter((message) => message.type === "event");
+    expect(events).toEqual([
+      expect.objectContaining({
+        payload: {
+          cmd: "switcher.tabs.event",
+          data: expect.objectContaining({
+            type: "tab-focused",
+            tabId: expect.objectContaining({ tabId: 102, windowId: 8 }),
+          }),
+        },
+      }),
+    ]);
+    disconnect();
+    expect(activations.size).toBe(0);
+  });
 
   it("新工作标签默认后台创建且限定专用窗口", async () => {
     await request("create", "tabs.create", { url: "https://example.com" });
