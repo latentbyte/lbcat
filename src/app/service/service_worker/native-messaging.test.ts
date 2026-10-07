@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   browserIdentityFromUserAgent,
+  disconnect,
+  initNativeMessaging,
   focusNativeTab,
   limitNativeResponse,
   normalizeNativeTabEvent,
   tabToBrowserControlTab,
 } from "./native-messaging";
+import type { ScriptService } from "./script";
 
 describe("原生消息大小限制", () => {
   it("超限响应返回错误并保留请求 ID", () => {
@@ -38,6 +41,7 @@ describe("focusNativeTab", () => {
     windowsUpdate.mockReset();
     vi.stubGlobal("chrome", {
       tabs: {
+        get: vi.fn().mockResolvedValue({ id: 123, windowId: 42 }),
         update: tabsUpdate,
       },
       windows: {
@@ -192,5 +196,396 @@ describe("tabToBrowserControlTab", () => {
       browserName: "firefox",
       appName: "Firefox",
     });
+  });
+});
+
+describe("原生消息并发控制", () => {
+  const postMessage = vi.fn();
+  const tabsGet = vi.fn();
+  const tabsUpdate = vi.fn();
+  const tabsCreate = vi.fn();
+  const activations = new Set<(info: { tabId: number; windowId: number }) => void>();
+  const windowsUpdate = vi.fn();
+  const captureTab = vi.fn();
+  const captureVisibleTab = vi.fn();
+  const executeScript = vi.fn();
+  const eventAdd = vi.fn();
+  const eventRemove = vi.fn();
+  let dispatch: (message: {
+    id: string;
+    type: string;
+    payload: { cmd: string; args: Record<string, unknown> };
+  }) => Promise<void>;
+  let activeTab: number;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    activeTab = 99;
+    activations.clear();
+    tabsCreate.mockImplementation(async ({ active }: { active: boolean }) => {
+      if (active) activeTab = 103;
+      return { id: 103, windowId: 7 };
+    });
+    tabsGet.mockImplementation(async (id: number) => ({ id, windowId: 7, active: activeTab === id }));
+    tabsUpdate.mockImplementation(async (id: number) => {
+      activeTab = id;
+      return { id, windowId: 7, active: true };
+    });
+    captureTab.mockImplementation(async (id: number) => "captured-tab-" + id);
+    captureVisibleTab.mockImplementation(async () => "captured-tab-" + activeTab);
+    executeScript.mockResolvedValue([
+      { result: { width: 100, height: 100, viewportWidth: 100, viewportHeight: 100, x: 0, y: 0, dpr: 1 } },
+    ]);
+    vi.stubGlobal("chrome", {
+      runtime: {
+        connectNative: () => ({
+          postMessage,
+          disconnect: vi.fn(),
+          onMessage: {
+            addListener: (listener: typeof dispatch) => {
+              dispatch = listener;
+            },
+          },
+          onDisconnect: { addListener: vi.fn() },
+        }),
+        onMessage: { addListener: vi.fn() },
+      },
+      tabs: {
+        get: tabsGet,
+        update: tabsUpdate,
+        captureTab,
+        captureVisibleTab,
+        create: tabsCreate,
+        onActivated: {
+          addListener: (fn: (info: { tabId: number; windowId: number }) => void) => activations.add(fn),
+          removeListener: (fn: (info: { tabId: number; windowId: number }) => void) => activations.delete(fn),
+        },
+        onCreated: { addListener: eventAdd, removeListener: eventRemove },
+        onRemoved: { addListener: eventAdd, removeListener: eventRemove },
+      },
+      windows: { update: windowsUpdate, getCurrent: vi.fn().mockResolvedValue({ id: 7 }) },
+      scripting: { executeScript },
+    });
+    initNativeMessaging({} as ScriptService);
+  });
+
+  afterEach(() => {
+    disconnect();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function request(id: string, cmd: string, args: Record<string, unknown>): Promise<void> {
+    return dispatch({ id, type: "request", payload: { cmd, args } });
+  }
+
+  it("Zen 并发截图应捕获各自的后台标签且不改变焦点", async () => {
+    const done = Promise.all([
+      request("a", "page.screenshot", { tabId: 101 }),
+      request("b", "page.screenshot", { tabId: 102 }),
+    ]);
+    await vi.runAllTimersAsync();
+    await done;
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "a",
+        payload: expect.objectContaining({ data: expect.objectContaining({ dataUrl: "captured-tab-101" }) }),
+      })
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "b",
+        payload: expect.objectContaining({ data: expect.objectContaining({ dataUrl: "captured-tab-102" }) }),
+      })
+    );
+    expect(tabsUpdate).not.toHaveBeenCalled();
+    expect(windowsUpdate).not.toHaveBeenCalled();
+    expect(captureVisibleTab).not.toHaveBeenCalled();
+  });
+
+  it("Zen 完整页面截图应使用文档矩形且不滚动页面", async () => {
+    executeScript.mockResolvedValue([{ result: { x: 0, y: 0, width: 600, height: 1200 } }]);
+    const done = request("full", "page.screenshot", { tabId: 101, fullPage: true });
+    await vi.runAllTimersAsync();
+    await done;
+    expect(captureTab).toHaveBeenCalledWith(
+      101,
+      expect.objectContaining({ rect: { x: 0, y: 0, width: 600, height: 1200 } })
+    );
+    expect(executeScript).toHaveBeenCalledTimes(1);
+  });
+
+  it("不支持按标签截图时应串行捕获同一窗口的不同标签", async () => {
+    Reflect.deleteProperty(chrome.tabs, "captureTab");
+    const done = Promise.all([
+      request("a", "page.screenshot", { tabId: 101 }),
+      request("b", "page.screenshot", { tabId: 102 }),
+    ]);
+    await vi.runAllTimersAsync();
+    await done;
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "a",
+        payload: expect.objectContaining({ data: expect.objectContaining({ dataUrl: "captured-tab-101" }) }),
+      })
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "b",
+        payload: expect.objectContaining({ data: expect.objectContaining({ dataUrl: "captured-tab-102" }) }),
+      })
+    );
+  });
+
+  it("截图期间外部焦点改变应报错而非返回错误标签图像", async () => {
+    Reflect.deleteProperty(chrome.tabs, "captureTab");
+    captureVisibleTab.mockImplementation(async () => {
+      activeTab = 102;
+      return "captured-tab-102";
+    });
+    const done = request("a", "page.screenshot", { tabId: 101 });
+    await vi.runAllTimersAsync();
+    await done;
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "a", payload: expect.objectContaining({ cmd: "error" }) })
+    );
+  });
+
+  it("截图请求失败不应隐式激活标签或改用当前可见标签", async () => {
+    captureTab.mockRejectedValueOnce(new Error("capture permission denied"));
+    const done = request("a", "page.screenshot", { tabId: 101 });
+    await vi.runAllTimersAsync();
+    await done;
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "a",
+        payload: expect.objectContaining({
+          cmd: "error",
+          error: expect.objectContaining({ message: "capture permission denied" }),
+        }),
+      })
+    );
+    expect(tabsUpdate).not.toHaveBeenCalled();
+    expect(captureVisibleTab).not.toHaveBeenCalled();
+  });
+
+  it("多个订阅者应保留事件并集且重复订阅不增加监听器", async () => {
+    await request("a", "tabs.subscribe", { events: ["onCreated"] });
+    await request("b", "tabs.subscribe", { events: ["onRemoved"] });
+    await request("c", "tabs.subscribe", { events: ["onCreated"] });
+    expect(eventAdd).toHaveBeenCalledTimes(2);
+    expect(eventRemove).not.toHaveBeenCalled();
+  });
+
+  it("动态脚本应默认在页面世界执行", async () => {
+    await request("a", "page.exec", { tabId: 101, code: "document.title" });
+    expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({ world: "MAIN", target: { tabId: 101 } }));
+  });
+
+  it("MV3 隔离世界动态执行应明确报错而非静默切换世界", async () => {
+    await request("a", "page.exec", { tabId: 101, code: "document.title", world: "ISOLATED" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "a",
+        payload: expect.objectContaining({
+          cmd: "error",
+          error: expect.objectContaining({ message: expect.stringContaining("ISOLATED") }),
+        }),
+      })
+    );
+    expect(executeScript).not.toHaveBeenCalled();
+  });
+
+  it("截图失败后应释放标签队列并允许后续请求", async () => {
+    captureTab.mockRejectedValueOnce(new Error("failed"));
+    const done = Promise.all([
+      request("a", "page.screenshot", { tabId: 101 }),
+      request("b", "page.screenshot", { tabId: 101 }),
+    ]);
+    await vi.runAllTimersAsync();
+    await done;
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "a", payload: expect.objectContaining({ cmd: "error" }) })
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "b",
+        payload: expect.objectContaining({ data: expect.objectContaining({ dataUrl: "captured-tab-101" }) }),
+      })
+    );
+  });
+
+  it("排队期间超时的脚本不得在截图结束后执行", async () => {
+    let release!: () => void;
+    captureTab.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          release = () => resolve("captured-tab-101");
+        })
+    );
+    const screenshot = request("shot", "page.screenshot", { tabId: 101 });
+    await vi.advanceTimersByTimeAsync(0);
+    const exec = request("exec", "page.exec", { tabId: 101, code: "document.title", timeoutMs: 5 });
+    await vi.advanceTimersByTimeAsync(6);
+    await exec;
+    release();
+    await screenshot;
+    await vi.runAllTimersAsync();
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "exec", payload: expect.objectContaining({ cmd: "error" }) })
+    );
+    expect(executeScript).toHaveBeenCalledTimes(1);
+  });
+
+  it("Chrome 应通过 CDP 按标签截图且保持焦点", async () => {
+    Reflect.deleteProperty(chrome.tabs, "captureTab");
+    const attach = vi.fn().mockResolvedValue(undefined);
+    const detach = vi.fn().mockResolvedValue(undefined);
+    const sendCommand = vi
+      .fn()
+      .mockImplementation(async (target: { tabId: number }) => ({ data: "tab-" + target.tabId }));
+    Object.assign(chrome, {
+      debugger: { attach, detach, sendCommand },
+      permissions: { contains: vi.fn().mockResolvedValue(true) },
+    });
+    const done = Promise.all([
+      request("a", "page.screenshot", { tabId: 101 }),
+      request("b", "page.screenshot", { tabId: 102, format: "jpeg", quality: 0, fullPage: true }),
+    ]);
+    await vi.runAllTimersAsync();
+    await done;
+    expect(sendCommand).toHaveBeenCalledWith(
+      { tabId: 101 },
+      "Page.captureScreenshot",
+      expect.objectContaining({ format: "png", captureBeyondViewport: false })
+    );
+    expect(sendCommand).toHaveBeenCalledWith(
+      { tabId: 102 },
+      "Page.captureScreenshot",
+      expect.objectContaining({ format: "jpeg", quality: 0, captureBeyondViewport: true })
+    );
+    expect(detach).toHaveBeenCalledTimes(2);
+    expect(tabsUpdate).not.toHaveBeenCalled();
+    expect(captureVisibleTab).not.toHaveBeenCalled();
+  });
+
+  it("Zen 元素截图应传递文档坐标并保留零质量设置", async () => {
+    executeScript.mockResolvedValue([{ result: { x: 40, y: 900, width: 100, height: 200 } }]);
+    const done = request("region", "page.screenshot", { tabId: 101, selector: "#target", format: "jpeg", quality: 0 });
+    await vi.runAllTimersAsync();
+    await done;
+    expect(captureTab).toHaveBeenCalledWith(101, {
+      format: "jpeg",
+      quality: 0,
+      rect: { x: 40, y: 900, width: 100, height: 200 },
+    });
+    expect(tabsUpdate).not.toHaveBeenCalled();
+  });
+
+  it("可见标签截图应跨窗口共享捕获速率限制", async () => {
+    Reflect.deleteProperty(chrome.tabs, "captureTab");
+    const active = new Map<number, number>();
+    tabsGet.mockImplementation(async (id: number) => ({ id, windowId: id, active: active.get(id) === id }));
+    tabsUpdate.mockImplementation(async (id: number) => {
+      active.set(id, id);
+      return { id, windowId: id, active: true };
+    });
+    const times: number[] = [];
+    captureVisibleTab.mockImplementation(async (windowId: number) => {
+      times.push(Date.now());
+      return "captured-tab-" + windowId;
+    });
+    const done = Promise.all([
+      request("a", "page.screenshot", { tabId: 101 }),
+      request("b", "page.screenshot", { tabId: 102 }),
+    ]);
+    await vi.runAllTimersAsync();
+    await done;
+    expect(times).toHaveLength(2);
+    expect(times[1] - times[0]).toBeGreaterThanOrEqual(500);
+  });
+
+  it("可见截图期间创建前台标签应等待截图结束", async () => {
+    Reflect.deleteProperty(chrome.tabs, "captureTab");
+    const screenshot = request("shot", "page.screenshot", { tabId: 101 });
+    await vi.advanceTimersByTimeAsync(0);
+    const create = request("create", "tabs.create", { url: "https://example.com", active: true });
+    await vi.runAllTimersAsync();
+    await Promise.all([screenshot, create]);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "shot",
+        payload: expect.objectContaining({ data: expect.objectContaining({ dataUrl: "captured-tab-101" }) }),
+      })
+    );
+    expect(activeTab).toBe(103);
+  });
+
+  it("捕获中焦点切换后恢复也应拒绝错误标签图像", async () => {
+    Reflect.deleteProperty(chrome.tabs, "captureTab");
+    captureVisibleTab.mockImplementation(async () => {
+      for (const listener of activations) listener({ tabId: 102, windowId: 7 });
+      for (const listener of activations) listener({ tabId: 101, windowId: 7 });
+      return "captured-tab-102";
+    });
+    const done = request("shot", "page.screenshot", { tabId: 101 });
+    await vi.runAllTimersAsync();
+    await done;
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "shot", payload: expect.objectContaining({ cmd: "error" }) })
+    );
+    expect(activations.size).toBe(0);
+  });
+
+  it("Firefox 注入错误应返回失败而非成功空结果", async () => {
+    executeScript.mockResolvedValueOnce([{ frameId: 0, error: { message: "CSP blocked eval" } }]);
+    await request("exec-error", "page.exec", { tabId: 101, code: "1 + 1" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "exec-error",
+        payload: expect.objectContaining({
+          cmd: "error",
+          error: expect.objectContaining({ message: "CSP blocked eval" }),
+        }),
+      })
+    );
+  });
+
+  it("脚本异常应在浏览器丢弃注入异常之前传回调用方", async () => {
+    executeScript.mockImplementationOnce(
+      async ({ func, args }: { func: (code: string) => unknown; args: [string] }) => {
+        try {
+          return [{ frameId: 0, result: await func(...args) }];
+        } catch {
+          return [{ frameId: 0 }];
+        }
+      }
+    );
+    await request("exec-error", "page.exec", { tabId: 101, code: "throw new Error('script failed')" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "exec-error",
+        payload: expect.objectContaining({
+          cmd: "error",
+          error: expect.objectContaining({ message: "script failed" }),
+        }),
+      })
+    );
+  });
+
+  it("脚本返回空值应保持成功并区别于注入失败", async () => {
+    executeScript.mockImplementationOnce(
+      async ({ func, args }: { func: (code: string) => unknown; args: [string] }) => [
+        { frameId: 0, result: await func(...args) },
+      ]
+    );
+    await request("exec-null", "page.exec", { tabId: 101, code: "null" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "exec-null",
+        payload: expect.objectContaining({ cmd: "page.exec", data: { result: null } }),
+      })
+    );
   });
 });

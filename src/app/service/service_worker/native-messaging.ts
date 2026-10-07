@@ -8,6 +8,7 @@ import {
   resolveBrowserControlIdentity,
   type BrowserControlIdentity,
 } from "@App/pkg/browser-control/identity";
+import { captureNativeTab, withNativeTabOperation, withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 import { prepareScriptByCode } from "@App/pkg/utils/script";
 import type { ScriptService } from "./script";
 
@@ -161,6 +162,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 
 type HandlerResult = { data: unknown };
 type Handler = (args: Record<string, unknown>) => HandlerResult | Promise<HandlerResult>;
+type NativeExecutionResult = { success: true; value: unknown } | { success: false; error: string };
 
 type TabRemoveInfo = {
   windowId?: number;
@@ -286,12 +288,15 @@ export async function normalizeNativeTabEvent(
 }
 
 export async function focusNativeTab(tabId: number, requestedWindowId?: number) {
-  const tab = await chrome.tabs.update(tabId, { active: true });
-  const windowId = typeof requestedWindowId === "number" ? requestedWindowId : tab?.windowId;
-  if (typeof windowId === "number") {
-    await chrome.windows.update(windowId, { focused: true });
-  }
-  return { tabId, windowId };
+  const existing = await chrome.tabs.get(tabId);
+  return withNativeWindowOperation(existing.windowId, async () => {
+    const tab = await chrome.tabs.update(tabId, { active: true });
+    const windowId = typeof requestedWindowId === "number" ? requestedWindowId : tab?.windowId;
+    if (typeof windowId === "number") {
+      await chrome.windows.update(windowId, { focused: true });
+    }
+    return { tabId, windowId };
+  });
 }
 
 const handlers: Record<string, Handler> = {
@@ -313,7 +318,15 @@ const handlers: Record<string, Handler> = {
     const url = args["url"] as string | undefined;
     const active = args["active"] !== undefined ? Boolean(args["active"]) : true;
     if (!url) throw new Error("url is required");
-    const tab = await chrome.tabs.create({ url, active });
+    let tab: chrome.tabs.Tab;
+    if (active) {
+      const window = await chrome.windows.getCurrent();
+      const windowId = window.id;
+      if (windowId === undefined) throw new Error("browser window unavailable");
+      tab = await withNativeWindowOperation(windowId, () => chrome.tabs.create({ url, active, windowId }));
+    } else {
+      tab = await chrome.tabs.create({ url, active });
+    }
     return { data: tabToBrowserControlTab(tab, await resolveBrowserControlIdentity()) };
   },
 
@@ -326,11 +339,10 @@ const handlers: Record<string, Handler> = {
 
   "tabs.subscribe"(args) {
     const events = (args?.["events"] as string[]) || ["onCreated", "onRemoved", "onUpdated", "onActivated"];
-    clearTabSubscriptions();
     const tabsObj = chrome.tabs as unknown as Record<string, chrome.events.Event<(...args: unknown[]) => void>>;
     for (const name of events) {
       const event = tabsObj[name];
-      if (!event) continue;
+      if (!event || tabSubscriptions[name]) continue;
       const handler = tabEventHandler(name);
       tabSubscriptions[name] = handler;
       event.addListener(handler);
@@ -345,15 +357,17 @@ const handlers: Record<string, Handler> = {
     const selector = (args["selector"] as string) || "body";
     const format = (args["format"] as string) || "text";
     if (!tabId) throw new Error("tabId is required");
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: (sel: string, fmt: string) => {
-        const el = document.querySelector(sel);
-        if (!el) return null;
-        return fmt === "html" ? (el as HTMLElement).innerHTML : (el as HTMLElement).innerText;
-      },
-      args: [selector, format],
-    });
+    const results = await withNativeTabOperation(tabId, () =>
+      chrome.scripting.executeScript({
+        target: { tabId },
+        func: (sel: string, fmt: string) => {
+          const el = document.querySelector(sel);
+          if (!el) return null;
+          return fmt === "html" ? (el as HTMLElement).innerHTML : (el as HTMLElement).innerText;
+        },
+        args: [selector, format],
+      })
+    );
     return { data: results?.[0]?.result ?? null };
   },
 
@@ -361,7 +375,7 @@ const handlers: Record<string, Handler> = {
     const tabId = args["tabId"] as number | undefined;
     const bypassCache = Boolean(args["bypassCache"]);
     if (!tabId) throw new Error("tabId is required");
-    await chrome.tabs.reload(tabId, { bypassCache });
+    await withNativeTabOperation(tabId, () => chrome.tabs.reload(tabId, { bypassCache }));
     return { data: { tabId } };
   },
 
@@ -371,179 +385,54 @@ const handlers: Record<string, Handler> = {
     const timeoutMs = (args["timeoutMs"] as number) || 45000;
     if (!tabId) throw new Error("tabId is required");
     if (!code) throw new Error("code is required");
+    const world = (args["world"] as string | undefined) ?? "MAIN";
+    if (world !== "MAIN") {
+      throw new Error("page.exec supports MAIN only; dynamic evaluation in ISOLATED is blocked by Manifest V3 CSP");
+    }
+    const expiresAt = Date.now() + timeoutMs;
     const results = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId },
-        world: "MAIN",
-        // eval runs in page context, not extension SW
-        func: (c: string) => eval(c),
-        args: [code],
+      withNativeTabOperation(tabId, () => {
+        if (Date.now() >= expiresAt) throw new Error(`page.exec timed out after ${timeoutMs}ms`);
+        return chrome.scripting.executeScript({
+          target: { tabId },
+          world: "MAIN",
+          // eval runs in page context, not extension SW
+          func: async (c: string): Promise<NativeExecutionResult> => {
+            try {
+              return { success: true, value: await eval(c) };
+            } catch (error: unknown) {
+              return { success: false, error: error instanceof Error ? error.message : String(error) };
+            }
+          },
+          args: [code],
+        });
       }),
       timeoutMs,
       "page.exec"
     );
-    return { data: { result: results?.[0]?.result ?? null } };
+    const injection = results?.[0];
+    if (injection && "error" in injection && injection.error) {
+      const error = injection.error;
+      const message = typeof error === "object" && "message" in error ? String(error.message) : String(error);
+      throw new Error(message);
+    }
+    const result = injection?.result;
+    if (!result) throw new Error("page execution produced no result");
+    if (!result.success) throw new Error(result.error);
+    return { data: { result: result.value ?? null } };
   },
 
   async "page.screenshot"(args) {
     const tabId = args["tabId"] as number | undefined;
-    const selector = (args["selector"] as string) || null;
-    const format = (args["format"] as "png" | "jpeg") || "png";
-    const quality = (args["quality"] as number) || 80;
-    const fullPage = Boolean(args["fullPage"]);
     if (!tabId) throw new Error("tabId is required");
-
-    const tab = await chrome.tabs.get(tabId);
-    await chrome.tabs.update(tabId, { active: true });
-    await chrome.windows.update(tab.windowId!, { focused: true });
-    await new Promise((resolve) => setTimeout(resolve, 150));
-
-    const captureOpts: chrome.extensionTypes.ImageDetails = {
-      format,
-      quality: format === "jpeg" ? quality : undefined,
+    return {
+      data: await captureNativeTab(tabId, {
+        selector: args["selector"] as string | undefined,
+        format: args["format"] as "png" | "jpeg" | undefined,
+        quality: args["quality"] as number | undefined,
+        fullPage: Boolean(args["fullPage"]),
+      }),
     };
-
-    if (fullPage && !selector) {
-      const [dimsResult] = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => ({
-          scrollWidth: document.documentElement.scrollWidth,
-          scrollHeight: document.documentElement.scrollHeight,
-          viewportWidth: window.innerWidth,
-          viewportHeight: window.innerHeight,
-          dpr: window.devicePixelRatio || 1,
-        }),
-      });
-      const dims = dimsResult.result as {
-        scrollWidth: number;
-        scrollHeight: number;
-        viewportWidth: number;
-        viewportHeight: number;
-        dpr: number;
-      };
-
-      if (dims.scrollHeight <= dims.viewportHeight) {
-        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId!, captureOpts);
-        return { data: { dataUrl, width: dims.viewportWidth, height: dims.viewportHeight } };
-      }
-
-      const captures: { y: number; dataUrl: string }[] = [];
-      for (let y = 0; y < dims.scrollHeight; y += dims.viewportHeight) {
-        const [scrollResult] = await chrome.scripting.executeScript({
-          target: { tabId },
-          func: (scrollY: number) => {
-            window.scrollTo(0, scrollY);
-            return window.scrollY;
-          },
-          args: [y],
-        });
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        const actualY = scrollResult.result ?? y;
-        if (captures.at(-1)?.y === actualY) break;
-        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId!, captureOpts);
-        captures.push({ y: actualY, dataUrl });
-      }
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => window.scrollTo(0, 0),
-      });
-
-      const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
-      const [stitchResult] = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: async (
-          capturesList: { y: number; dataUrl: string }[],
-          totalHeight: number,
-          vpWidth: number,
-          vpHeight: number,
-          dpr: number,
-          mime: string
-        ) => {
-          const canvas = document.createElement("canvas");
-          canvas.width = Math.round(vpWidth * dpr);
-          canvas.height = Math.round(totalHeight * dpr);
-          const ctx = canvas.getContext("2d")!;
-          for (const capture of capturesList) {
-            const img = new Image();
-            img.src = capture.dataUrl;
-            await new Promise((res, rej) => {
-              img.onload = res;
-              img.onerror = rej;
-            });
-            const sliceH = Math.min(vpHeight, totalHeight - capture.y);
-            ctx.drawImage(
-              img,
-              0,
-              0,
-              Math.round(vpWidth * dpr),
-              Math.round(sliceH * dpr),
-              0,
-              Math.round(capture.y * dpr),
-              Math.round(vpWidth * dpr),
-              Math.round(sliceH * dpr)
-            );
-          }
-          return canvas.toDataURL(mime);
-        },
-        args: [captures, dims.scrollHeight, dims.viewportWidth, dims.viewportHeight, dims.dpr, mimeType],
-      });
-      return { data: { dataUrl: stitchResult.result, width: dims.viewportWidth, height: dims.scrollHeight } };
-    }
-
-    if (selector) {
-      const [rectResult] = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: (sel: string) => {
-          const el = document.querySelector(sel);
-          if (!el) return null;
-          el.scrollIntoView({ block: "center", inline: "center" });
-          const r = el.getBoundingClientRect();
-          return {
-            x: Math.round(r.x),
-            y: Math.round(r.y),
-            width: Math.round(r.width),
-            height: Math.round(r.height),
-            dpr: window.devicePixelRatio || 1,
-          };
-        },
-        args: [selector],
-      });
-      if (!rectResult.result) throw new Error(`element not found: ${selector}`);
-      const rect = rectResult.result as { x: number; y: number; width: number; height: number; dpr: number };
-
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId!, captureOpts);
-      const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
-
-      const [cropResult] = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: async (src: string, rx: number, ry: number, rw: number, rh: number, dpr: number, mime: string) => {
-          const img = new Image();
-          img.src = src;
-          await new Promise((res, rej) => {
-            img.onload = res;
-            img.onerror = rej;
-          });
-          const canvas = document.createElement("canvas");
-          canvas.width = rw * dpr;
-          canvas.height = rh * dpr;
-          const ctx = canvas.getContext("2d")!;
-          ctx.drawImage(img, rx * dpr, ry * dpr, rw * dpr, rh * dpr, 0, 0, rw * dpr, rh * dpr);
-          return canvas.toDataURL(mime);
-        },
-        args: [dataUrl, rect.x, rect.y, rect.width, rect.height, rect.dpr, mimeType],
-      });
-      return { data: { dataUrl: cropResult.result, width: rect.width, height: rect.height } };
-    }
-
-    // simple visible viewport capture
-    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId!, captureOpts);
-    const [vpResult] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => ({ width: window.innerWidth, height: window.innerHeight }),
-    });
-    const vp = vpResult.result as { width: number; height: number } | null;
-    return { data: { dataUrl, width: vp?.width || 0, height: vp?.height || 0 } };
   },
 
   // --- script ---
