@@ -16,51 +16,72 @@ var tabsCmd = &cobra.Command{
 	Short: "Manage browser tabs",
 }
 
-var tabsListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List open tabs",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		allBrowsers, _ := cmd.Flags().GetBool("all-browsers")
-		ctx := context.Background()
-		client, err := browsercontrol.New(ctx)
-		if err != nil {
-			return err
-		}
-		defer client.Close()
+var tabsListCmd = newTabsListCmd(false)
 
-		tabs, err := client.ListTabs(ctx, browsercontrol.ListTabsOptions{
-			BrowserID:           browserIDFromFlag(),
-			AllBrowsers:         allBrowsers,
-			SessionID:           sessionFromFlag(),
-			PersonalTabID:       flagPersonalTab,
-			NotifyMissingWindow: true,
-		})
-		if err != nil {
-			return err
-		}
-
-		if flagJSON {
-			data, err := json.Marshal(map[string]any{"cmd": "tabs.list", "data": tabs})
+func newTabsListCmd(human bool) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "list",
+		Short: "List open tabs",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			allBrowsers, _ := cmd.Flags().GetBool("all-browsers")
+			ctx := context.Background()
+			opts := browsercontrol.ListTabsOptions{
+				BrowserID:   browserIDFromFlag(),
+				AllBrowsers: allBrowsers,
+			}
+			var client browsercontrol.Client
+			var err error
+			responseCommand := "tabs.list"
+			if human {
+				client, err = browsercontrol.NewSwitcher(ctx)
+				responseCommand = "switcher.tabs.list"
+			} else {
+				client, err = browsercontrol.New(ctx)
+				opts.SessionID = sessionFromFlag()
+				opts.PersonalTabID = flagPersonalTab
+				opts.NotifyMissingWindow = true
+			}
 			if err != nil {
 				return err
 			}
-			fmt.Println(string(data))
-			return nil
-		}
+			defer client.Close()
 
-		for _, tab := range tabs {
-			marker := " "
-			if tab.Active {
-				marker = "*"
+			tabs, err := client.ListTabs(ctx, opts)
+			if err != nil {
+				return err
 			}
-			title := tab.Title
-			if len(title) > 60 {
-				title = title[:57] + "..."
+
+			if flagJSON {
+				data, err := json.Marshal(map[string]any{"cmd": responseCommand, "data": tabs})
+				if err != nil {
+					return err
+				}
+				_, err = fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				return err
 			}
-			fmt.Printf(" %s %-12s %5d  %-60s  %s\n", marker, tab.BrowserID, tab.ID, title, tab.URL)
-		}
-		return nil
-	},
+
+			for _, tab := range tabs {
+				marker := " "
+				if tab.Active {
+					marker = "*"
+				}
+				title := tab.Title
+				if len(title) > 60 {
+					title = title[:57] + "..."
+				}
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), " %s %-12s %5d  %-60s  %s\n", marker, tab.BrowserID, tab.ID, title, tab.URL); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+	if human {
+		command.Short = "List tabs across all browser windows without an agent session"
+	}
+	command.Flags().Bool("all-browsers", false, "list tabs from all connected browsers")
+	return command
 }
 
 var tabsGetCmd = &cobra.Command{
@@ -283,7 +304,6 @@ var tabsWatchCmd = &cobra.Command{
 }
 
 func init() {
-	tabsListCmd.Flags().Bool("all-browsers", false, "list tabs from all connected browsers")
 	tabsFocusCmd.Flags().Int("window", 0, "browser window ID to focus after activating the tab")
 	tabsCreateCmd.Flags().Bool("active", false, "activate new tab within agent window")
 	tabsFocusCmd.Flags().Bool("foreground", false, "allow focusing the agent browser window")

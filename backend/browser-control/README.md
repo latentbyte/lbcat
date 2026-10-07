@@ -107,7 +107,7 @@ Screenshot `--timeout` defaults to `2m`. Dynamic `page exec` uses `MAIN`; `ISOLA
 dynamic evaluation is unavailable under Manifest V3 CSP and returns an error. Script exceptions, rejected promises, and
 page CSP failures return command errors, including in JSON mode; a legitimate `null` result remains successful.
 
-Load/reload the matching extension build before using these commands. CLI and SDK page/tab requests first validate
+Load/reload the matching extension build before using these commands. Agent CLI and SDK page/tab requests first validate
 `agentWindow.status`; an older extension or malformed registration fails before the original operation is sent.
 
 SDK subscriptions use independent connections. Cancelling one preserves commands and other subscriptions; closing the
@@ -117,6 +117,20 @@ that client so a stalled event reader cannot block unrelated responses. Event st
 subscribe again when continuous observation is needed.
 
 ## Human-operated tab switchers
+
+For an operator listing tabs directly from the CLI:
+
+```sh
+bctl human tabs list                             # all windows in the sole connected browser
+bctl --browser zen-01 human tabs list --json      # one browser, structured metadata
+bctl human tabs list --all-browsers --json        # all windows in all connected browsers
+```
+
+`human tabs list` uses the switcher SDK below, without an agent window or task session.
+`--browser` takes precedence over `--all-browsers`; with multiple browsers, select one or use
+`--all-browsers`. JSON responses use `cmd: "switcher.tabs.list"`. This CLI entrypoint lists tab
+metadata only; ordinary `tabs` and `page` commands keep their agent restrictions. Session and
+personal-tab flags do not apply to human listing. Agents must not use it to bypass scope restrictions.
 
 Human-operated applications such as combo-switcher use the explicit Go SDK constructor
 `browsercontrol.NewSwitcher(ctx)`. The existing `browsercontrol.New(ctx)` keeps agent-window restrictions.
