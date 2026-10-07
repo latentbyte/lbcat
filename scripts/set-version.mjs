@@ -22,7 +22,7 @@ if (!version || version.prerelease.length > 0) {
 }
 
 const manifestVersion = `${version.major}.${version.minor}.${version.patch}`;
-const packageVersion = `${manifestVersion}-az`;
+const packageVersion = manifestVersion;
 
 const readJson = async (path) => JSON.parse(await fs.readFile(path, "utf8"));
 const writeJson = async (path, value) => {
@@ -36,9 +36,9 @@ packageJson.version = packageVersion;
 await writeJson("package.json", packageJson);
 
 const manifestJson = await readJson("src/manifest.json");
-manifestJson.name = "__MSG_scriptcat_az__";
+manifestJson.name = "LBcat";
 manifestJson.version = manifestVersion;
-manifestJson.version_name = packageVersion;
+delete manifestJson.version_name;
 await writeJson("src/manifest.json", manifestJson);
 
 console.log(`set package version to ${packageVersion}`);

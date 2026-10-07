@@ -3,7 +3,7 @@ import { rspack, NormalModule, type Configuration } from "@rspack/core";
 import { ZipExecutionPlugin } from "./rspack-plugins/ZipExecutionPlugin";
 import { readFileSync } from "fs";
 import { v4 as uuidv4 } from "uuid";
-import { resolveAgentEnabled, applyAgentManifest } from "./scripts/build-config.js";
+import { resolveAgentEnabled, applyAgentManifest, firefoxRelease } from "./scripts/build-config.js";
 
 const pkg = JSON.parse(readFileSync("./package.json", "utf-8"));
 
@@ -46,9 +46,14 @@ const versionInfo = getManifestVersion(version);
 const isPrerelease = Boolean(versionInfo.prereleaseName);
 const isBeta = version.includes("-");
 const isReactTools = process.env.REACT_DEVTOOLS === "true";
-// agent 功能仅在开发版与 beta 版本提供，正式版本屏蔽入口并移除 debugger 权限。
+// LBcat 保留 agent；上游正式版本屏蔽入口并移除 debugger 权限
 // 可用环境变量 SC_ENABLE_AGENT 强制覆盖（如 e2e 在正式版上强制开启）。
-const enableAgent = resolveAgentEnabled({ isDev, isBeta, envValue: process.env.SC_ENABLE_AGENT });
+const enableAgent = resolveAgentEnabled({
+  isDev,
+  isBeta,
+  isFork: pkg.name === "lbcat",
+  envValue: process.env.SC_ENABLE_AGENT,
+});
 const targetBrowser = (process.env.TARGET_BROWSER || "chrome").toLowerCase();
 if (!["chrome", "firefox"].includes(targetBrowser)) {
   throw new Error(`unsupported target browser: ${targetBrowser}`);
@@ -61,6 +66,7 @@ type ScriptCatManifest = chrome.runtime.ManifestV3 & {
     gecko?: {
       id?: string;
       strict_min_version?: string;
+      update_url?: string;
       data_collection_permissions?: { required: string[] };
     };
   };
@@ -83,7 +89,8 @@ const applyFirefoxManifest = (manifest: ScriptCatManifest) => {
     ...manifest.browser_specific_settings,
     gecko: {
       ...manifest.browser_specific_settings?.gecko,
-      id: "scriptcat@latentbyte.com",
+      id: firefoxRelease.addonId,
+      update_url: firefoxRelease.updateUrl,
       strict_min_version: "142.0",
       data_collection_permissions: {
         required: ["none"],

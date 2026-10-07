@@ -120,24 +120,4 @@ alias zip := pack
 
 # pack source files for Mozilla review, excluding Browser Control tooling
 mozilla-source:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    version="$(node -p "require('./package.json').version")"
-    out="dist/scriptcat-v${version}-source.zip"
-    mkdir -p dist
-    rm -f "$out"
-    zip -qr "$out" \
-        package.json \
-        pnpm-lock.yaml \
-        pnpm-workspace.yaml \
-        rspack.config.ts \
-        postcss.config.mjs \
-        uno.config.ts \
-        tsconfig.json \
-        scripts \
-        src \
-        packages \
-        README.md \
-        LICENSE \
-        env.example
-    echo "$out"
+    pnpm run mozilla-source

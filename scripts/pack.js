@@ -6,7 +6,7 @@ import { execSync } from "child_process";
 import manifest from "../src/manifest.json" with { type: "json" };
 import packageInfo from "../package.json" with { type: "json" };
 import semver from "semver";
-import { resolveAgentEnabled, applyAgentManifest } from "./build-config.js";
+import { resolveAgentEnabled, applyAgentManifest, firefoxRelease } from "./build-config.js";
 
 // ============================================================================
 
@@ -32,11 +32,12 @@ if (!version) {
   throw new Error(`invalid package version: ${packageInfo.version}`);
 }
 
-// agent 功能仅在 beta 版本提供，正式版本屏蔽入口并移除 debugger 权限
+// LBcat 保留 agent；上游正式版本屏蔽入口并移除 debugger 权限
 // （与 rspack 构建一致，支持环境变量 SC_ENABLE_AGENT 覆盖）
 const agentEnabled = resolveAgentEnabled({
   isDev: false,
   isBeta: version.prerelease.length > 0,
+  isFork: packageInfo.name === "lbcat",
   envValue: process.env.SC_ENABLE_AGENT,
 });
 
@@ -63,7 +64,7 @@ if (version.prerelease.length) {
   manifest.version_name = packageInfo.version;
   manifest.name = prereleaseName === "az" ? `__MSG_scriptcat_az__` : `__MSG_scriptcat_beta__`;
 } else {
-  manifest.name = `__MSG_scriptcat__`;
+  manifest.name = packageInfo.name === "lbcat" ? "LBcat" : "__MSG_scriptcat__";
   manifest.version = packageInfo.version;
   delete manifest.version_name;
 }
@@ -106,7 +107,8 @@ delete firefoxManifest.incognito;
 firefoxManifest.permissions = firefoxManifest.permissions.filter((val) => !["offscreen", "userScripts"].includes(val));
 firefoxManifest.browser_specific_settings = {
   gecko: {
-    id: "scriptcat@latentbyte.com",
+    id: firefoxRelease.addonId,
+    update_url: firefoxRelease.updateUrl,
     // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/userScripts#browser_compatibility
     // Firefox 142+ also covers Android support for data_collection_permissions
     strict_min_version: "142.0",
@@ -155,11 +157,11 @@ await Promise.all([
 ]);
 
 // 导出zip包
-await fs.writeFile(`./dist/${packageInfo.name}-v${packageInfo.version}-chrome.zip`, await chrome.close());
+await fs.writeFile(`./dist/${packageInfo.name}-${packageInfo.version}-chrome.zip`, await chrome.close());
 console.log("wrote chrome zip");
 
 if (PACK_FIREFOX) {
-  await fs.writeFile(`./dist/${packageInfo.name}-v${packageInfo.version}-firefox.zip`, await firefox.close());
+  await fs.writeFile(`./dist/${packageInfo.name}-${packageInfo.version}-firefox.zip`, await firefox.close());
   console.log("wrote firefox zip");
 }
 
@@ -171,7 +173,7 @@ try {
   await crx
     .load("./dist/ext")
     .then((crxFile) => crxFile.pack())
-    .then((crxBuffer) => fs.writeFile(`./dist/${packageInfo.name}-v${packageInfo.version}-chrome.crx`, crxBuffer));
+    .then((crxBuffer) => fs.writeFile(`./dist/${packageInfo.name}-${packageInfo.version}-chrome.crx`, crxBuffer));
 } catch (err) {
   console.warn(`skipping crx build: ${err.message}`);
 }

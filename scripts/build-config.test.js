@@ -1,8 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { isAgentEnabled, resolveAgentEnabled, applyAgentManifest } from "./build-config.js";
+import { isAgentEnabled, resolveAgentEnabled, applyAgentManifest, firefoxRelease } from "./build-config.js";
+import { readFileSync } from "node:fs";
+
+describe("Firefox 自托管更新配置", () => {
+  it("两个打包入口应使用同一个固定更新地址和扩展 ID", () => {
+    expect(firefoxRelease).toEqual({
+      addonId: "scriptcat@latentbyte.com",
+      updateUrl: "https://dl.latentbyte.com/lb/exts/lbcat-updates.json",
+      downloadBaseUrl: "https://dl.latentbyte.com/lb/exts/",
+    });
+    for (const filename of ["rspack.config.ts", "scripts/pack.js"]) {
+      const source = readFileSync(filename, "utf8");
+      expect(source).toContain("id: firefoxRelease.addonId");
+      expect(source).toContain("update_url: firefoxRelease.updateUrl");
+    }
+  });
+});
 
 describe("构建配置 - agent 开关", () => {
   describe("isAgentEnabled", () => {
+    it("LBcat 正式版本应保留现有 agent 功能", () => {
+      expect(isAgentEnabled({ isDev: false, isBeta: false, isFork: true })).toBe(true);
+    });
     it("开发版本应启用 agent", () => {
       expect(isAgentEnabled({ isDev: true, isBeta: false })).toBe(true);
     });
@@ -17,6 +36,10 @@ describe("构建配置 - agent 开关", () => {
   });
 
   describe("resolveAgentEnabled - 环境变量覆盖", () => {
+    it("LBcat 正式版本默认启用 agent 且允许显式关闭", () => {
+      expect(resolveAgentEnabled({ isDev: false, isBeta: false, isFork: true, envValue: undefined })).toBe(true);
+      expect(resolveAgentEnabled({ isDev: false, isBeta: false, isFork: true, envValue: "false" })).toBe(false);
+    });
     it("未设置环境变量时按版本派生（正式版禁用）", () => {
       expect(resolveAgentEnabled({ isDev: false, isBeta: false, envValue: undefined })).toBe(false);
     });

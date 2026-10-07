@@ -92,47 +92,69 @@ i18next, 7 locales (`src/locales/`: en-US, zh-CN, zh-TW, ja-JP, de-DE, vi-VN, ru
 
 Do not commit secrets, local certificates, build output, coverage, Playwright reports, test results, or local `.env` changes.
 
-## Future plan: self-hosted Firefox updates
+## LBcat Firefox releases and updates
 
-**Status: planned, not implemented.** Use LB Stash to host Mozilla-signed Firefox releases and a stable,
-public HTTPS update manifest. Hosting URLs and stable/beta channel separation remain undecided.
+LBcat uses plain semantic release versions (`x.y.z`), without the old `-az` label or fourth `1900`
+component. `pnpm run set-version 4.1.0` updates both package and source manifest versions. The fork keeps
+its agent enabled in stable builds; `SC_ENABLE_AGENT=false` remains an explicit override. The displayed
+extension name is LBcat. Keep upstream identifiers and the signed add-on ID `scriptcat@latentbyte.com`
+for compatibility.
 
-Reuse the Android APK publisher's artifact-first, catalog-last workflow. Firefox supplies update checking
-and installation, so no Android updater module or custom extension updater is needed. The Firefox feed
-must use Mozilla's JSON format rather than the Android catalog format.
+Release configuration lives in [`scripts/firefox-release.json`](../scripts/firefox-release.json):
 
-Planned implementation:
+- Permanent public feed: https://dl.latentbyte.com/lb/exts/lbcat-updates.json
+- Immutable signed downloads: https://dl.latentbyte.com/lb/exts/lbcat-<version>.xpi
 
-1. Choose a permanent, app-owned feed path, such as
-   `https://updates.example.com/extensions/scriptcat/firefox/updates.json`, with immutable versioned XPI
-   URLs beside it. Use separate feeds if stable and prerelease channels are introduced.
-2. Set `browser_specific_settings.gecko.update_url` in both Firefox manifest generation paths
-   (`rspack.config.ts` and `scripts/pack.js`). Preserve the existing add-on ID,
-   `scriptcat@latentbyte.com`. Include the URL before submitting the package for Mozilla signing.
-3. Submit each release through Mozilla's self-distribution ("On your own" / unlisted) channel and obtain
-   the signed XPI. Publish that signed file without modifying it.
-4. Upload the XPI as a public, immutable versioned file. Verify its public download, SHA-256, and
-   `Content-Type: application/x-xpinstall` before advertising it.
-5. Generate an `updates.json` feed keyed by the add-on ID. Each update entry contains the exact packaged
-   manifest `version`, HTTPS `update_link`, `update_hash` in `sha256:<hex>` form, and matching Firefox
-   compatibility information. Derive metadata from the signed package rather than the package.json
-   prerelease label.
-6. Upload and verify a staged public feed, then atomically promote it to the permanent feed path using
-   Stash's name-swap operation. Retain the previous feed for inspection. Serialize publishers and refuse
-   immutable filename collisions; do not advertise artifacts before their downloads are verified.
-7. Verify an older signed installation discovers and installs a newer signed release through Firefox's
-   native update flow. Check public redirect behavior, feed caching, MIME types, hashes, and channel
-   isolation before enabling publication.
+Both Firefox manifest generation paths include this feed URL before signing. Never change the feed
+path after distribution: installed Firefox copies continue checking their original endpoint. Existing
+`3.0.9.1900` packages lack an update URL and need one manual installation of a newer signed release.
+Renaming an XPI changes its download path, not its signed internal version.
 
-Keep release configuration in this repository and provide an offline feed-generation command plus a
-read-only publication check. Public upload and feed promotion should remain explicit release actions.
-Keep the feed path available for existing installations; they cannot discover a replacement URL while
-their installed update endpoint is unavailable. Private presigned URLs are unsuitable for the feed or
-release links.
+Prepare packages:
 
-References: [Mozilla update manifest and automatic updates](https://extensionworkshop.com/documentation/manage/updating-your-extension/),
-[self-distribution and XPI delivery](https://extensionworkshop.com/documentation/publish/self-distribution/),
-and [separate prerelease channels](https://extensionworkshop.com/documentation/publish/distribute-pre-release-versions/).
+```bash
+pnpm run pack                 # dist/lbcat-<version>-firefox.zip and Chrome zip
+just mozilla-source           # dist/lbcat-<version>-source.zip for Mozilla review
+pnpm run build:firefox        # alternative unpacked Firefox build in dist/ext
+```
+
+Submit the Firefox zip through Mozilla's self-distribution ("On your own" / unlisted) signing channel.
+Download the signed XPI and keep its bytes unchanged. Then generate the feed offline (Node 22.18+):
+
+```bash
+pnpm --silent firefox:updates init > dist/lbcat-updates.json
+pnpm --silent firefox:updates generate /path/to/lbcat-4.1.0.xpi > dist/lbcat-updates-4.1.0.json
+pnpm --silent firefox:updates check
+# also check a staged public feed before promoting it
+pnpm --silent firefox:updates check https://dl.latentbyte.com/lb/exts/lbcat-updates-4.1.0.json
+```
+
+`init` creates an empty feed, suitable before the first signed build. `generate` derives the exact
+version, SHA-256, and Gecko compatibility from the package; it requires the configured ID, update URL,
+plain `x.y.z` version, and signature metadata. `check` is read-only: it follows HTTPS redirects and
+checks JSON/XPI MIME types, every download hash, version, identity, feed URL, and compatibility.
+Signature metadata is a prerequisite check; Firefox verifies actual Mozilla signing trust.
+
+Publish explicitly through LB Stash in the existing `lb` namespace / `exts` folder:
+
+1. Serialize releases. Upload the signed XPI as `lbcat-<version>.xpi`, public, with MIME type
+   `application/x-xpinstall`. Refuse existing versioned names; never replace released XPI bytes.
+2. Upload the generated feed as `lbcat-updates-<version>.json`, public, MIME `application/json`.
+   Run the staged `check` command above; it verifies the immutable artifact before promotion.
+3. Describe then call Stash's `swap-entry-names` operation with the staged and current feed entry IDs
+   and their exact current names. Both must be available public files in the same folder. This atomically
+   promotes the staged file to `lbcat-updates.json` and retains the previous feed under the staged name.
+4. Run `check` at the permanent URL. Test a native Firefox upgrade between two signed releases before
+   claiming end-to-end update installation works. An empty feed only proves endpoint availability.
+
+Use the authenticated `lb` CLI with `LB_API_BASE_URL=https://dl.latentbyte.com`; describe live
+`create-upload`, `complete-upload`, and `swap-entry-names` operations before mutations. Upload intents
+are sink-only: reserve using `--sink` to a new owner-only file outside this repository, transfer raw bytes
+with the returned method/headers before expiry, then complete using the Stash entry ID. Preserve
+uncertain uploads for idempotent completion. Never put private presigned URLs in the feed.
+
+References: [Mozilla update manifests](https://extensionworkshop.com/documentation/manage/updating-your-extension/)
+and [self-distribution](https://extensionworkshop.com/documentation/publish/self-distribution/).
 
 ## Commit & Pull Request Guidelines
 
