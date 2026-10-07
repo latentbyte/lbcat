@@ -6,20 +6,19 @@ import { type WindowMessage } from "@Packages/message/window_message";
 import { type ServiceWorkerClient } from "../service_worker/client";
 import { sendMessage } from "@Packages/message/client";
 import GMApi from "./gm_api";
-import { MessageQueue } from "@Packages/message/message_queue";
+import type { IMessageQueue } from "@Packages/message/message_queue";
 import { VSCodeConnect } from "./vscode-connect";
 import { HtmlExtractorService } from "./html_extractor";
 import { makeBlobURL } from "@App/pkg/utils/utils";
 
 // offscreen环境的管理器
 export class BackgroundEnvManagerBase {
-  private readonly messageQueue = new MessageQueue();
-
   constructor(
     private readonly extMsgSender: MessageSend,
     private readonly windowMessage: WindowMessage,
     private readonly offscreenServer: Server,
-    private readonly serviceWorker: ServiceWorkerClient
+    private readonly serviceWorker: ServiceWorkerClient,
+    private readonly messageQueue: IMessageQueue
   ) {}
 
   logger(data: Logger) {
@@ -32,7 +31,7 @@ export class BackgroundEnvManagerBase {
 
   preparationSandbox() {
     // 通知初始化好环境了
-    this.serviceWorker.preparationOffscreen();
+    return this.serviceWorker.preparationOffscreen();
   }
 
   async getExtensionEnv(data: { requireUAD: boolean }) {

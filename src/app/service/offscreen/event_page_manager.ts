@@ -3,7 +3,8 @@ import type {
   IOffscreenSend,
   Message,
   MessageConnect,
-  MessageSend,
+  OnConnectCallback,
+  OnMessageCallback,
   RuntimeMessageSender,
   TMessage,
 } from "@Packages/message/types";
@@ -11,6 +12,7 @@ import { WindowMessage } from "@Packages/message/window_message";
 import EventEmitter from "eventemitter3";
 import { ServiceWorkerClient } from "../service_worker/client";
 import { BackgroundEnvManagerBase } from "./base";
+import type { IMessageQueue } from "@Packages/message/message_queue";
 
 class InProcessMessageConnect implements MessageConnect {
   private messages = new EventEmitter<string, any>();
@@ -26,9 +28,12 @@ class InProcessMessageConnect implements MessageConnect {
   }
 
   sendMessage(data: TMessage): void {
-    if (!this.disconnected) {
-      this.peer?.messages.emit("message", data);
-    }
+    // 与浏览器端口一致，异步投递以便调用方先注册回复监听
+    queueMicrotask(() => {
+      if (!this.disconnected) {
+        this.peer?.messages.emit("message", data);
+      }
+    });
   }
 
   disconnect(): void {
@@ -48,7 +53,7 @@ class InProcessMessageConnect implements MessageConnect {
   }
 }
 
-class InProcessMessage implements Message, MessageSend {
+class InProcessMessage implements Message {
   private events = new EventEmitter<string, any>();
 
   connect(data: TMessage): Promise<MessageConnect> {
@@ -79,11 +84,11 @@ class InProcessMessage implements Message, MessageSend {
   }
 }
 
-export class EventPageOffscreenManager extends BackgroundEnvManagerBase implements IOffscreenSend {
+export class EventPageOffscreenManager extends BackgroundEnvManagerBase implements IOffscreenSend, Message {
   private readonly message: InProcessMessage;
   private initialized = false;
 
-  constructor(extMsgSender: MessageSend) {
+  constructor(messageQueue: IMessageQueue) {
     if (typeof document !== "object" || !document?.documentElement) {
       throw new Error("EventPageOffscreenManager requires a DOM-capable Firefox MV3 Event Page.");
     }
@@ -102,9 +107,9 @@ export class EventPageOffscreenManager extends BackgroundEnvManagerBase implemen
 
     const windowMessage = new WindowMessage(window, target);
     const offscreenServer = new Server("offscreen", [message, windowMessage]);
-    const serviceWorker = new ServiceWorkerClient(extMsgSender);
+    const serviceWorker = new ServiceWorkerClient(message);
 
-    super(extMsgSender, windowMessage, offscreenServer, serviceWorker);
+    super(message, windowMessage, offscreenServer, serviceWorker, messageQueue);
     this.message = message;
   }
 
@@ -122,5 +127,13 @@ export class EventPageOffscreenManager extends BackgroundEnvManagerBase implemen
 
   sendMessage<T = any>(data: TMessage): Promise<T> {
     return this.message.sendMessage<T>(data);
+  }
+
+  onConnect(callback: OnConnectCallback): void {
+    this.message.onConnect(callback);
+  }
+
+  onMessage(callback: OnMessageCallback): void {
+    this.message.onMessage(callback);
   }
 }

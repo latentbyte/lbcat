@@ -83,7 +83,7 @@ Each context is a separate bundle (see [§8](#8-build-pipeline--manifest)) with 
 | **Service Worker** | [`src/service_worker.ts`](../src/service_worker.ts) | No DOM. Owns `chrome.*` privileged APIs, storage, permissions, routing. | `ExtensionMessage(true)` → `Server("serviceWorker")` + `MessageQueue` → `ServiceWorkerManager` |
 | **Content** | [`src/content.ts`](../src/content.ts) | Isolated content-script world. Bridges SW and the page. | `CustomEventMessage` channel to inject + `Server("content")` → `ScriptRuntime` |
 | **Inject** | [`src/inject.ts`](../src/inject.ts) | Page (`MAIN`) world. Has `unsafeWindow`; runs page userscripts. | `CustomEventMessage` to content + `Server("inject")` |
-| **Offscreen** | [`src/offscreen.ts`](../src/offscreen.ts) | DOM-capable background page (Blobs, clipboard, DOM scraping, local storage). | `ExtensionMessage()` + `WindowMessage(window, sandbox)` → `OffscreenManager` |
+| **Offscreen** | [`src/offscreen.ts`](../src/offscreen.ts) | DOM-capable background page (Blobs, clipboard, DOM scraping, local storage). | `ServiceWorkerClientMessage()` + `WindowMessage(window, sandbox)` + `MessageQueue` -> `OffscreenManager` |
 | **Sandbox** | [`src/sandbox.ts`](../src/sandbox.ts) | `sandbox`ed iframe inside offscreen. Evaluates background/scheduled scripts; runs cron. | `WindowMessage(window, parent)` + `Server("sandbox")` → `SandboxManager` |
 
 There is also a sixth bundle, [`src/scripting.ts`](../src/scripting.ts), injected via `chrome.userScripts` /
@@ -94,18 +94,16 @@ There is also a sixth bundle, [`src/scripting.ts`](../src/scripting.ts), injecte
 [`src/service_worker.ts`](../src/service_worker.ts) is the canonical example of how a context wires itself up:
 
 ```ts
-const message = new ExtensionMessage(true);          // backgroundPrimary = true
-const server = new Server("serviceWorker", message); // RPC listener, action prefix "serviceWorker/"
-const messageQueue = new MessageQueue();             // pub/sub broadcast bus
-
+const message = new ExtensionMessage(true);
+const messageQueue = new MessageQueue();
 const hasOffscreenDocument = typeof chrome.offscreen?.createDocument === "function";
+const offscreen = hasOffscreenDocument
+  ? new ServiceWorkerMessageSend()
+  : new EventPageOffscreenManager(messageQueue);
+const server = new Server("serviceWorker", [message, offscreen]);
+new ServiceWorkerManager(server, messageQueue, offscreen).initManager();
 if (hasOffscreenDocument) {
-  const offscreen = new ServiceWorkerMessageSend();  // Chrome: talk to the real offscreen document
-  new ServiceWorkerManager(server, messageQueue, offscreen).initManager();
-  setupOffscreenDocument();                          // chrome.offscreen.createDocument(...)
-} else {
-  const offscreen = new EventPageOffscreenManager(message); // Firefox MV3: event page IS the DOM env
-  new ServiceWorkerManager(server, messageQueue, offscreen).initManager();
+  setupOffscreenDocument();
 }
 ```
 
@@ -117,11 +115,12 @@ ScriptCat needs DOM for things like `DOMParser`, Blobs, and clipboard. Chrome so
 already has DOM and plays the offscreen role directly.
 
 - **Chrome:** SW → Offscreen uses [`ServiceWorkerMessageSend`](../packages/message/window_message.ts) (it
-  finds the offscreen client via `clients.matchAll()` and `postMessage`s it); Offscreen → SW replies over
-  `ExtensionMessage` (`chrome.runtime`).
+  finds the offscreen client via `clients.matchAll()` and `postMessage`s it); Offscreen replies through
+  `ServiceWorkerClientMessage` using `navigator.serviceWorker` and `postMessage`.
 - **Firefox:** [`EventPageOffscreenManager`](../src/app/service/offscreen/event_page_manager.ts) substitutes
-  for the offscreen document; `service_worker.ts` emits `preparationOffscreen` immediately because the DOM
-  environment is already live.
+  for the offscreen document. Both services use its in-process message channel and share one `MessageQueue`,
+  since `runtime.sendMessage` excludes its sending frame. The sandbox's readiness handshake triggers
+  `preparationOffscreen` after sandbox initialization.
 
 Services never see this difference: they receive an `IOffscreenSend` and call `.init()`.
 
