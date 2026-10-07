@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LBcat",
-  "version": "4.2.1",
+  "version": "4.2.2",
   "author": "CodFrm",
   "description": "__MSG_scriptcat_description__",
   "options_ui": {

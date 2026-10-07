@@ -124,7 +124,11 @@ export class AgentWindowService implements AgentWindowScope {
         );
       }
       const matchesMarker = (tab: chrome.tabs.Tab): boolean => tab.url === markerUrl || tab.pendingUrl === markerUrl;
-      const marker = window.tabs?.find(matchesMarker) || (await this.deps.listTabs(window.id)).find(matchesMarker);
+      let marker = window.tabs?.find(matchesMarker);
+      for (let attempt = 0; marker?.id === undefined && attempt < 80; attempt++) {
+        marker = (await this.deps.listTabs(window.id)).find(matchesMarker);
+        if (marker?.id === undefined) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
       if (marker?.id === undefined) throw new Error("Could not identify agent window marker");
       await this.readyMarker(marker.id, window.id, markerUrl);
       await this.deps.pinTab(marker.id);

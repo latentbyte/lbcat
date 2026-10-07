@@ -135,6 +135,71 @@ describe("代理专用窗口与标签租约", () => {
     await expect(service.status()).resolves.toEqual(status);
   });
 
+  it("窗口初始查询只有继承标签与空白页时重试直到标记 URL 出现", async () => {
+    vi.useFakeTimers();
+    try {
+      const createWindow = deps.createWindow;
+      deps.createWindow = async (properties) => {
+        const window = (await createWindow(properties))!;
+        const marker = window.tabs![0];
+        const markerUrl = marker.url;
+        marker.url = "about:blank";
+        tabs.set(1, mockTab({ id: 1, url: "https://example.org" }));
+        setTimeout(() => {
+          marker.url = markerUrl;
+        }, 75);
+        return { ...window, tabs: [tabs.get(1)!, { ...marker }] };
+      };
+      const listTabs = deps.listTabs;
+      deps.listTabs = vi.fn(async (windowId) => (await listTabs(windowId)).map((tab) => ({ ...tab })));
+      const outcome = service.create().then(
+        (status) => ({ status }),
+        (error: unknown) => ({ error })
+      );
+      await vi.advanceTimersByTimeAsync(50);
+      expect(deps.pinTab).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(50);
+      const result = await outcome;
+      expect(result).toHaveProperty("status");
+      if (!("status" in result)) throw result.error;
+      expect(deps.listTabs).toHaveBeenCalledTimes(4);
+      expect(deps.pinTab).not.toHaveBeenCalledWith(1);
+      await expect(service.status()).resolves.toEqual(result.status);
+      const sessionId = (await service.openSession()).sessionId;
+      await expect(service.listTabs(sessionId)).resolves.toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("始终无法发现精确标记时超时并保留原登记", async () => {
+    vi.useFakeTimers();
+    try {
+      const original = await service.designate(7);
+      deps.createWindow = async () => ({
+        id: 8,
+        focused: false,
+        alwaysOnTop: false,
+        incognito: false,
+        type: "normal",
+        tabs: [mockTab({ id: 1, windowId: 8, url: "https://example.org" })],
+      });
+      let settled = false;
+      const pending = service.create().finally(() => {
+        settled = true;
+      });
+      const result = expect(pending).rejects.toThrow("Could not identify agent window marker");
+      await vi.advanceTimersByTimeAsync(100);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1900);
+      await result;
+      expect(deps.pinTab).not.toHaveBeenCalled();
+      await expect(service.status()).resolves.toEqual(original);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("标记导航超时后拒绝登记且不阻塞下一次明确指定", async () => {
     vi.useFakeTimers();
     try {
