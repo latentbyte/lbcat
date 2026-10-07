@@ -7,7 +7,7 @@
     "run": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "CodFrm",
+  "author": "LatentByte",
   "license": "MIT",
   "dependencies": {
     "scriptcat-nodejs": "^0.1.7"

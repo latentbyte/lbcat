@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "LBcat",
-  "version": "4.2.3",
-  "author": "CodFrm",
+  "version": "4.2.4",
+  "author": "LatentByte",
   "description": "__MSG_scriptcat_description__",
   "options_ui": {
     "page": "src/options.html",
