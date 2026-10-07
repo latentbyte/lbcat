@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 )
@@ -19,7 +20,17 @@ type Conn struct {
 
 	mu     sync.Mutex // serializes writes
 	closed atomic.Bool
+
+	events    chan *protocol.Envelope
+	eventOnce sync.Once
+	eventDone chan struct{}
+	done      chan struct{}
 }
+
+const (
+	writeTimeout   = 2 * time.Second
+	eventQueueSize = 32
+)
 
 // ConnMeta holds optional identity details from the handshake.
 type ConnMeta struct {
@@ -38,21 +49,59 @@ func (c *Conn) ReadEnvelope() (*protocol.Envelope, error) {
 
 // WriteEnvelope sends an envelope to the connection.
 func (c *Conn) WriteEnvelope(env *protocol.Envelope) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return protocol.WriteEnvelope(c.raw, env)
+	return c.WriteJSON(env)
 }
 
 // WriteJSON marshals v and sends it as a frame.
 func (c *Conn) WriteJSON(v any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return protocol.WriteJSON(c.raw, v)
+	if err := c.raw.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+		_ = c.Close()
+		return err
+	}
+	if err := protocol.WriteJSON(c.raw, v); err != nil {
+		_ = c.Close()
+		return err
+	}
+	return nil
+}
+
+// QueueEvent 隔离事件订阅者，队列满时关闭连接，避免阻塞其他客户端
+func (c *Conn) QueueEvent(env *protocol.Envelope) error {
+	if c.closed.Load() {
+		return net.ErrClosed
+	}
+	c.eventOnce.Do(func() { go c.writeEvents() })
+	select {
+	case <-c.done:
+		return net.ErrClosed
+	case c.events <- env:
+		return nil
+	default:
+		_ = c.Close()
+		return fmt.Errorf("event queue full for %s", c.ID)
+	}
+}
+
+func (c *Conn) writeEvents() {
+	defer close(c.eventDone)
+	for {
+		select {
+		case <-c.done:
+			return
+		case env := <-c.events:
+			if err := c.WriteEnvelope(env); err != nil {
+				return
+			}
+		}
+	}
 }
 
 // Close closes the underlying connection.
 func (c *Conn) Close() error {
 	if c.closed.CompareAndSwap(false, true) {
+		close(c.done)
 		return c.raw.Close()
 	}
 	return nil
@@ -97,9 +146,12 @@ func (r *Registry) Add(raw net.Conn, hs *protocol.Handshake) *Conn {
 	id := fmt.Sprintf("%s-%02d", prefix, r.seq[prefix])
 
 	c := &Conn{
-		ID:   id,
-		Role: hs.Role,
-		raw:  raw,
+		ID:        id,
+		Role:      hs.Role,
+		raw:       raw,
+		events:    make(chan *protocol.Envelope, eventQueueSize),
+		eventDone: make(chan struct{}),
+		done:      make(chan struct{}),
 		Meta: ConnMeta{
 			Browser:         hs.Browser,
 			Profile:         hs.Profile,

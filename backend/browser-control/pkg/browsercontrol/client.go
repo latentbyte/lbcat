@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"sort"
 	"strings"
 	"sync"
@@ -78,7 +79,10 @@ type BrowserStatus struct {
 }
 
 type daemonClient struct {
-	cli *internalcli.Client
+	cli           *internalcli.Client
+	mu            sync.Mutex
+	closed        bool
+	subscriptions map[*internalcli.Client]context.CancelFunc
 }
 
 func (c *daemonClient) ListTabs(ctx context.Context, opts ListTabsOptions) ([]model.Tab, error) {
@@ -183,6 +187,38 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	subscription, err := internalcli.Connect()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		cancel()
+		_ = subscription.Close()
+		return nil, net.ErrClosed
+	}
+	if c.subscriptions == nil {
+		c.subscriptions = make(map[*internalcli.Client]context.CancelFunc)
+	}
+	c.subscriptions[subscription] = cancel
+	c.mu.Unlock()
+	stop := context.AfterFunc(ctx, func() { _ = subscription.Close() })
+	cleanup := func() {
+		cancel()
+		stop()
+		_ = subscription.Close()
+		c.mu.Lock()
+		delete(c.subscriptions, subscription)
+		c.mu.Unlock()
+	}
+	started := false
+	defer func() {
+		if !started {
+			cleanup()
+		}
+	}()
 	if wantsTabEvents(opts.Events) {
 		targets, err := c.browserTargets(ctx, targetOptions{BrowserID: opts.BrowserID, AllBrowsers: opts.AllBrowsers})
 		if err != nil {
@@ -192,7 +228,7 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 		}
 		events := browserEventNames(opts.Events)
 		for _, target := range targets {
-			resp, err := c.cli.RequestContext(ctx, string(target.ID), internalcli.ExtCommand{
+			resp, err := subscription.RequestContext(ctx, string(target.ID), internalcli.ExtCommand{
 				Cmd:  "tabs.subscribe",
 				Args: map[string]any{"events": events},
 			})
@@ -210,14 +246,12 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 	}
 
 	out := make(chan model.Event, 32)
+	started = true
 	go func() {
 		defer close(out)
-		go func() {
-			<-ctx.Done()
-			_ = c.cli.Close()
-		}()
+		defer cleanup()
 		for {
-			env, err := c.cli.ReadEvent()
+			env, err := subscription.ReadEvent()
 			if err != nil {
 				return
 			}
@@ -270,6 +304,16 @@ func (c *daemonClient) Status(ctx context.Context) (Status, error) {
 }
 
 func (c *daemonClient) Close() error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil
+	}
+	c.closed = true
+	for _, cancel := range c.subscriptions {
+		cancel()
+	}
+	c.mu.Unlock()
 	return c.cli.Close()
 }
 

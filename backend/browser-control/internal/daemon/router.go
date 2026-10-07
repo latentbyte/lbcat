@@ -183,7 +183,7 @@ func (rt *Router) broadcast(env *protocol.Envelope, role protocol.ConnRole) erro
 
 	var firstErr error
 	for _, dst := range targets {
-		if err := dst.WriteEnvelope(env); err != nil {
+		if err := dst.QueueEvent(env); err != nil {
 			log.Printf("router: broadcast to %s failed: %v", dst.ID, err)
 			if firstErr == nil {
 				firstErr = err

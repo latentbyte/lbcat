@@ -4,12 +4,218 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
+	"os"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/daemon"
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
 )
+
+func newSubscriptionTestBrowser(t *testing.T) (Client, func(model.EventType)) {
+	t.Helper()
+	stateDir, err := os.MkdirTemp("", "bc-sub-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(stateDir) })
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	server := daemon.NewServer()
+	server.IdleTimeout = 0
+	if err := server.Listen(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = server.Serve(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("test daemon did not stop")
+		}
+		server.Shutdown()
+	})
+	browser, err := net.Dial("unix", protocol.SocketPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = browser.Close() })
+	if err := protocol.WriteJSON(browser, &protocol.Handshake{ID: "test-browser", Type: protocol.MsgHandshake, Role: protocol.RoleBrowser, Browser: "zen"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := protocol.ReadFrame(browser); err != nil {
+		t.Fatal(err)
+	}
+	var writeMu sync.Mutex
+	go func() {
+		for {
+			env, err := protocol.ReadEnvelope(browser)
+			if err != nil {
+				return
+			}
+			writeMu.Lock()
+			_ = protocol.WriteEnvelope(browser, &protocol.Envelope{ID: env.ID, Type: protocol.MsgResponse, Payload: json.RawMessage(`{"data":{}}`)})
+			writeMu.Unlock()
+		}
+	}()
+	client, err := New(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return client, func(typ model.EventType) {
+		payload, err := json.Marshal(map[string]any{"cmd": "tabs.event", "data": model.Event{Type: typ}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeMu.Lock()
+		err = protocol.WriteEnvelope(browser, &protocol.Envelope{ID: "test-event", Type: protocol.MsgEvent, Payload: payload})
+		writeMu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func waitSubscriptionEvent(t *testing.T, events <-chan model.Event, want model.EventType) {
+	t.Helper()
+	select {
+	case evt, ok := <-events:
+		if !ok || evt.Type != want {
+			t.Fatalf("subscription event = %#v, open = %v, want %s", evt, ok, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscription event was not delivered")
+	}
+}
+
+func waitSubscriptionClosed(t *testing.T, events <-chan model.Event) {
+	t.Helper()
+	select {
+	case _, ok := <-events:
+		if ok {
+			t.Fatal("subscription remained open")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscription did not close")
+	}
+}
+
+func TestSubscriptionConcurrentRequests(t *testing.T) {
+	t.Run("订阅期间状态与聚焦请求不抢占事件读取", func(t *testing.T) {
+		client, emit := newSubscriptionTestBrowser(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		events, err := client.Subscribe(ctx, SubscribeOptions{BrowserID: "zen-01", Events: []model.EventType{model.EventTypeTabFocused}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		emit(model.EventTypeTabFocused)
+		waitSubscriptionEvent(t, events, model.EventTypeTabFocused)
+		requestCtx, requestCancel := context.WithTimeout(context.Background(), time.Second)
+		defer requestCancel()
+		requests := make(chan error, 2)
+		go func() {
+			_, err := client.Status(requestCtx)
+			requests <- err
+		}()
+		go func() {
+			_, err := client.FocusTab(requestCtx, FocusTabRequest{BrowserID: "zen-01", TabID: 12})
+			requests <- err
+		}()
+		for range 2 {
+			if err := <-requests; err != nil {
+				t.Fatalf("request during subscription: %v", err)
+			}
+		}
+		emit(model.EventTypeTabFocused)
+		waitSubscriptionEvent(t, events, model.EventTypeTabFocused)
+	})
+}
+
+func TestSubscriptionCancelPreservesClient(t *testing.T) {
+	t.Run("取消订阅仅关闭自身连接", func(t *testing.T) {
+		client, emit := newSubscriptionTestBrowser(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		opts := SubscribeOptions{BrowserID: "zen-01", Events: []model.EventType{model.EventTypeTabFocused}}
+		events, err := client.Subscribe(ctx, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		other, err := client.Subscribe(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cancel()
+		waitSubscriptionClosed(t, events)
+		emit(model.EventTypeTabFocused)
+		waitSubscriptionEvent(t, other, model.EventTypeTabFocused)
+		if _, err := client.Status(context.Background()); err != nil {
+			t.Fatalf("Status after subscription cancellation: %v", err)
+		}
+	})
+}
+
+func TestSubscriptionSetupFailurePreservesClient(t *testing.T) {
+	t.Run("订阅失败释放连接且不影响后续请求", func(t *testing.T) {
+		client, _ := newSubscriptionTestBrowser(t)
+		_, err := client.Subscribe(context.Background(), SubscribeOptions{BrowserID: "zen-missing", Events: []model.EventType{model.EventTypeTabFocused}})
+		var commandErr *CommandError
+		if !errors.As(err, &commandErr) || commandErr.Code != "CONN_NOT_FOUND" {
+			t.Fatalf("subscription error = %v, want CONN_NOT_FOUND", err)
+		}
+		connected := client.(*daemonClient)
+		connected.mu.Lock()
+		count := len(connected.subscriptions)
+		connected.mu.Unlock()
+		if count != 0 {
+			t.Fatalf("failed subscription retained %d connections", count)
+		}
+		if _, err := client.Status(context.Background()); err != nil {
+			t.Fatalf("Status after subscription failure: %v", err)
+		}
+	})
+}
+
+func TestMultipleSubscriptionsAndClientClose(t *testing.T) {
+	t.Run("多个订阅独立接收且客户端关闭释放所有订阅", func(t *testing.T) {
+		client, emit := newSubscriptionTestBrowser(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		first, err := client.Subscribe(ctx, SubscribeOptions{BrowserID: "zen-01", Events: []model.EventType{model.EventTypeTabFocused}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		requestCtx, requestCancel := context.WithTimeout(context.Background(), time.Second)
+		defer requestCancel()
+		second, err := client.Subscribe(requestCtx, SubscribeOptions{BrowserID: "zen-01", Events: []model.EventType{model.EventTypeTabRemoved}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		emit(model.EventTypeTabFocused)
+		emit(model.EventTypeTabRemoved)
+		waitSubscriptionEvent(t, first, model.EventTypeTabFocused)
+		waitSubscriptionEvent(t, second, model.EventTypeTabRemoved)
+		if err := client.Close(); err != nil {
+			t.Fatal(err)
+		}
+		waitSubscriptionClosed(t, first)
+		waitSubscriptionClosed(t, second)
+		if _, err := client.Subscribe(context.Background(), SubscribeOptions{Events: []model.EventType{model.EventTypeBrowserConnected}}); err == nil {
+			t.Fatal("closed client accepted subscription")
+		}
+	})
+}
 
 func TestCollectBrowserTabsKeepsHealthyBrowsers(t *testing.T) {
 	t.Parallel()

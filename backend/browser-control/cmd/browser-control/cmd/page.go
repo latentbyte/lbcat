@@ -61,6 +61,9 @@ var pageContentCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if extErr, ok := parseExtensionError(resp); ok {
+			return fmt.Errorf("page content failed: %s", formatExtensionError(extErr))
+		}
 
 		if flagJSON {
 			fmt.Println(string(resp))
@@ -82,7 +85,7 @@ var pageContentCmd = &cobra.Command{
 var pageExecCmd = &cobra.Command{
 	Use:   "exec <tab-id> [code]",
 	Short: "Execute JavaScript in a tab",
-	Long: `Execute arbitrary JavaScript in the context of a browser tab.
+	Long: `Execute JavaScript in the page's MAIN world.
 Provide code inline or use -f to read from a file.`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -129,6 +132,9 @@ Provide code inline or use -f to read from a file.`,
 		}, pageExecTimeout+2*time.Second)
 		if err != nil {
 			return err
+		}
+		if extErr, ok := parseExtensionError(resp); ok {
+			return fmt.Errorf("page execution failed: %s", formatExtensionError(extErr))
 		}
 
 		if flagJSON {
@@ -184,6 +190,9 @@ var pageReloadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if extErr, ok := parseExtensionError(resp); ok {
+			return fmt.Errorf("page reload failed: %s", formatExtensionError(extErr))
+		}
 
 		if flagJSON {
 			fmt.Println(string(resp))
@@ -191,7 +200,6 @@ var pageReloadCmd = &cobra.Command{
 		}
 
 		fmt.Printf("reloaded tab %d\n", tabID)
-		_ = resp
 		return nil
 	},
 }
@@ -214,6 +222,8 @@ var pageScreenshotCmd = &cobra.Command{
 		fullPage, _ := cmd.Flags().GetBool("full-page")
 		output, _ := cmd.Flags().GetString("output")
 		maxPixels, _ := cmd.Flags().GetInt("max-pixels")
+		focusOnError, _ := cmd.Flags().GetBool("focus-on-error")
+		timeout, _ := cmd.Flags().GetDuration("timeout")
 
 		c, err := cli.Connect()
 		if err != nil {
@@ -236,15 +246,18 @@ var pageScreenshotCmd = &cobra.Command{
 			cmdArgs["selector"] = selector
 		}
 
-		resp, err := c.Request(target, cli.ExtCommand{
+		resp, err := c.RequestWithTimeout(target, cli.ExtCommand{
 			Cmd:  "page.screenshot",
 			Args: cmdArgs,
-		})
+		}, timeout)
 		if err != nil {
 			return err
 		}
 		if extErr, ok := parseExtensionError(resp); ok {
-			return handleScreenshotExtensionError(c, target, tabID, extErr)
+			if focusOnError {
+				return handleScreenshotExtensionError(c, target, tabID, extErr)
+			}
+			return fmt.Errorf("page screenshot failed: %s", formatExtensionError(extErr))
 		}
 
 		if flagJSON {
@@ -455,7 +468,7 @@ func init() {
 	pageContentCmd.Flags().String("format", "text", "output format: text, html")
 
 	pageExecCmd.Flags().StringP("file", "f", "", "read JavaScript from file")
-	pageExecCmd.Flags().String("world", "ISOLATED", "execution world: MAIN or ISOLATED")
+	pageExecCmd.Flags().String("world", "MAIN", "execution world: MAIN (dynamic code requires page context)")
 	pageExecCmd.Flags().DurationVar(&pageExecTimeout, "timeout", 45*time.Second,
 		"max time to wait for script execution response")
 
@@ -465,6 +478,8 @@ func init() {
 	pageScreenshotCmd.Flags().String("format", "png", "image format: png, jpeg")
 	pageScreenshotCmd.Flags().Int("quality", 80, "JPEG quality (0-100, ignored for PNG)")
 	pageScreenshotCmd.Flags().Bool("full-page", false, "capture full scrollable page")
+	pageScreenshotCmd.Flags().Bool("focus-on-error", false, "focus tab for caller capture if screenshot permission fails")
+	pageScreenshotCmd.Flags().Duration("timeout", 2*time.Minute, "max time to wait for screenshot response")
 	pageScreenshotCmd.Flags().StringP("output", "o", "", "save screenshot to file")
 	pageScreenshotCmd.Flags().Int("max-pixels", 1_000_000, "resize screenshot if total pixels exceed this limit (0 to disable)")
 
