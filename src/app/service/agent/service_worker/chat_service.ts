@@ -29,18 +29,11 @@ import {
 import { createTaskTools } from "@App/app/service/agent/core/tools/task_tools";
 import { createAskUserTool } from "@App/app/service/agent/core/tools/ask_user";
 import { createSubAgentTool } from "@App/app/service/agent/core/tools/sub_agent";
-import { createExecuteScriptTool } from "@App/app/service/agent/core/tools/execute_script";
 import { resolveSubAgentType } from "@App/app/service/agent/core/sub_agent_types";
 import { classifyErrorCode } from "./retry_utils";
 import { getTextContent } from "@App/app/service/agent/core/content_utils";
 import { uuidv4 } from "@App/pkg/utils/uuid";
 import type { LLMCallResult } from "./llm_client";
-
-/** ChatService 需要的 execute_script 工具依赖 */
-export interface ChatServiceExecuteScriptDeps {
-  executeInPage: (code: string, options?: { tabId?: number }) => Promise<{ result: unknown; tabId: number }>;
-  executeInSandbox: (code: string) => Promise<unknown>;
-}
 
 /** ChatService 需要的 LLM 调用依赖 */
 export interface ChatServiceLLMDeps {
@@ -92,13 +85,21 @@ interface BuildMessagesResult {
 export class ChatService {
   constructor(
     private toolRegistry: ToolRegistry,
-    private modelService: AgentModelService,
-    private skillService: SkillService,
+    private modelService: Pick<AgentModelService, "getModel">,
+    private skillService: Pick<SkillService, "resolveSkills">,
     private bgSessionManager: BackgroundSessionManager,
-    private subAgentService: SubAgentService,
-    private executeScriptDeps: ChatServiceExecuteScriptDeps,
+    private subAgentService: Pick<SubAgentService, "runSubAgent" | "cleanup">,
     private llmDeps: ChatServiceLLMDeps,
-    private chatRepo: AgentChatRepo
+    private chatRepo: Pick<
+      AgentChatRepo,
+      | "listConversations"
+      | "saveConversation"
+      | "getMessages"
+      | "saveMessages"
+      | "appendMessage"
+      | "getTasks"
+      | "saveTasks"
+    >
   ) {}
 
   // 处理 Sandbox conversation API 请求（非流式）
@@ -245,10 +246,12 @@ export class ChatService {
       });
     };
 
+    let sessionRegistry: SessionToolRegistry | undefined;
     try {
       // ephemeral 模式：无状态处理，不从 repo 加载/持久化
       if (params.ephemeral) {
-        await this.handleEphemeralChat(params, sendEvent, abortController, scriptToolCallback);
+        sessionRegistry = new SessionToolRegistry(this.toolRegistry);
+        await this.handleEphemeralChat(params, sendEvent, abortController, scriptToolCallback, sessionRegistry);
         return;
       }
 
@@ -283,7 +286,9 @@ export class ChatService {
       const model = await this.modelService.getModel(conv.modelId);
 
       // 构建 session 级工具注册表
-      const { sessionRegistry, promptSuffix, enableTools, metaTools } = await this.buildSessionToolRegistry({
+      sessionRegistry = new SessionToolRegistry(this.toolRegistry);
+      const { promptSuffix, enableTools, metaTools } = await this.buildSessionToolRegistry({
+        sessionRegistry,
         conv,
         model,
         params,
@@ -309,27 +314,21 @@ export class ChatService {
         promptSuffix,
       });
 
-      try {
-        // 使用统一的 tool calling 循环（传入 session 级工具注册表，确保并发隔离）
-        await this.llmDeps.callLLMWithToolLoop({
-          toolRegistry: sessionRegistry,
-          model,
-          messages,
-          tools: enableTools ? params.tools : undefined,
-          maxIterations: params.maxIterations || 50,
-          sendEvent,
-          signal: abortController.signal,
-          scriptToolCallback: enableTools && params.tools && params.tools.length > 0 ? scriptToolCallback : null,
-          conversationId: params.conversationId,
-          skipBuiltinTools: !enableTools,
-        });
-        // 后台模式：正常完成后延迟清理
-        this.bgSessionManager.cleanupIfDone(params.conversationId);
-      } finally {
-        // sessionRegistry 超出作用域后由 GC 清理，无需手动 unregister
-        // 清理子代理上下文缓存
-        this.subAgentService.cleanup(params.conversationId);
-      }
+      // 使用统一的 tool calling 循环（传入 session 级工具注册表，确保并发隔离）
+      await this.llmDeps.callLLMWithToolLoop({
+        toolRegistry: sessionRegistry,
+        model,
+        messages,
+        tools: enableTools ? params.tools : undefined,
+        maxIterations: params.maxIterations || 50,
+        sendEvent,
+        signal: abortController.signal,
+        scriptToolCallback: enableTools && params.tools && params.tools.length > 0 ? scriptToolCallback : null,
+        conversationId: params.conversationId,
+        skipBuiltinTools: !enableTools,
+      });
+      // 后台模式：正常完成后延迟清理
+      this.bgSessionManager.cleanupIfDone(params.conversationId);
     } catch (e: any) {
       // 后台模式：abort 也需要清理注册表
       if (abortController.signal.aborted) {
@@ -354,18 +353,22 @@ export class ChatService {
       }
       sendEvent({ type: "error", message: errorMsg, errorCode: classifyErrorCode(e) });
       this.bgSessionManager.cleanupIfDone(params.conversationId);
+    } finally {
+      await sessionRegistry?.close();
+      if (sessionRegistry) this.subAgentService.cleanup(params.conversationId);
     }
   }
 
   /**
    * ephemeral 模式处理：无状态，不读写 repo，消息历史由调用方维护。
-   * 直接使用全局 toolRegistry 路由，skipBuiltinTools=true 保证 LLM 只看到 params.tools。
+   * 使用独立请求注册表路由，skipBuiltinTools=true 保证 LLM 只看到 params.tools。
    */
   private async handleEphemeralChat(
     params: ConversationChatParams,
     sendEvent: (event: ChatStreamEvent) => void,
     abortController: AbortController,
-    scriptToolCallback: ScriptToolCallback
+    scriptToolCallback: ScriptToolCallback,
+    sessionRegistry: SessionToolRegistry
   ): Promise<void> {
     const model = await this.modelService.getModel(params.modelId);
 
@@ -388,10 +391,9 @@ export class ChatService {
       }
     }
 
-    // ephemeral 模式无 skill/task 等 session 工具，直接使用全局 toolRegistry
-    // （skipBuiltinTools: true 保证 LLM 只看到 params.tools，toolRegistry 仅用于 execute 路由）
+    // 临时聊天同样独享浏览器任务范围；只向模型显示脚本提供的工具
     await this.llmDeps.callLLMWithToolLoop({
-      toolRegistry: this.toolRegistry,
+      toolRegistry: sessionRegistry,
       model,
       messages,
       tools: params.tools,
@@ -471,9 +473,10 @@ export class ChatService {
    * 构建 session 级工具注册表。
    * 每个 chat 请求独立一个 SessionToolRegistry（parent = 全局 toolRegistry），
    * 注册 skill meta-tools、task tools、ask_user、sub_agent、execute_script。
-   * session 超出作用域后由 GC 清理。
+   * session 在请求结束时显式释放资源。
    */
   private async buildSessionToolRegistry(ctx: {
+    sessionRegistry: SessionToolRegistry;
     conv: Conversation;
     model: AgentModelConfig;
     params: ConversationChatParams;
@@ -481,16 +484,14 @@ export class ChatService {
     abortController: AbortController;
     askResolvers: Map<string, (answer: string) => void>;
   }): Promise<SessionRegistryResult> {
-    const { conv, model, params, sendEvent, abortController, askResolvers } = ctx;
+    const { sessionRegistry, conv, model, params, sendEvent, abortController, askResolvers } = ctx;
 
     // enableTools 默认为 true
     const enableTools = conv.enableTools !== false;
 
     // 每个 chat 请求一个独立的 SessionToolRegistry（parent = 全局 toolRegistry）
     // 会话级 meta-tools（skill / task / ask_user / sub_agent / execute_script）只注册到 session，
-    // 避免并发会话的闭包互相覆盖。session 超出作用域后由 GC 清理，无需手动 unregister。
-    const sessionRegistry = new SessionToolRegistry(this.toolRegistry);
-
+    // 避免并发会话的闭包互相覆盖。session 在请求结束时显式释放资源。
     // 解析 Skills（注入 prompt + 注册 meta-tools），仅在启用 tools 时执行
     let promptSuffix = "";
     let metaTools: Array<{ definition: ToolDefinition; executor: ToolExecutor }> = [];
@@ -521,7 +522,7 @@ export class ChatService {
 
       // Sub-agent
       const subAgentTool = createSubAgentTool({
-        runSubAgent: (options: SubAgentRunOptions) => {
+        runSubAgent: async (options: SubAgentRunOptions) => {
           const agentId = uuidv4();
           const typeConfig = resolveSubAgentType(options.type);
           // 组合父信号和类型配置的超时信号
@@ -529,54 +530,49 @@ export class ChatService {
 
           // 为子代理创建完全独立的工具注册表（共享全局只读 parent，session 工具独立创建）
           const childRegistry = new SessionToolRegistry(this.toolRegistry);
+          try {
+            const subSendEvent = (evt: ChatStreamEvent) =>
+              sendEvent({
+                ...evt,
+                subAgent: {
+                  agentId,
+                  description: options.description || "Sub-agent task",
+                  subAgentType: typeConfig.name,
+                },
+              } as ChatStreamEvent);
 
-          const subSendEvent = (evt: ChatStreamEvent) =>
-            sendEvent({
-              ...evt,
-              subAgent: {
-                agentId,
-                description: options.description || "Sub-agent task",
-                subAgentType: typeConfig.name,
-              },
-            } as ChatStreamEvent);
-
-          // 独立的 task 工具（子代理有自己的任务列表）
-          const { tools: childTaskTools } = createTaskTools({ sendEvent: subSendEvent });
-          for (const t of childTaskTools) {
-            childRegistry.register("session", t.definition, t.executor);
-          }
-
-          // 独立的 execute_script
-          const childExecTool = createExecuteScriptTool(this.executeScriptDeps);
-          childRegistry.register("session", childExecTool.definition, childExecTool.executor);
-
-          // general 类型：独立的 skill meta-tools（load_skill / execute_skill_script / read_reference）
-          let skillPromptSuffix = "";
-          if (typeConfig.name === "general" && conv.skills) {
-            const resolved = this.skillService.resolveSkills(conv.skills);
-            skillPromptSuffix = resolved.promptSuffix;
-            for (const mt of resolved.metaTools) {
-              childRegistry.register("skill", mt.definition, mt.executor);
+            // 独立的 task 工具（子代理有自己的任务列表）
+            const { tools: childTaskTools } = createTaskTools({ sendEvent: subSendEvent });
+            for (const t of childTaskTools) {
+              childRegistry.register("session", t.definition, t.executor);
             }
-          }
 
-          return this.subAgentService.runSubAgent({
-            options: { ...options, description: options.description || "Sub-agent task" },
-            agentId,
-            model,
-            parentConversationId: params.conversationId,
-            signal: subSignal,
-            toolRegistry: childRegistry,
-            skillPromptSuffix,
-            sendEvent: subSendEvent,
-          });
+            // general 类型：独立的 skill meta-tools（load_skill / execute_skill_script / read_reference）
+            let skillPromptSuffix = "";
+            if (typeConfig.name === "general" && conv.skills) {
+              const resolved = this.skillService.resolveSkills(conv.skills);
+              skillPromptSuffix = resolved.promptSuffix;
+              for (const mt of resolved.metaTools) {
+                childRegistry.register("skill", mt.definition, mt.executor);
+              }
+            }
+
+            return await this.subAgentService.runSubAgent({
+              options: { ...options, description: options.description || "Sub-agent task" },
+              agentId,
+              model,
+              parentConversationId: params.conversationId,
+              signal: subSignal,
+              toolRegistry: childRegistry,
+              skillPromptSuffix,
+              sendEvent: subSendEvent,
+            });
+          } finally {
+            await childRegistry.close();
+          }
         },
       });
       sessionRegistry.register("session", subAgentTool.definition, subAgentTool.executor);
-
-      // Execute script
-      const executeScriptTool = createExecuteScriptTool(this.executeScriptDeps);
-      sessionRegistry.register("session", executeScriptTool.definition, executeScriptTool.executor);
     }
 
     return { sessionRegistry, promptSuffix, enableTools, metaTools };

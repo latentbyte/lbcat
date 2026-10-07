@@ -181,7 +181,7 @@ export class AgentTaskService {
 
       return { conversationId, usage: totalUsage };
     } finally {
-      // sessionRegistry 超出作用域后由 GC 清理，无需手动 unregister
+      await sessionRegistry.close();
     }
   }
 

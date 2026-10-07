@@ -5,13 +5,16 @@ import (
 	"os"
 	"strings"
 
+	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
 	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
 	"github.com/spf13/cobra"
 )
 
 var (
-	flagBrowser string
-	flagJSON    bool
+	flagBrowser     string
+	flagJSON        bool
+	flagSession     string
+	flagPersonalTab int
 )
 
 var rootCmd = &cobra.Command{
@@ -28,7 +31,27 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
+func sessionFromFlag() string {
+	if flagSession != "" {
+		return flagSession
+	}
+	return os.Getenv("BROWSER_CONTROL_SESSION")
+}
+
+func connectScoped() (*cli.Client, error) {
+	c, err := cli.Connect()
+	if err != nil {
+		return nil, err
+	}
+	c.SessionID = sessionFromFlag()
+	c.PersonalTabID = flagPersonalTab
+	c.NotifyMissingWindow = true
+	return c, nil
+}
+
 func init() {
+	rootCmd.PersistentFlags().StringVar(&flagSession, "session", "", "agent task session (defaults to BROWSER_CONTROL_SESSION)")
+	rootCmd.PersistentFlags().IntVar(&flagPersonalTab, "personal-tab", 0, "explicit permission for this exact personal tab ID")
 	rootCmd.PersistentFlags().StringVar(&flagBrowser, "browser", "",
 		"target browser connection (e.g., chrome-01, firefox-01)")
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false,

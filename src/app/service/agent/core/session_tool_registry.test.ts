@@ -319,3 +319,77 @@ describe("SessionToolRegistry", () => {
     });
   });
 });
+
+describe("会话内置工具工厂", () => {
+  it("应为每个请求生成独立的浏览器状态且只初始化一次", async () => {
+    const parent = new ToolRegistry();
+    const definition: ToolDefinition = {
+      name: "browser_tab",
+      description: "会话浏览器",
+      parameters: { type: "object", properties: {} },
+    };
+    parent.registerBuiltin(
+      definition,
+      createExecutor(async () => "global")
+    );
+    const factory = vi.fn(() => {
+      const tabs: string[] = [];
+      return {
+        tools: [
+          {
+            definition,
+            executor: createExecutor(async (args) => {
+              if (typeof args.url === "string") tabs.push(args.url);
+              return tabs;
+            }),
+          },
+        ],
+      };
+    });
+    parent.registerSessionBuiltinFactory("browser", factory);
+    const sessionA = new SessionToolRegistry(parent);
+    const sessionB = new SessionToolRegistry(parent);
+    const first = await sessionA.execute([{ id: "a", name: "browser_tab", arguments: '{"url":"a"}' }]);
+    const second = await sessionB.execute([{ id: "b", name: "browser_tab", arguments: '{"url":"b"}' }]);
+    const again = await sessionA.execute([{ id: "a2", name: "browser_tab", arguments: "{}" }]);
+    expect(JSON.parse(first[0].result)).toEqual(["a"]);
+    expect(JSON.parse(second[0].result)).toEqual(["b"]);
+    expect(JSON.parse(again[0].result)).toEqual(["a"]);
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(sessionA.getDefinitions().filter((tool) => tool.name === "browser_tab")).toHaveLength(1);
+    expect((await parent.execute([{ id: "global", name: "browser_tab", arguments: "{}" }]))[0].result).toBe("global");
+  });
+});
+
+describe("浏览器会话资源释放", () => {
+  it("关闭请求时应等待尚在执行的子代理工具完成再释放范围", async () => {
+    const parent = new ToolRegistry();
+    const close = vi.fn(async () => {});
+    parent.registerSessionBuiltinFactory("browser", () => ({ tools: [], close }));
+    const session = new SessionToolRegistry(parent);
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    session.register(
+      "session",
+      { name: "child", description: "", parameters: { type: "object", properties: {} } },
+      {
+        execute: async () => {
+          await pending;
+          return "done";
+        },
+      }
+    );
+    const execution = session.execute([{ id: "child", name: "child", arguments: "{}" }]);
+    const closing = session.close();
+    await Promise.resolve();
+    expect(close).not.toHaveBeenCalled();
+    finish();
+    await execution;
+    await closing;
+    expect(close).toHaveBeenCalledTimes(1);
+    await session.close();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});

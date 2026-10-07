@@ -39,7 +39,7 @@ var pageContentCmd = &cobra.Command{
 		selector, _ := cmd.Flags().GetString("selector")
 		format, _ := cmd.Flags().GetString("format")
 
-		c, err := cli.Connect()
+		c, err := connectScoped()
 		if err != nil {
 			return err
 		}
@@ -60,9 +60,6 @@ var pageContentCmd = &cobra.Command{
 		})
 		if err != nil {
 			return err
-		}
-		if extErr, ok := parseExtensionError(resp); ok {
-			return fmt.Errorf("page content failed: %s", formatExtensionError(extErr))
 		}
 
 		if flagJSON {
@@ -110,7 +107,7 @@ Provide code inline or use -f to read from a file.`,
 			return fmt.Errorf("provide code as argument or use -f <file>")
 		}
 
-		c, err := cli.Connect()
+		c, err := connectScoped()
 		if err != nil {
 			return err
 		}
@@ -132,9 +129,6 @@ Provide code inline or use -f to read from a file.`,
 		}, pageExecTimeout+2*time.Second)
 		if err != nil {
 			return err
-		}
-		if extErr, ok := parseExtensionError(resp); ok {
-			return fmt.Errorf("page execution failed: %s", formatExtensionError(extErr))
 		}
 
 		if flagJSON {
@@ -169,7 +163,7 @@ var pageReloadCmd = &cobra.Command{
 
 		bypassCache, _ := cmd.Flags().GetBool("bypass-cache")
 
-		c, err := cli.Connect()
+		c, err := connectScoped()
 		if err != nil {
 			return err
 		}
@@ -189,9 +183,6 @@ var pageReloadCmd = &cobra.Command{
 		})
 		if err != nil {
 			return err
-		}
-		if extErr, ok := parseExtensionError(resp); ok {
-			return fmt.Errorf("page reload failed: %s", formatExtensionError(extErr))
 		}
 
 		if flagJSON {
@@ -223,9 +214,13 @@ var pageScreenshotCmd = &cobra.Command{
 		output, _ := cmd.Flags().GetString("output")
 		maxPixels, _ := cmd.Flags().GetInt("max-pixels")
 		focusOnError, _ := cmd.Flags().GetBool("focus-on-error")
+		foreground, _ := cmd.Flags().GetBool("foreground")
+		if focusOnError && !foreground {
+			return fmt.Errorf("--focus-on-error requires --foreground")
+		}
 		timeout, _ := cmd.Flags().GetDuration("timeout")
 
-		c, err := cli.Connect()
+		c, err := connectScoped()
 		if err != nil {
 			return err
 		}
@@ -237,10 +232,11 @@ var pageScreenshotCmd = &cobra.Command{
 		}
 
 		cmdArgs := map[string]any{
-			"tabId":    tabID,
-			"format":   format,
-			"quality":  quality,
-			"fullPage": fullPage,
+			"tabId":           tabID,
+			"format":          format,
+			"quality":         quality,
+			"fullPage":        fullPage,
+			"allowForeground": foreground,
 		}
 		if selector != "" {
 			cmdArgs["selector"] = selector
@@ -250,14 +246,14 @@ var pageScreenshotCmd = &cobra.Command{
 			Cmd:  "page.screenshot",
 			Args: cmdArgs,
 		}, timeout)
-		if err != nil {
-			return err
-		}
 		if extErr, ok := parseExtensionError(resp); ok {
 			if focusOnError {
 				return handleScreenshotExtensionError(c, target, tabID, extErr)
 			}
-			return fmt.Errorf("page screenshot failed: %s", formatExtensionError(extErr))
+			return fmt.Errorf("page screenshot failed: %w", &extErr)
+		}
+		if err != nil {
+			return err
 		}
 
 		if flagJSON {
@@ -316,10 +312,7 @@ var pageScreenshotCmd = &cobra.Command{
 	},
 }
 
-type extensionError struct {
-	Code    string
-	Message string
-}
+type extensionError = cli.CommandError
 
 type browserRequestClient interface {
 	Request(target string, payload any) (json.RawMessage, error)
@@ -333,16 +326,12 @@ type focusedTab struct {
 // parseExtensionError detects browser-side command errors wrapped in normal responses.
 func parseExtensionError(resp json.RawMessage) (extensionError, bool) {
 	var result struct {
-		Cmd   string `json:"cmd"`
-		Error *struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
+		Error *cli.CommandError `json:"error"`
 	}
-	if err := json.Unmarshal(resp, &result); err != nil || result.Cmd != "error" || result.Error == nil {
+	if err := json.Unmarshal(resp, &result); err != nil || result.Error == nil {
 		return extensionError{}, false
 	}
-	return extensionError{Code: result.Error.Code, Message: result.Error.Message}, true
+	return *result.Error, true
 }
 
 func formatExtensionError(extErr extensionError) string {
@@ -378,7 +367,7 @@ func handleScreenshotExtensionError(c browserRequestClient, target string, tabID
 func focusTabForCallerCapture(c browserRequestClient, target string, tabID int) (focusedTab, error) {
 	focusResp, err := c.Request(target, cli.ExtCommand{
 		Cmd:  "tabs.focus",
-		Args: map[string]any{"tabId": tabID},
+		Args: map[string]any{"tabId": tabID, "allowFocus": true},
 	})
 	if err != nil {
 		return focusedTab{}, err
@@ -478,6 +467,7 @@ func init() {
 	pageScreenshotCmd.Flags().String("format", "png", "image format: png, jpeg")
 	pageScreenshotCmd.Flags().Int("quality", 80, "JPEG quality (0-100, ignored for PNG)")
 	pageScreenshotCmd.Flags().Bool("full-page", false, "capture full scrollable page")
+	pageScreenshotCmd.Flags().Bool("foreground", false, "allow visible-tab screenshot fallback to activate this tab")
 	pageScreenshotCmd.Flags().Bool("focus-on-error", false, "focus tab for caller capture if screenshot permission fails")
 	pageScreenshotCmd.Flags().Duration("timeout", 2*time.Minute, "max time to wait for screenshot response")
 	pageScreenshotCmd.Flags().StringP("output", "o", "", "save screenshot to file")

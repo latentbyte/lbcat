@@ -1,6 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createTabTools } from "./tab_tools";
 
+const mockWindowStatus = vi.fn();
+const windowScope = {
+  status: mockWindowStatus,
+  listTabs: async (): Promise<chrome.tabs.Tab[]> => {
+    const { windowId, markerTabId } = await mockWindowStatus();
+    return (await chrome.tabs.query({ windowId })).filter((tab) => tab.windowId === windowId && tab.id !== markerTabId);
+  },
+  createTab: async (url: string): Promise<chrome.tabs.Tab> => {
+    const { windowId } = await mockWindowStatus();
+    return chrome.tabs.create({ url, windowId, active: false });
+  },
+  assertWindowTab: async (tabId: number): Promise<chrome.tabs.Tab> => {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.windowId !== 1) throw new Error("TAB_OUTSIDE_AGENT_WINDOW");
+    if (tabId === 99) throw new Error("AGENT_WINDOW_MARKER_PROTECTED");
+    if (tabId === 98) throw new Error("SESSION_REQUIRED");
+    return tab;
+  },
+};
+
 // mock chrome.scripting
 const mockExecuteScript = vi.fn();
 // mock chrome.tabs
@@ -32,11 +52,12 @@ const mockSummarize = vi.fn().mockResolvedValue("Summarized content");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockWindowStatus.mockResolvedValue({ windowId: 1, markerTabId: 99 });
   mockExtractReturn = "Extracted content with selectors for testing";
   mockExtractShouldThrow = false;
 
   // Default mock for chrome.tabs.get - allows normal test flow
-  mockTabsGet.mockResolvedValue({ id: 42, url: "https://example.com" });
+  mockTabsGet.mockResolvedValue({ id: 42, windowId: 1, url: "https://example.com" });
 
   (chrome as any).scripting = { executeScript: mockExecuteScript };
   (chrome as any).tabs = {
@@ -54,7 +75,7 @@ beforeEach(() => {
 });
 
 function makeTools() {
-  return createTabTools({ sender: mockSender, summarize: mockSummarize });
+  return createTabTools({ sender: mockSender, summarize: mockSummarize, windowScope });
 }
 
 function getExecutor(name: string) {
@@ -285,13 +306,18 @@ describe("list_tabs", () => {
     expect(result[0].title).toBe("Shopping Cart");
   });
 
-  it("should pass active/audible/windowId to query", async () => {
-    mockTabsQuery.mockResolvedValue([]);
+  it("应在代理窗口内应用活动和声音筛选", async () => {
+    mockTabsQuery.mockResolvedValue([
+      { id: 1, windowId: 1, active: true, audible: false },
+      { id: 2, windowId: 1, active: false, audible: false },
+      { id: 3, windowId: 1, active: true, audible: true },
+    ]);
 
-    const executor = getExecutor("list_tabs");
-    await executor.execute({ active: true, window_id: 5, audible: false });
-
-    expect(mockTabsQuery).toHaveBeenCalledWith({ active: true, windowId: 5, audible: false });
+    const result = JSON.parse(
+      (await getExecutor("list_tabs").execute({ active: true, window_id: 1, audible: false })) as string
+    );
+    expect(result.map((tab: { id: number }) => tab.id)).toEqual([1]);
+    expect(mockTabsQuery).toHaveBeenCalledWith({ windowId: 1 });
   });
 
   it("should exclude tabs without id", async () => {
@@ -329,25 +355,25 @@ describe("open_tab", () => {
 
     expect(result.id).toBe(10);
     expect(result.url).toBe("https://example.com");
-    expect(mockTabsCreate).toHaveBeenCalledWith({ url: "https://example.com", active: true });
+    expect(mockTabsCreate).toHaveBeenCalledWith({ url: "https://example.com", active: false, windowId: 1 });
   });
 
   it("should create background tab when active=false", async () => {
     mockTabsCreate.mockResolvedValue({ id: 11, url: "https://bg.com", title: "", windowId: 1, index: 4 });
 
     const executor = getExecutor("open_tab");
-    await executor.execute({ url: "https://bg.com", active: false });
+    await executor.execute({ url: "https://bg.com", active: false, windowId: 1 });
 
-    expect(mockTabsCreate).toHaveBeenCalledWith({ url: "https://bg.com", active: false });
+    expect(mockTabsCreate).toHaveBeenCalledWith({ url: "https://bg.com", active: false, windowId: 1 });
   });
 
-  it("should pass window_id if provided", async () => {
-    mockTabsCreate.mockResolvedValue({ id: 12, url: "https://a.com", title: "", windowId: 2, index: 0 });
+  it("应允许显式指定已注册的代理窗口", async () => {
+    mockTabsCreate.mockResolvedValue({ id: 12, url: "https://a.com", title: "", windowId: 1, index: 0 });
 
     const executor = getExecutor("open_tab");
-    await executor.execute({ url: "https://a.com", window_id: 2 });
+    await executor.execute({ url: "https://a.com", window_id: 1 });
 
-    expect(mockTabsCreate).toHaveBeenCalledWith({ url: "https://a.com", active: true, windowId: 2 });
+    expect(mockTabsCreate).toHaveBeenCalledWith({ url: "https://a.com", active: false, windowId: 1 });
   });
 
   it("should use pendingUrl when url is undefined", async () => {
@@ -400,46 +426,9 @@ describe("activate_tab", () => {
     await expect(executor.execute({})).rejects.toThrow('缺少必填参数 "tab_id"');
   });
 
-  it("should activate the tab and focus the window", async () => {
-    mockTabsUpdate.mockResolvedValue({
-      id: 7,
-      url: "https://example.com",
-      title: "Example",
-      active: true,
-      windowId: 3,
-    });
-    mockWindowsUpdate.mockResolvedValue({});
-
-    const executor = getExecutor("activate_tab");
-    const raw = (await executor.execute({ tab_id: 7 })) as string;
-    const result = JSON.parse(raw);
-
-    expect(result.id).toBe(7);
-    expect(result.active).toBe(true);
-    expect(mockTabsUpdate).toHaveBeenCalledWith(7, { active: true });
-    expect(mockWindowsUpdate).toHaveBeenCalledWith(3, { focused: true });
-  });
-
-  it("should throw when tab is not found", async () => {
-    mockTabsUpdate.mockResolvedValue(undefined);
-
-    const executor = getExecutor("activate_tab");
-    await expect(executor.execute({ tab_id: 999 })).rejects.toThrow("Tab 999 not found");
-  });
-
-  it("should not call windows.update when windowId is falsy", async () => {
-    mockTabsUpdate.mockResolvedValue({
-      id: 8,
-      url: "https://example.com",
-      title: "Example",
-      active: true,
-      windowId: 0,
-    });
-
-    const executor = getExecutor("activate_tab");
-    await executor.execute({ tab_id: 8 });
-
-    expect(mockTabsUpdate).toHaveBeenCalledWith(8, { active: true });
+  it("应拒绝激活标签而不抢占窗口焦点", async () => {
+    await expect(getExecutor("activate_tab").execute({ tab_id: 7 })).rejects.toThrow("FOREGROUND_PERMISSION_REQUIRED");
+    expect(mockTabsUpdate).not.toHaveBeenCalled();
     expect(mockWindowsUpdate).not.toHaveBeenCalled();
   });
 });
@@ -452,6 +441,7 @@ describe("open_tab with tab_id (navigate)", () => {
     });
     mockTabsGet.mockResolvedValue({
       id: 42,
+      windowId: 1,
       url: "https://new-page.com",
       title: "New Page",
       status: "complete",
@@ -474,6 +464,7 @@ describe("open_tab with tab_id (navigate)", () => {
     mockTabsUpdate.mockResolvedValue({ id: 42 });
     mockTabsGet.mockResolvedValue({
       id: 42,
+      windowId: 1,
       url: "https://new-page.com",
       title: "",
       status: "loading",
@@ -500,6 +491,7 @@ describe("open_tab with tab_id (navigate)", () => {
     });
     mockTabsGet.mockResolvedValue({
       id: 42,
+      windowId: 1,
       url: "https://new-page.com",
       title: "Done",
       status: "complete",
@@ -510,5 +502,57 @@ describe("open_tab with tab_id (navigate)", () => {
     const result = JSON.parse(raw);
 
     expect(result.title).toBe("Done");
+  });
+});
+
+describe("标签工具窗口隔离", () => {
+  it("应过滤代理窗口标记和个人窗口标签", async () => {
+    mockTabsQuery.mockResolvedValue([
+      { id: 1, windowId: 1, url: "https://example.com" },
+      { id: 2, windowId: 2, url: "https://personal.example.com" },
+      { id: 99, windowId: 1, url: "chrome-extension://marker" },
+    ]);
+    const result = JSON.parse((await getExecutor("list_tabs").execute({})) as string);
+    expect(result.map((tab: { id: number }) => tab.id)).toEqual([1]);
+    expect(mockTabsQuery).toHaveBeenCalledWith({ windowId: 1 });
+  });
+
+  it.each(["list_tabs", "open_tab"])("%s 应拒绝指定个人窗口", async (name) => {
+    await expect(getExecutor(name).execute({ url: "https://example.com", window_id: 2 })).rejects.toThrow(
+      "TAB_OUTSIDE_AGENT_WINDOW"
+    );
+    expect(mockTabsQuery).not.toHaveBeenCalled();
+    expect(mockTabsCreate).not.toHaveBeenCalled();
+  });
+
+  it.each(["get_tab_content", "open_tab", "close_tab"])("%s 应拒绝操作个人窗口标签", async (name) => {
+    mockTabsGet.mockResolvedValue({ id: 2, windowId: 2, url: "https://personal.example.com" });
+    await expect(
+      getExecutor(name).execute({ tab_id: 2, url: "https://example.com", wait_until_loaded: false })
+    ).rejects.toThrow("TAB_OUTSIDE_AGENT_WINDOW");
+    expect(mockExecuteScript).not.toHaveBeenCalled();
+    expect(mockTabsUpdate).not.toHaveBeenCalled();
+    expect(mockTabsRemove).not.toHaveBeenCalled();
+  });
+
+  it("应在代理窗口缺失时停止创建标签", async () => {
+    mockWindowStatus.mockRejectedValue(new Error("AGENT_WINDOW_REQUIRED"));
+    await expect(getExecutor("open_tab").execute({ url: "https://example.com" })).rejects.toThrow(
+      "AGENT_WINDOW_REQUIRED"
+    );
+    expect(mockTabsCreate).not.toHaveBeenCalled();
+  });
+
+  it("应拒绝通过新建标签请求激活窗口", async () => {
+    await expect(getExecutor("open_tab").execute({ url: "https://example.com", active: true })).rejects.toThrow(
+      "FOREGROUND_PERMISSION_REQUIRED"
+    );
+    expect(mockTabsCreate).not.toHaveBeenCalled();
+  });
+
+  it("应保护代理窗口标记标签", async () => {
+    mockTabsGet.mockResolvedValue({ id: 99, windowId: 1, url: "chrome-extension://marker" });
+    await expect(getExecutor("close_tab").execute({ tab_id: 99 })).rejects.toThrow("AGENT_WINDOW_MARKER_PROTECTED");
+    expect(mockTabsRemove).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,10 @@
 - bump version with changes following normal semantic versioning rules.
 
+- Browser Control integration skill: canonical source is `$HOME/dotfiles/templates/agents/skills/browser-control/SKILL.md`
+  ([GitHub source](https://github.com/hamidzr/dotfiles/blob/main/templates/agents/skills/browser-control/SKILL.md)).
+  Update it when `backend/browser-control/`, `src/pkg/browser-control/`, or agent browser tools change CLI commands,
+  window registration, task leases, personal-tab overrides, notification behavior, or capture capabilities.
+
 # Repository Guidelines
 
 This file provides guidance to AI coding agents (Claude Code, etc.) when working with code in this repository.

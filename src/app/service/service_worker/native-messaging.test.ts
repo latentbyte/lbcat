@@ -9,6 +9,7 @@ import {
   tabToBrowserControlTab,
 } from "./native-messaging";
 import type { ScriptService } from "./script";
+import { withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 
 describe("原生消息大小限制", () => {
   it("超限响应返回错误并保留请求 ID", () => {
@@ -238,6 +239,29 @@ describe("原生消息并发控制", () => {
       { result: { width: 100, height: 100, viewportWidth: 100, viewportHeight: 100, x: 0, y: 0, dpr: 1 } },
     ]);
     vi.stubGlobal("chrome", {
+      storage: {
+        local: (() => {
+          let state: unknown = {
+            registration: {
+              windowId: 7,
+              markerTabId: 900,
+              markerUrl: "chrome-extension://test/src/agent-window.html?registration=test",
+            },
+            sessions: [{ sessionId: "task", expiresAt: Date.now() + 900000, ttlMs: 900000, paused: false, tabIds: [] }],
+          };
+          return {
+            get: vi.fn(async (key: string, callback?: (value: Record<string, unknown>) => void) => {
+              const result =
+                key === "browserControl.agentWindow" ? { "browserControl.agentWindow": structuredClone(state) } : {};
+              callback?.(result);
+              return result;
+            }),
+            set: vi.fn(async (value: Record<string, unknown>) => {
+              state = structuredClone(value["browserControl.agentWindow"]);
+            }),
+          };
+        })(),
+      },
       runtime: {
         connectNative: () => ({
           postMessage,
@@ -252,7 +276,10 @@ describe("原生消息并发控制", () => {
         onMessage: { addListener: vi.fn() },
       },
       tabs: {
-        get: tabsGet,
+        get: async (id: number) =>
+          id === 900
+            ? { id: 900, windowId: 7, url: "chrome-extension://test/src/agent-window.html?registration=test" }
+            : tabsGet(id),
         update: tabsUpdate,
         captureTab,
         captureVisibleTab,
@@ -277,8 +304,38 @@ describe("原生消息并发控制", () => {
   });
 
   function request(id: string, cmd: string, args: Record<string, unknown>): Promise<void> {
-    return dispatch({ id, type: "request", payload: { cmd, args } });
+    return dispatch({ id, type: "request", payload: { cmd, args: { sessionId: "task", ...args } } });
   }
+
+  it("新工作标签默认后台创建且限定专用窗口", async () => {
+    await request("create", "tabs.create", { url: "https://example.com" });
+    expect(tabsCreate).toHaveBeenCalledWith({ url: "https://example.com", windowId: 7, active: false });
+    expect(windowsUpdate).not.toHaveBeenCalled();
+  });
+
+  it("默认截图不允许可见捕获降级抢占标签", async () => {
+    Reflect.deleteProperty(chrome.tabs, "captureTab");
+    const done = request("strict", "page.screenshot", { tabId: 101 });
+    await vi.runAllTimersAsync();
+    await done;
+    expect(tabsUpdate).not.toHaveBeenCalled();
+    expect(captureVisibleTab).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "strict", payload: expect.objectContaining({ cmd: "error" }) })
+    );
+  });
+
+  it("个人窗口标签应拒绝执行且不泄露页面内容", async () => {
+    tabsGet.mockResolvedValue({ id: 101, windowId: 8 });
+    await request("personal", "page.content", { tabId: 101 });
+    expect(executeScript).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "personal",
+        payload: expect.objectContaining({ error: expect.objectContaining({ code: "PERSONAL_TAB_DENIED" }) }),
+      })
+    );
+  });
 
   it("Zen 并发截图应捕获各自的后台标签且不改变焦点", async () => {
     const done = Promise.all([
@@ -316,11 +373,40 @@ describe("原生消息并发控制", () => {
     expect(executeScript).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["tabs.focus", "page.screenshot"])("窗口队列等待期间暂停任务后 %s 不应抢占焦点", async (command) => {
+    Reflect.deleteProperty(chrome.tabs, "captureTab");
+    let release!: () => void;
+    const held = withNativeWindowOperation(
+      7,
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        })
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    const pending = request("queued", command, { tabId: 101, allowFocus: true, allowForeground: true });
+    await vi.advanceTimersByTimeAsync(0);
+    await request("pause", "sessions.pause", {});
+    release();
+    await held;
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "queued",
+        payload: expect.objectContaining({ cmd: "error", error: expect.objectContaining({ code: "SESSION_PAUSED" }) }),
+      })
+    );
+    expect(tabsUpdate).not.toHaveBeenCalled();
+    expect(windowsUpdate).not.toHaveBeenCalled();
+    expect(captureVisibleTab).not.toHaveBeenCalled();
+  });
+
   it("不支持按标签截图时应串行捕获同一窗口的不同标签", async () => {
     Reflect.deleteProperty(chrome.tabs, "captureTab");
     const done = Promise.all([
-      request("a", "page.screenshot", { tabId: 101 }),
-      request("b", "page.screenshot", { tabId: 102 }),
+      request("a", "page.screenshot", { tabId: 101, allowForeground: true, personalTabId: 101 }),
+      request("b", "page.screenshot", { tabId: 102, allowForeground: true, personalTabId: 102 }),
     ]);
     await vi.runAllTimersAsync();
     await done;
@@ -344,7 +430,7 @@ describe("原生消息并发控制", () => {
       activeTab = 102;
       return "captured-tab-102";
     });
-    const done = request("a", "page.screenshot", { tabId: 101 });
+    const done = request("a", "page.screenshot", { tabId: 101, allowForeground: true, personalTabId: 101 });
     await vi.runAllTimersAsync();
     await done;
     expect(postMessage).toHaveBeenCalledWith(
@@ -497,8 +583,8 @@ describe("原生消息并发控制", () => {
       return "captured-tab-" + windowId;
     });
     const done = Promise.all([
-      request("a", "page.screenshot", { tabId: 101 }),
-      request("b", "page.screenshot", { tabId: 102 }),
+      request("a", "page.screenshot", { tabId: 101, allowForeground: true, personalTabId: 101 }),
+      request("b", "page.screenshot", { tabId: 102, allowForeground: true, personalTabId: 102 }),
     ]);
     await vi.runAllTimersAsync();
     await done;
@@ -508,9 +594,9 @@ describe("原生消息并发控制", () => {
 
   it("可见截图期间创建前台标签应等待截图结束", async () => {
     Reflect.deleteProperty(chrome.tabs, "captureTab");
-    const screenshot = request("shot", "page.screenshot", { tabId: 101 });
+    const screenshot = request("shot", "page.screenshot", { tabId: 101, allowForeground: true, personalTabId: 101 });
     await vi.advanceTimersByTimeAsync(0);
-    const create = request("create", "tabs.create", { url: "https://example.com", active: true });
+    const create = request("create", "tabs.create", { url: "https://example.com", active: true, allowFocus: true });
     await vi.runAllTimersAsync();
     await Promise.all([screenshot, create]);
     expect(postMessage).toHaveBeenCalledWith(
@@ -529,7 +615,7 @@ describe("原生消息并发控制", () => {
       for (const listener of activations) listener({ tabId: 101, windowId: 7 });
       return "captured-tab-102";
     });
-    const done = request("shot", "page.screenshot", { tabId: 101 });
+    const done = request("shot", "page.screenshot", { tabId: 101, allowForeground: true, personalTabId: 101 });
     await vi.runAllTimersAsync();
     await done;
     expect(postMessage).toHaveBeenCalledWith(

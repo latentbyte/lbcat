@@ -33,9 +33,11 @@ var eventsCmd = &cobra.Command{
 		defer client.Close()
 
 		stream, err := client.Subscribe(ctx, browsercontrol.SubscribeOptions{
-			BrowserID:   browserIDFromFlag(),
-			AllBrowsers: flagBrowser == "",
-			Events:      events,
+			BrowserID:           browserIDFromFlag(),
+			AllBrowsers:         flagBrowser == "",
+			Events:              events,
+			SessionID:           sessionFromFlag(),
+			NotifyMissingWindow: true,
 		})
 		if err != nil {
 			return err

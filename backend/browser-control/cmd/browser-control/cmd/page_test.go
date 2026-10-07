@@ -174,6 +174,10 @@ func startPageCommandDaemon(t *testing.T, responses map[string]json.RawMessage) 
 			}
 			got.requests = append(got.requests, request)
 			payload, ok := responses[request.Cmd]
+			if request.Cmd == "agentWindow.status" && !ok {
+				payload = json.RawMessage(`{"cmd":"agentWindow.status","data":{"windowId":7,"markerTabId":8}}`)
+				ok = true
+			}
 			if !ok {
 				got.err = errors.New("unexpected command: " + request.Cmd)
 				return
@@ -216,6 +220,10 @@ func TestScreenshotCommandFocusRecovery(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if test.focus {
+				if err := pageScreenshotCmd.Flags().Set("foreground", "true"); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = pageScreenshotCmd.Flags().Set("foreground", "false") })
 				if err := pageScreenshotCmd.Flags().Set("focus-on-error", "true"); err != nil {
 					t.Fatal(err)
 				}
@@ -244,9 +252,9 @@ func TestScreenshotCommandFocusRecovery(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), wantError) {
 				t.Fatalf("screenshot error = %v", err)
 			}
-			want := []string{"page.screenshot"}
+			want := []string{"agentWindow.status", "page.screenshot"}
 			if test.focus {
-				want = append(want, "tabs.focus", "tabs.get")
+				want = append(want, "agentWindow.status", "tabs.focus", "agentWindow.status", "tabs.get")
 				if !strings.Contains(err.Error(), "focused tab 123 in window 7") {
 					t.Fatalf("focus recovery missing: %v", err)
 				}
@@ -283,7 +291,7 @@ func TestPageCommandsReturnExtensionErrors(t *testing.T) {
 				})
 				err := test.command.RunE(test.command, test.args)
 				requests := waitPageCommandRequests(t, result)
-				if len(requests) != 1 || requests[0].Cmd != test.name {
+				if len(requests) != 2 || requests[0].Cmd != "agentWindow.status" || requests[1].Cmd != test.name {
 					t.Fatalf("requests = %+v", requests)
 				}
 				if err == nil || !strings.Contains(err.Error(), "HANDLER_ERROR: tab unavailable") {
@@ -293,7 +301,7 @@ func TestPageCommandsReturnExtensionErrors(t *testing.T) {
 					var args struct {
 						World string `json:"world"`
 					}
-					if err := json.Unmarshal(requests[0].Args, &args); err != nil {
+					if err := json.Unmarshal(requests[1].Args, &args); err != nil {
 						t.Fatal(err)
 					}
 					if args.World != "MAIN" {

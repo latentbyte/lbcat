@@ -2,6 +2,8 @@ import type { ToolDefinition } from "@App/app/service/agent/core/types";
 import type { ToolExecutor } from "@App/app/service/agent/core/tool_registry";
 import type { MessageSend } from "@Packages/message/types";
 import { extractHtmlWithSelectors } from "@App/app/service/offscreen/client";
+import { AgentTaskWindowScope } from "@App/pkg/browser-control/agent-window";
+import type { AgentBrowserTaskScope } from "@App/pkg/browser-control/agent-window";
 import { assertDomUrlAllowed } from "@App/app/service/agent/service_worker/dom_policy";
 import { stripHtmlTags } from "./web_fetch";
 import { requireNumber, requireString, optionalString, optionalNumber, optionalBoolean } from "./param_utils";
@@ -36,7 +38,7 @@ const GET_TAB_CONTENT_DEFINITION: ToolDefinition = {
 
 const LIST_TABS_DEFINITION: ToolDefinition = {
   name: "list_tabs",
-  description: "List open browser tabs with their IDs, URLs, titles, and status.",
+  description: "List available tabs in the registered agent window with their IDs, URLs, titles, and status.",
   parameters: {
     type: "object",
     properties: {
@@ -52,14 +54,17 @@ const LIST_TABS_DEFINITION: ToolDefinition = {
 const OPEN_TAB_DEFINITION: ToolDefinition = {
   name: "open_tab",
   description:
-    "Open a new tab or navigate an existing tab to a URL. " +
+    "Open a background tab in the registered agent window or navigate an available agent-window tab to a URL. " +
     "If tab_id is provided, navigates that tab; otherwise opens a new tab. Waits for page load by default when navigating.",
   parameters: {
     type: "object",
     properties: {
       url: { type: "string", description: "URL to open" },
       tab_id: { type: "number", description: "Existing tab ID to navigate (omit to open a new tab)" },
-      active: { type: "boolean", description: "Whether to activate the tab (default: true, only for new tabs)" },
+      active: {
+        type: "boolean",
+        description: "Whether to activate the tab (default: false; foreground access requires operator permission)",
+      },
       window_id: { type: "number", description: "Window to open the tab in (only for new tabs)" },
       wait_until_loaded: {
         type: "boolean",
@@ -72,7 +77,7 @@ const OPEN_TAB_DEFINITION: ToolDefinition = {
 
 const CLOSE_TAB_DEFINITION: ToolDefinition = {
   name: "close_tab",
-  description: "Close a browser tab.",
+  description: "Close a tab available to this browser task in the registered agent window.",
   parameters: {
     type: "object",
     properties: {
@@ -84,7 +89,8 @@ const CLOSE_TAB_DEFINITION: ToolDefinition = {
 
 const ACTIVATE_TAB_DEFINITION: ToolDefinition = {
   name: "activate_tab",
-  description: "Activate (switch to) a browser tab.",
+  description:
+    "Request tab activation. Foreground access requires explicit operator permission through browser control.",
   parameters: {
     type: "object",
     properties: {
@@ -99,8 +105,9 @@ const ACTIVATE_TAB_DEFINITION: ToolDefinition = {
 export function createTabTools(deps: {
   sender: MessageSend;
   summarize: (content: string, prompt: string) => Promise<string>;
+  windowScope?: AgentBrowserTaskScope;
 }): { tools: Array<{ definition: ToolDefinition; executor: ToolExecutor }> } {
-  const { sender, summarize } = deps;
+  const { sender, summarize, windowScope = new AgentTaskWindowScope() } = deps;
 
   const getTabContentExecutor: ToolExecutor = {
     execute: async (args: Record<string, unknown>) => {
@@ -110,7 +117,7 @@ export function createTabTools(deps: {
       const maxLength = optionalNumber(args, "max_length");
 
       // 校验目标 tab URL 是否允许操作
-      const tabInfo = await chrome.tabs.get(tabId);
+      const tabInfo = await windowScope.assertWindowTab(tabId);
       assertDomUrlAllowed(tabInfo.url || "");
 
       // 注入脚本获取页面 HTML
@@ -197,12 +204,14 @@ export function createTabTools(deps: {
       const windowId = optionalNumber(args, "window_id");
       const audible = optionalBoolean(args, "audible");
 
-      const queryInfo: chrome.tabs.QueryInfo = {};
-      if (active != null) queryInfo.active = active;
-      if (windowId != null) queryInfo.windowId = windowId;
-      if (audible != null) queryInfo.audible = audible;
-
-      let tabs = await chrome.tabs.query(queryInfo);
+      const scope = await windowScope.status();
+      if (windowId !== undefined && windowId !== scope.windowId) {
+        throw new Error("TAB_OUTSIDE_AGENT_WINDOW: requested window is not the registered agent window");
+      }
+      let tabs = (await windowScope.listTabs()).filter(
+        (tab) =>
+          (active === undefined || tab.active === active) && (audible === undefined || Boolean(tab.audible) === audible)
+      );
 
       // 正则过滤
       if (urlPattern) {
@@ -245,11 +254,21 @@ export function createTabTools(deps: {
     execute: async (args: Record<string, unknown>) => {
       const url = requireString(args, "url");
       const tabId = optionalNumber(args, "tab_id");
+      if (optionalBoolean(args, "active", false)) {
+        throw new Error("FOREGROUND_PERMISSION_REQUIRED: ask the operator to allow foreground access");
+      }
+      const scope = await windowScope.status();
+      const requestedWindowId = optionalNumber(args, "window_id");
+      if (requestedWindowId !== undefined && requestedWindowId !== scope.windowId) {
+        throw new Error("TAB_OUTSIDE_AGENT_WINDOW: requested window is not the registered agent window");
+      }
+      assertDomUrlAllowed(url);
 
       // 有 tab_id → 导航已有标签页
       if (tabId != null) {
         const waitUntilLoaded = optionalBoolean(args, "wait_until_loaded", true)!;
 
+        await windowScope.assertWindowTab(tabId);
         await chrome.tabs.update(tabId, { url });
 
         if (waitUntilLoaded) {
@@ -279,13 +298,7 @@ export function createTabTools(deps: {
       }
 
       // 无 tab_id → 开新标签页
-      const active = optionalBoolean(args, "active", true)!;
-      const windowId = optionalNumber(args, "window_id");
-
-      const createProps: chrome.tabs.CreateProperties = { url, active };
-      if (windowId != null) createProps.windowId = windowId;
-
-      const tab = await chrome.tabs.create(createProps);
+      const tab = await windowScope.createTab(url);
       return JSON.stringify({
         id: tab.id,
         url: tab.url || tab.pendingUrl || url,
@@ -299,6 +312,7 @@ export function createTabTools(deps: {
   const closeTabExecutor: ToolExecutor = {
     execute: async (args: Record<string, unknown>) => {
       const tabId = requireNumber(args, "tab_id");
+      await windowScope.assertWindowTab(tabId);
       await chrome.tabs.remove(tabId);
       return JSON.stringify({ success: true, tab_id: tabId });
     },
@@ -306,20 +320,8 @@ export function createTabTools(deps: {
 
   const activateTabExecutor: ToolExecutor = {
     execute: async (args: Record<string, unknown>) => {
-      const tabId = requireNumber(args, "tab_id");
-      const tab = await chrome.tabs.update(tabId, { active: true });
-      if (!tab) throw new Error(`Tab ${tabId} not found`);
-      // 也激活对应窗口
-      if (tab.windowId) {
-        await chrome.windows.update(tab.windowId, { focused: true });
-      }
-      return JSON.stringify({
-        id: tab.id,
-        url: tab.url || "",
-        title: tab.title || "",
-        active: true,
-        windowId: tab.windowId,
-      });
+      requireNumber(args, "tab_id");
+      throw new Error("FOREGROUND_PERMISSION_REQUIRED: ask the operator to allow foreground access");
     },
   };
 

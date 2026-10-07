@@ -22,6 +22,9 @@ import type {
 } from "@App/app/service/agent/core/types";
 import { decodeDataUrl, writeWorkspaceFile } from "@App/app/service/agent/core/opfs_helpers";
 import { assertDomUrlAllowed } from "./dom_policy";
+import { AgentTaskWindowScope } from "@App/pkg/browser-control/agent-window";
+import type { AgentBrowserTaskScope } from "@App/pkg/browser-control/agent-window";
+import { captureNativeTab } from "@App/pkg/browser-control/capture";
 
 type ReadPageInjectedOptions = {
   selector: string | undefined | null;
@@ -29,20 +32,14 @@ type ReadPageInjectedOptions = {
   removeTags: string[];
 };
 import type { MonitorResult, MonitorStatus } from "@App/app/service/agent/core/types";
-import {
-  withDebugger,
-  cdpClick,
-  cdpFill,
-  cdpScreenshot,
-  cdpStartMonitor,
-  cdpStopMonitor,
-  cdpPeekMonitor,
-} from "./dom_cdp";
+import { withDebugger, cdpClick, cdpFill, cdpStartMonitor, cdpStopMonitor, cdpPeekMonitor } from "./dom_cdp";
 
 export class AgentDomService {
-  // 列出所有标签页
+  constructor(private readonly windowScope: AgentBrowserTaskScope = new AgentTaskWindowScope()) {}
+
+  // 列出代理窗口标签页
   async listTabs(): Promise<TabInfo[]> {
-    const tabs = await chrome.tabs.query({});
+    const tabs = await this.windowScope.listTabs();
     return tabs
       .filter((t) => t.id !== undefined)
       .map((t) => ({
@@ -63,11 +60,12 @@ export class AgentDomService {
     const waitUntil = options?.waitUntil ?? true;
 
     let tabId: number;
-    if (options?.tabId) {
+    if (options?.tabId !== undefined) {
+      await this.windowScope.assertWindowTab(options.tabId);
       await chrome.tabs.update(options.tabId, { url });
       tabId = options.tabId;
     } else {
-      const tab = await chrome.tabs.create({ url });
+      const tab = await this.windowScope.createTab(url);
       tabId = tab.id!;
     }
 
@@ -107,32 +105,18 @@ export class AgentDomService {
   // 截图
   async screenshot(options?: ScreenshotOptions): Promise<ScreenshotResult> {
     const tabId = await this.resolveTabId(options?.tabId);
-    let dataUrl: string;
-
-    // 指定 selector 区域截图时，必须走 CDP
-    if (options?.selector) {
-      dataUrl = await withDebugger(tabId, (id) => cdpScreenshot(id, options));
-    } else {
-      // 检查 tab 是否前台 active
-      const tab = await chrome.tabs.get(tabId);
-      if (!tab.active) {
-        // 后台 tab 优先用 CDP 截图
-        try {
-          dataUrl = await withDebugger(tabId, (id) => cdpScreenshot(id, options));
-        } catch (e) {
-          console.error("[AgentDom] CDP screenshot failed, falling back to captureVisibleTab", {
-            tabId,
-            error: e instanceof Error ? e.message : e,
-          });
-          // 降级：先激活 tab 再用 captureVisibleTab
-          await chrome.tabs.update(tabId, { active: true });
-          await new Promise((resolve) => setTimeout(resolve, 300));
-          dataUrl = await this.captureVisibleTab(tabId, options);
-        }
-      } else {
-        dataUrl = await this.captureVisibleTab(tabId, options);
+    const { dataUrl } = await captureNativeTab(
+      tabId,
+      {
+        format: "jpeg",
+        quality: options?.quality ?? 80,
+        ...(options?.selector ? { selector: options.selector } : {}),
+        ...(options?.fullPage ? { fullPage: true } : {}),
+      },
+      async () => {
+        await this.windowScope.assertWindowTab(tabId);
       }
-    }
+    );
 
     const result: ScreenshotResult = { dataUrl };
 
@@ -145,15 +129,6 @@ export class AgentDomService {
     }
 
     return result;
-  }
-
-  private async captureVisibleTab(tabId: number, options?: ScreenshotOptions): Promise<string> {
-    const quality = options?.quality ?? 80;
-    const tab = await chrome.tabs.get(tabId);
-    return chrome.tabs.captureVisibleTab(tab.windowId, {
-      format: "jpeg",
-      quality,
-    });
   }
 
   // 点击元素
@@ -262,16 +237,19 @@ export class AgentDomService {
 
   // 启动页面监控（CDP：dialog 自动处理 + MutationObserver）
   async startMonitor(tabId: number): Promise<void> {
+    await this.resolveTabId(tabId);
     return cdpStartMonitor(tabId);
   }
 
   // 停止监控并返回收集的结果
   async stopMonitor(tabId: number): Promise<MonitorResult> {
+    await this.resolveTabId(tabId);
     return cdpStopMonitor(tabId);
   }
 
   // 查询当前 monitor 状态（不停止监控）
-  peekMonitor(tabId: number): MonitorStatus {
+  async peekMonitor(tabId: number): Promise<MonitorStatus> {
+    await this.resolveTabId(tabId);
     return cdpPeekMonitor(tabId);
   }
 
@@ -309,26 +287,18 @@ export class AgentDomService {
 
   // ---- 辅助方法 ----
 
-  // 解析 tabId，未传则获取当前活动 tab
+  // 必须显式指定代理窗口内的标签页，避免误操作个人活动标签
   private async resolveTabId(tabId?: number): Promise<number> {
-    if (tabId) {
-      const tab = await chrome.tabs.get(tabId);
-      // 校验目标 tab 的 URL 是否在黑名单中（同时兼顾原有受限页面检测）
-      assertDomUrlAllowed(tab.url || "");
-      // 检测 tab 是否被 discard
-      if (tab.discarded) {
-        await chrome.tabs.reload(tabId);
-        await this.waitForPageLoad(tabId, 30000);
-      }
-      return tabId;
+    if (tabId === undefined) {
+      throw new Error("TAB_ID_REQUIRED: choose an agent-window tab from listTabs");
     }
-    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tabs.length === 0 || !tabs[0].id) {
-      throw new Error("No active tab found");
+    const tab = await this.windowScope.assertWindowTab(tabId);
+    assertDomUrlAllowed(tab.url || "");
+    if (tab.discarded) {
+      await chrome.tabs.reload(tabId);
+      await this.waitForPageLoad(tabId, 30000);
     }
-    // 校验当前活动 tab 的 URL 是否在黑名单中
-    assertDomUrlAllowed(tabs[0].url || "");
-    return tabs[0].id;
+    return tabId;
   }
 
   // 等待页面加载完成

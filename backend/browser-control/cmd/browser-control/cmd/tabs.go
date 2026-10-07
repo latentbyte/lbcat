@@ -29,8 +29,11 @@ var tabsListCmd = &cobra.Command{
 		defer client.Close()
 
 		tabs, err := client.ListTabs(ctx, browsercontrol.ListTabsOptions{
-			BrowserID:   browserIDFromFlag(),
-			AllBrowsers: allBrowsers,
+			BrowserID:           browserIDFromFlag(),
+			AllBrowsers:         allBrowsers,
+			SessionID:           sessionFromFlag(),
+			PersonalTabID:       flagPersonalTab,
+			NotifyMissingWindow: true,
 		})
 		if err != nil {
 			return err
@@ -70,7 +73,7 @@ var tabsGetCmd = &cobra.Command{
 			return fmt.Errorf("invalid tab ID: %w", err)
 		}
 
-		c, err := cli.Connect()
+		c, err := connectScoped()
 		if err != nil {
 			return err
 		}
@@ -126,9 +129,13 @@ var tabsFocusCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid tab ID: %w", err)
 		}
+		foreground, _ := cmd.Flags().GetBool("foreground")
+		if !foreground {
+			return fmt.Errorf("tabs focus requires --foreground")
+		}
 		windowID, _ := cmd.Flags().GetInt("window")
 
-		c, err := cli.Connect()
+		c, err := connectScoped()
 		if err != nil {
 			return err
 		}
@@ -139,7 +146,7 @@ var tabsFocusCmd = &cobra.Command{
 			return err
 		}
 
-		focusArgs := map[string]any{"tabId": tabID}
+		focusArgs := map[string]any{"tabId": tabID, "allowFocus": true}
 		if windowID > 0 {
 			focusArgs["windowId"] = windowID
 		}
@@ -185,7 +192,7 @@ var tabsCreateCmd = &cobra.Command{
 		url := args[0]
 		active, _ := cmd.Flags().GetBool("active")
 
-		c, err := cli.Connect()
+		c, err := connectScoped()
 		if err != nil {
 			return err
 		}
@@ -199,8 +206,9 @@ var tabsCreateCmd = &cobra.Command{
 		resp, err := c.Request(target, cli.ExtCommand{
 			Cmd: "tabs.create",
 			Args: map[string]any{
-				"url":    url,
-				"active": active,
+				"url":        url,
+				"active":     active,
+				"allowFocus": active,
 			},
 		})
 		if err != nil {
@@ -235,7 +243,7 @@ var tabsWatchCmd = &cobra.Command{
 	Use:   "watch",
 	Short: "Stream tab events in real-time",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := cli.Connect()
+		c, err := connectScoped()
 		if err != nil {
 			return err
 		}
@@ -277,7 +285,8 @@ var tabsWatchCmd = &cobra.Command{
 func init() {
 	tabsListCmd.Flags().Bool("all-browsers", false, "list tabs from all connected browsers")
 	tabsFocusCmd.Flags().Int("window", 0, "browser window ID to focus after activating the tab")
-	tabsCreateCmd.Flags().Bool("active", true, "bring new tab to foreground")
+	tabsCreateCmd.Flags().Bool("active", false, "activate new tab within agent window")
+	tabsFocusCmd.Flags().Bool("foreground", false, "allow focusing the agent browser window")
 
 	tabsCmd.AddCommand(tabsListCmd, tabsGetCmd, tabsFocusCmd, tabsCreateCmd, tabsWatchCmd)
 	rootCmd.AddCommand(tabsCmd)

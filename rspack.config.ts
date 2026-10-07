@@ -319,6 +319,13 @@ export default {
       chunks: ["options"],
     }),
     new rspack.HtmlRspackPlugin({
+      filename: `${dist}/ext/src/agent-window.html`,
+      template: `${src}/pages/agent-window.html`,
+      inject: false,
+      minify: true,
+      chunks: [],
+    }),
+    new rspack.HtmlRspackPlugin({
       filename: `${dist}/ext/src/popup.html`,
       template: `${src}/pages/popup.html`,
       inject: "head",

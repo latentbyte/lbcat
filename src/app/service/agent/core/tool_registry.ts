@@ -23,6 +23,12 @@ export interface ToolEntry {
   source: ToolSource;
 }
 
+export type SessionBuiltinGroup = {
+  tools: Array<{ definition: ToolDefinition; executor: ToolExecutor }>;
+  close?: () => Promise<void>;
+};
+export type BuiltinToolFactory = () => SessionBuiltinGroup;
+
 // 脚本工具回调类型：将 tool calls 发送到 Sandbox 执行
 export type ScriptToolCallback = (toolCalls: ToolCall[]) => Promise<Array<{ id: string; result: string }>>;
 
@@ -71,6 +77,7 @@ function isToolResultWithSubAgent(value: unknown): value is { content: string; s
 // 会话级临时工具请使用 SessionToolRegistry（见 ./session_tool_registry.ts）
 export class ToolRegistry implements ToolExecutorLike {
   private tools = new Map<string, ToolEntry>();
+  private sessionBuiltinFactories = new Map<string, BuiltinToolFactory>();
   private chatRepo?: AgentChatRepo;
 
   // 暴露底层 Map 的只读视图，供 SessionToolRegistry 构建合并视图
@@ -97,6 +104,15 @@ export class ToolRegistry implements ToolExecutorLike {
   // 注册内置工具（兼容旧 API，等价于 register("builtin", ...)）
   registerBuiltin(definition: ToolDefinition, executor: ToolExecutor): void {
     this.register("builtin", definition, executor);
+  }
+
+  // 注册需要按会话隔离状态的内置工具组
+  registerSessionBuiltinFactory(name: string, factory: BuiltinToolFactory): void {
+    this.sessionBuiltinFactories.set(name, factory);
+  }
+
+  createSessionBuiltins(): SessionBuiltinGroup[] {
+    return Array.from(this.sessionBuiltinFactories.values(), (factory) => factory());
   }
 
   // 按名称注销工具

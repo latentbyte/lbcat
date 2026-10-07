@@ -9,6 +9,7 @@ import {
   type BrowserControlIdentity,
 } from "@App/pkg/browser-control/identity";
 import { captureNativeTab, withNativeTabOperation, withNativeWindowOperation } from "@App/pkg/browser-control/capture";
+import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-control/agent-window";
 import { prepareScriptByCode } from "@App/pkg/utils/script";
 import type { ScriptService } from "./script";
 
@@ -130,9 +131,16 @@ function tabEventHandler(eventName: string) {
   return (...eventArgs: unknown[]) => {
     void normalizeNativeTabEvent(eventName, eventArgs)
       .then((event) => {
-        if (event) sendEvent({ cmd: "tabs.event", data: event });
+        if (!event) return;
+        return agentWindowService.status().then((scope) => {
+          if (event.tabId?.windowId === scope.windowId && event.tabId.tabId !== scope.markerTabId) {
+            sendEvent({ cmd: "tabs.event", data: event });
+          }
+        });
       })
-      .catch((err: unknown) => log.warn("tab event normalization failed", String(err)));
+      .catch((err: unknown) => {
+        if (!(err instanceof BrowserControlScopeError)) log.warn("tab event normalization failed", String(err));
+      });
   };
 }
 
@@ -162,6 +170,18 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 
 type HandlerResult = { data: unknown };
 type Handler = (args: Record<string, unknown>) => HandlerResult | Promise<HandlerResult>;
+
+function sessionId(args: Record<string, unknown>): string | undefined {
+  return typeof args.sessionId === "string" ? args.sessionId : undefined;
+}
+
+async function assertNativeTab(args: Record<string, unknown>, tabId: number): Promise<chrome.tabs.Tab> {
+  return agentWindowService.assertTabAccess(
+    tabId,
+    sessionId(args),
+    typeof args.personalTabId === "number" ? args.personalTabId : undefined
+  );
+}
 type NativeExecutionResult = { success: true; value: unknown } | { success: false; error: string };
 
 type TabRemoveInfo = {
@@ -287,9 +307,10 @@ export async function normalizeNativeTabEvent(
   return null;
 }
 
-export async function focusNativeTab(tabId: number, requestedWindowId?: number) {
+export async function focusNativeTab(tabId: number, requestedWindowId?: number, validateAccess?: () => Promise<void>) {
   const existing = await chrome.tabs.get(tabId);
   return withNativeWindowOperation(existing.windowId, async () => {
+    await validateAccess?.();
     const tab = await chrome.tabs.update(tabId, { active: true });
     const windowId = typeof requestedWindowId === "number" ? requestedWindowId : tab?.windowId;
     if (typeof windowId === "number") {
@@ -300,32 +321,78 @@ export async function focusNativeTab(tabId: number, requestedWindowId?: number) 
 }
 
 const handlers: Record<string, Handler> = {
+  async "agentWindow.list"() {
+    return { data: await agentWindowService.listWindows() };
+  },
+  async "agentWindow.create"() {
+    return { data: await agentWindowService.create() };
+  },
+  async "agentWindow.designate"(args) {
+    if (typeof args.windowId !== "number") throw new Error("windowId is required");
+    return { data: await agentWindowService.designate(args.windowId) };
+  },
+  async "agentWindow.status"() {
+    return { data: await agentWindowService.status() };
+  },
+  async "agentWindow.clear"() {
+    await agentWindowService.clear();
+    return { data: { cleared: true } };
+  },
+  async "sessions.open"(args) {
+    return { data: await agentWindowService.openSession(typeof args.ttlMs === "number" ? args.ttlMs : undefined) };
+  },
+  async "sessions.list"() {
+    return { data: await agentWindowService.listSessions() };
+  },
+  async "sessions.renew"(args) {
+    return { data: await agentWindowService.renewSession(sessionId(args) ?? "") };
+  },
+  async "sessions.close"(args) {
+    await agentWindowService.closeSession(sessionId(args) ?? "");
+    return { data: { closed: true } };
+  },
+  async "sessions.pause"(args) {
+    await agentWindowService.pauseSession(sessionId(args) ?? "");
+    return { data: { paused: true } };
+  },
+  async "sessions.resume"(args) {
+    await agentWindowService.resumeSession(sessionId(args) ?? "");
+    return { data: { paused: false } };
+  },
+  async "sessions.claim"(args) {
+    if (typeof args.tabId !== "number") throw new Error("tabId is required");
+    return {
+      data: tabToBrowserControlTab(await assertNativeTab(args, args.tabId), await resolveBrowserControlIdentity()),
+    };
+  },
   // --- tabs ---
 
   async "tabs.list"(args) {
-    const query = (args?.["query"] as chrome.tabs.QueryInfo) || {};
-    const tabs = await chrome.tabs.query(query);
+    const tabs = await agentWindowService.listTabs(sessionId(args));
     const identity = await resolveBrowserControlIdentity();
     return { data: tabs.map((tab) => tabToBrowserControlTab(tab, identity)) };
   },
 
   async "tabs.get"(args) {
-    const tab = await chrome.tabs.get(args["tabId"] as number);
+    const tab = await assertNativeTab(args, args["tabId"] as number);
     return { data: tabToBrowserControlTab(tab, await resolveBrowserControlIdentity()) };
   },
 
   async "tabs.create"(args) {
     const url = args["url"] as string | undefined;
-    const active = args["active"] !== undefined ? Boolean(args["active"]) : true;
+    const active = Boolean(args["active"]);
     if (!url) throw new Error("url is required");
-    let tab: chrome.tabs.Tab;
-    if (active) {
-      const window = await chrome.windows.getCurrent();
-      const windowId = window.id;
-      if (windowId === undefined) throw new Error("browser window unavailable");
-      tab = await withNativeWindowOperation(windowId, () => chrome.tabs.create({ url, active, windowId }));
-    } else {
-      tab = await chrome.tabs.create({ url, active });
+    if (active && !args.allowFocus)
+      throw new BrowserControlScopeError(
+        "FOREGROUND_PERMISSION_REQUIRED",
+        "Foreground tab creation requires explicit permission"
+      );
+    const tab = await agentWindowService.createTab(sessionId(args), url);
+    if (active && tab.id !== undefined) {
+      const tabId = tab.id;
+      await focusNativeTab(tabId, undefined, async () => {
+        await assertNativeTab(args, tabId);
+      });
     }
     return { data: tabToBrowserControlTab(tab, await resolveBrowserControlIdentity()) };
   },
@@ -334,7 +401,19 @@ const handlers: Record<string, Handler> = {
     const tabId = args["tabId"] as number | undefined;
     const requestedWindowId = args["windowId"] as number | undefined;
     if (typeof tabId !== "number") throw new Error("tabId is required");
-    return { data: await focusNativeTab(tabId, requestedWindowId) };
+    if (!args.allowFocus)
+      throw new BrowserControlScopeError(
+        "FOREGROUND_PERMISSION_REQUIRED",
+        "Focusing a browser window requires explicit permission"
+      );
+    const tab = await assertNativeTab(args, tabId);
+    if (requestedWindowId !== undefined && requestedWindowId !== tab.windowId)
+      throw new Error("windowId does not match target tab");
+    return {
+      data: await focusNativeTab(tabId, requestedWindowId, async () => {
+        await assertNativeTab(args, tabId);
+      }),
+    };
   },
 
   "tabs.subscribe"(args) {
@@ -357,8 +436,9 @@ const handlers: Record<string, Handler> = {
     const selector = (args["selector"] as string) || "body";
     const format = (args["format"] as string) || "text";
     if (!tabId) throw new Error("tabId is required");
-    const results = await withNativeTabOperation(tabId, () =>
-      chrome.scripting.executeScript({
+    const results = await withNativeTabOperation(tabId, async () => {
+      await assertNativeTab(args, tabId);
+      return chrome.scripting.executeScript({
         target: { tabId },
         func: (sel: string, fmt: string) => {
           const el = document.querySelector(sel);
@@ -366,8 +446,8 @@ const handlers: Record<string, Handler> = {
           return fmt === "html" ? (el as HTMLElement).innerHTML : (el as HTMLElement).innerText;
         },
         args: [selector, format],
-      })
-    );
+      });
+    });
     return { data: results?.[0]?.result ?? null };
   },
 
@@ -375,7 +455,10 @@ const handlers: Record<string, Handler> = {
     const tabId = args["tabId"] as number | undefined;
     const bypassCache = Boolean(args["bypassCache"]);
     if (!tabId) throw new Error("tabId is required");
-    await withNativeTabOperation(tabId, () => chrome.tabs.reload(tabId, { bypassCache }));
+    await withNativeTabOperation(tabId, async () => {
+      await assertNativeTab(args, tabId);
+      await chrome.tabs.reload(tabId, { bypassCache });
+    });
     return { data: { tabId } };
   },
 
@@ -391,7 +474,9 @@ const handlers: Record<string, Handler> = {
     }
     const expiresAt = Date.now() + timeoutMs;
     const results = await withTimeout(
-      withNativeTabOperation(tabId, () => {
+      withNativeTabOperation(tabId, async () => {
+        if (Date.now() >= expiresAt) throw new Error(`page.exec timed out after ${timeoutMs}ms`);
+        await assertNativeTab(args, tabId);
         if (Date.now() >= expiresAt) throw new Error(`page.exec timed out after ${timeoutMs}ms`);
         return chrome.scripting.executeScript({
           target: { tabId },
@@ -426,12 +511,19 @@ const handlers: Record<string, Handler> = {
     const tabId = args["tabId"] as number | undefined;
     if (!tabId) throw new Error("tabId is required");
     return {
-      data: await captureNativeTab(tabId, {
-        selector: args["selector"] as string | undefined,
-        format: args["format"] as "png" | "jpeg" | undefined,
-        quality: args["quality"] as number | undefined,
-        fullPage: Boolean(args["fullPage"]),
-      }),
+      data: await captureNativeTab(
+        tabId,
+        {
+          selector: args["selector"] as string | undefined,
+          format: args["format"] as "png" | "jpeg" | undefined,
+          quality: args["quality"] as number | undefined,
+          fullPage: Boolean(args["fullPage"]),
+          allowForeground: Boolean(args.allowForeground),
+        },
+        async () => {
+          await assertNativeTab(args, tabId);
+        }
+      ),
     };
   },
 
@@ -626,7 +718,10 @@ async function onMessage(envelope: Envelope) {
         type: "response",
         payload: {
           cmd: "error",
-          error: { code: "HANDLER_ERROR", message: err instanceof Error ? err.message : String(err) },
+          error: {
+            code: err instanceof BrowserControlScopeError ? err.code : "HANDLER_ERROR",
+            message: err instanceof Error ? err.message : String(err),
+          },
         },
       };
     }

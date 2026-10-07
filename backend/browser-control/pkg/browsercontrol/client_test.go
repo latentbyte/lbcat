@@ -17,7 +17,7 @@ import (
 	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
 )
 
-func newSubscriptionTestBrowser(t *testing.T) (Client, func(model.EventType)) {
+func newSubscriptionTestBrowser(t *testing.T, respond ...func(json.RawMessage) json.RawMessage) (Client, func(model.EventType)) {
 	t.Helper()
 	stateDir, err := os.MkdirTemp("", "bc-sub-")
 	if err != nil {
@@ -63,8 +63,18 @@ func newSubscriptionTestBrowser(t *testing.T) (Client, func(model.EventType)) {
 			if err != nil {
 				return
 			}
+			payload := json.RawMessage(`{"data":{}}`)
+			var command struct {
+				Cmd string `json:"cmd"`
+			}
+			_ = json.Unmarshal(env.Payload, &command)
+			if command.Cmd == "agentWindow.status" {
+				payload = json.RawMessage(`{"cmd":"agentWindow.status","data":{"windowId":7,"markerTabId":8}}`)
+			} else if len(respond) > 0 {
+				payload = respond[0](env.Payload)
+			}
 			writeMu.Lock()
-			_ = protocol.WriteEnvelope(browser, &protocol.Envelope{ID: env.ID, Type: protocol.MsgResponse, Payload: json.RawMessage(`{"data":{}}`)})
+			_ = protocol.WriteEnvelope(browser, &protocol.Envelope{ID: env.ID, Type: protocol.MsgResponse, Payload: payload})
 			writeMu.Unlock()
 		}
 	}()
@@ -468,5 +478,56 @@ func TestDecodeLegacyEventEnvelope(t *testing.T) {
 	}
 	if evt.TabID == nil || evt.TabID.Browser != "firefox-01" || evt.TabID.TabID != 123 {
 		t.Fatalf("TabID = %#v, want firefox-01/123", evt.TabID)
+	}
+}
+
+func TestSDKScope(t *testing.T) {
+	for _, operation := range []string{"tabs.list", "tabs.focus", "tabs.subscribe"} {
+		t.Run("SDK将会话授权传递给"+operation, func(t *testing.T) {
+			requests := make(chan map[string]any, 1)
+			client, _ := newSubscriptionTestBrowser(t, func(raw json.RawMessage) json.RawMessage {
+				var request struct {
+					Cmd  string         `json:"cmd"`
+					Args map[string]any `json:"args"`
+				}
+				if err := json.Unmarshal(raw, &request); err != nil {
+					return json.RawMessage(`{"error":{"code":"BAD_REQUEST"}}`)
+				}
+				requests <- request.Args
+				if request.Cmd == "tabs.list" {
+					return json.RawMessage(`{"data":[]}`)
+				}
+				return json.RawMessage(`{"data":{}}`)
+			})
+			ctx := context.Background()
+			switch operation {
+			case "tabs.list":
+				if _, err := client.ListTabs(ctx, ListTabsOptions{BrowserID: "zen-01", SessionID: "task-sdk", PersonalTabID: 42}); err != nil {
+					t.Fatal(err)
+				}
+			case "tabs.focus":
+				if _, err := client.FocusTab(ctx, FocusTabRequest{BrowserID: "zen-01", TabID: 42, SessionID: "task-sdk", PersonalTabID: 42, AllowFocus: true}); err != nil {
+					t.Fatal(err)
+				}
+			case "tabs.subscribe":
+				if _, err := client.Subscribe(ctx, SubscribeOptions{BrowserID: "zen-01", SessionID: "task-sdk"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			select {
+			case args := <-requests:
+				if args["sessionId"] != "task-sdk" {
+					t.Fatalf("args = %#v", args)
+				}
+				if operation != "tabs.subscribe" && args["personalTabId"] != float64(42) {
+					t.Fatalf("args = %#v", args)
+				}
+				if operation == "tabs.focus" && args["allowFocus"] != true {
+					t.Fatalf("args = %#v", args)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("request not delivered")
+			}
+		})
 	}
 }

@@ -1,10 +1,12 @@
 import { withDebugger } from "@App/app/service/agent/service_worker/dom_cdp";
+import { BrowserControlScopeError } from "./agent-window";
 
 export type NativeScreenshotOptions = {
   selector?: string;
   format?: "png" | "jpeg";
   quality?: number;
   fullPage?: boolean;
+  allowForeground?: boolean;
 };
 
 export type NativeScreenshot = {
@@ -83,8 +85,13 @@ async function captureArea(tabId: number, options: NativeScreenshotOptions): Pro
   return result.result;
 }
 
-export function captureNativeTab(tabId: number, options: NativeScreenshotOptions): Promise<NativeScreenshot> {
+export function captureNativeTab(
+  tabId: number,
+  options: NativeScreenshotOptions,
+  validateAccess?: () => Promise<void>
+): Promise<NativeScreenshot> {
   return withNativeTabOperation(tabId, async () => {
+    await validateAccess?.();
     const tabs = chrome.tabs as CaptureTabs;
     const format = options.format ?? "png";
     const quality = options.quality ?? 80;
@@ -114,8 +121,17 @@ export function captureNativeTab(tabId: number, options: NativeScreenshotOptions
         return { dataUrl: "data:image/" + format + ";base64," + result.data, width: area.width, height: area.height };
       });
     }
+    if (!options.allowForeground) {
+      throw new BrowserControlScopeError(
+        "BACKGROUND_CAPTURE_UNAVAILABLE",
+        "Background screenshot unavailable; foreground capture requires explicit permission"
+      );
+    }
     const tab = await chrome.tabs.get(tabId);
-    return withNativeWindowOperation(tab.windowId, () => captureVisibleScreenshot(tabId, options));
+    return withNativeWindowOperation(tab.windowId, async () => {
+      await validateAccess?.();
+      return captureVisibleScreenshot(tabId, options);
+    });
   });
 }
 

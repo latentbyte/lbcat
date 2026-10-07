@@ -21,12 +21,20 @@ import type {
  * - getDefinitions()：合并 session + parent（session 同名工具遮蔽 parent）
  * - execute()：构建合并 Map 后，复用 parent.executeTools() 保持附件保存等共享逻辑
  *
- * 会话结束时直接让实例被 GC 回收即可，无需 unregister 循环。
+ * 会话结束时调用 close，等待运行中的工具并释放浏览器任务租约。
  */
 export class SessionToolRegistry implements ToolExecutorLike {
   private sessionTools = new Map<string, ToolEntry>();
+  private releases: Array<() => Promise<void>> = [];
+  private activeExecutions = new Set<Promise<ToolExecuteResult[]>>();
+  private closing: Promise<void> | undefined;
 
-  constructor(private readonly parent: ToolRegistry) {}
+  constructor(private readonly parent: ToolRegistry) {
+    for (const group of parent.createSessionBuiltins()) {
+      for (const tool of group.tools) this.register("builtin", tool.definition, tool.executor);
+      if (group.close) this.releases.push(group.close);
+    }
+  }
 
   /** 注册会话临时工具（绑定到本会话的闭包） */
   register(source: ToolSource, definition: ToolDefinition, executor: ToolExecutor): void {
@@ -87,6 +95,7 @@ export class SessionToolRegistry implements ToolExecutorLike {
     scriptCallback?: ScriptToolCallback | null,
     excludeTools?: Set<string>
   ): Promise<ToolExecuteResult[]> {
+    if (this.closing) throw new Error("Tool session is closed");
     // 构建合并 Map：parent 在下、session 在上（session 覆盖 parent 同名工具）
     const merged = new Map<string, ToolEntry>();
     for (const [name, entry] of this.parent.getTools()) {
@@ -95,6 +104,23 @@ export class SessionToolRegistry implements ToolExecutorLike {
     for (const [name, entry] of this.sessionTools) {
       merged.set(name, entry);
     }
-    return this.parent.executeTools(merged, toolCalls, scriptCallback, excludeTools);
+    const execution = this.parent.executeTools(merged, toolCalls, scriptCallback, excludeTools);
+    this.activeExecutions.add(execution);
+    try {
+      return await execution;
+    } finally {
+      this.activeExecutions.delete(execution);
+    }
+  }
+
+  // 子代理通过父工具执行等待；租约只能在全部运行中的工具结束后释放
+  close(): Promise<void> {
+    if (!this.closing) {
+      this.closing = (async () => {
+        await Promise.allSettled(this.activeExecutions);
+        await Promise.all(this.releases.map((release) => release()));
+      })();
+    }
+    return this.closing;
   }
 }

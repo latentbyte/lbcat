@@ -30,6 +30,10 @@ No standalone `format` script — formatting is part of `lint-fix`. Husky pre-co
 
 After `pnpm run dev`, load `dist/ext` as an unpacked extension. The browser hot-reloads page changes, but edits to `manifest.json`, `service_worker`, `offscreen`, or `sandbox` require reloading the extension.
 
+For same-profile local browser automation, register a dedicated agent window and begin a task session first; see
+[`backend/browser-control/README.md`](../backend/browser-control/README.md). Personal active tabs are outside the default
+scope. The isolated E2E/scratch harness remains appropriate for extension verification without shared logins.
+
 ## Project Structure & Module Organization
 
 Core entry points live in `src` (`service_worker.ts`, `content.ts`, `inject.ts`, `offscreen.ts`, `sandbox.ts`). UI pages are in `src/pages`, with shared UI in `src/pages/components` and state in `src/pages/store`. Reusable domain code is in `src/pkg`; app services are in `src/app`; templates are in `src/template`; assets and translations are in `src/assets` and `src/locales`. Workspace packages live in `packages`, including browser mocks and filesystem adapters. Unit tests are colocated as `*.test.ts`/`*.test.tsx` or placed in `tests`; E2E specs are in `e2e`.

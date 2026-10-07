@@ -21,7 +21,7 @@ export const EXECUTE_SCRIPT_DEFINITION: ToolDefinition = {
       },
       tab_id: {
         type: "number",
-        description: "Target tab ID for page execution. Defaults to active tab. Ignored for sandbox.",
+        description: "Required task-owned agent-window tab ID for page execution. Ignored for sandbox.",
       },
     },
     required: ["code", "target"],

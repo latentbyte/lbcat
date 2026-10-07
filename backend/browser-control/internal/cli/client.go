@@ -22,6 +22,10 @@ type Client struct {
 	connID string   // assigned by daemon
 	peers  []string // other connected IDs at handshake time
 	reqMu  sync.Mutex
+
+	SessionID           string
+	PersonalTabID       int
+	NotifyMissingWindow bool
 }
 
 const (
@@ -109,12 +113,54 @@ func (c *Client) RequestWithTimeout(target string, payload any, timeout time.Dur
 }
 
 func (c *Client) request(ctx context.Context, target string, payload any, timeout time.Duration) (json.RawMessage, error) {
+	if timeout <= 0 {
+		timeout = requestTimeout
+	}
+	parentCtx := ctx
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	c.reqMu.Lock()
 	defer c.reqMu.Unlock()
+	response, err := c.requestScoped(ctx, target, payload, timeout)
+	if errors.Is(err, context.DeadlineExceeded) && parentCtx.Err() == nil {
+		return response, fmt.Errorf("request timed out after %v waiting for %q response", timeout, target)
+	}
+	return response, err
+}
+
+func (c *Client) requestScoped(ctx context.Context, target string, payload any, timeout time.Duration) (json.RawMessage, error) {
+	if command, ok := payload.(ExtCommand); ok && scoped(command.Cmd) {
+		status, err := c.requestLocked(ctx, target, ExtCommand{Cmd: "agentWindow.status"}, timeout)
+		if err != nil {
+			return status, fmt.Errorf("agent window safety check failed: %w", err)
+		}
+		var registration struct {
+			Data struct {
+				WindowID    int `json:"windowId"`
+				MarkerTabID int `json:"markerTabId"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(status, &registration); err != nil || registration.Data.WindowID <= 0 || registration.Data.MarkerTabID <= 0 {
+			return nil, fmt.Errorf("agent window safety check failed: extension returned invalid registration; reload or upgrade LBCat")
+		}
+	}
+	return c.requestLocked(ctx, target, payload, timeout)
+}
+
+func (c *Client) requestLocked(ctx context.Context, target string, payload any, timeout time.Duration) (json.RawMessage, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
+	command, isCommand := payload.(ExtCommand)
+	if isCommand {
+		var scopeErr error
+		command, scopeErr = c.scopedCommand(command)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		payload = command
+	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("encoding payload: %w", err)
@@ -199,6 +245,18 @@ func (c *Client) request(ctx context.Context, target string, payload any, timeou
 		return nil, fmt.Errorf("resolving offload: %w", err)
 	}
 
+	var result struct {
+		Error *CommandError `json:"error"`
+	}
+	if err := json.Unmarshal(resolved, &result); err == nil && result.Error != nil {
+		if c.NotifyMissingWindow && result.Error.Code == "AGENT_WINDOW_MISSING" {
+			notifyMissingWindow(target)
+		}
+		return resolved, result.Error
+	}
+	if c.NotifyMissingWindow && isCommand && clearsMissingWindow(command) {
+		clearMissingWindow(target)
+	}
 	return resolved, nil
 }
 

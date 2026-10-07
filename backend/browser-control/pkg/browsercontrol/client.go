@@ -39,15 +39,21 @@ func New(ctx context.Context) (Client, error) {
 
 // ListTabsOptions controls tab listing
 type ListTabsOptions struct {
-	BrowserID   model.BrowserID `json:"browserId,omitempty"`
-	AllBrowsers bool            `json:"allBrowsers,omitempty"`
+	BrowserID           model.BrowserID `json:"browserId,omitempty"`
+	AllBrowsers         bool            `json:"allBrowsers,omitempty"`
+	SessionID           string          `json:"sessionId,omitempty"`
+	PersonalTabID       int             `json:"personalTabId,omitempty"`
+	NotifyMissingWindow bool            `json:"-"`
 }
 
 // FocusTabRequest identifies the tab to focus
 type FocusTabRequest struct {
-	BrowserID model.BrowserID `json:"browserId"`
-	TabID     int64           `json:"tabId"`
-	WindowID  int             `json:"windowId,omitempty"`
+	BrowserID     model.BrowserID `json:"browserId"`
+	TabID         int64           `json:"tabId"`
+	WindowID      int             `json:"windowId,omitempty"`
+	SessionID     string          `json:"sessionId,omitempty"`
+	PersonalTabID int             `json:"personalTabId,omitempty"`
+	AllowFocus    bool            `json:"allowFocus"`
 }
 
 // FocusTabResult reports the focused tab
@@ -59,9 +65,11 @@ type FocusTabResult struct {
 
 // SubscribeOptions controls event subscription
 type SubscribeOptions struct {
-	BrowserID   model.BrowserID   `json:"browserId,omitempty"`
-	AllBrowsers bool              `json:"allBrowsers,omitempty"`
-	Events      []model.EventType `json:"events,omitempty"`
+	BrowserID           model.BrowserID   `json:"browserId,omitempty"`
+	AllBrowsers         bool              `json:"allBrowsers,omitempty"`
+	Events              []model.EventType `json:"events,omitempty"`
+	SessionID           string            `json:"sessionId,omitempty"`
+	NotifyMissingWindow bool              `json:"-"`
 }
 
 // Status reports daemon and browser connection state
@@ -100,6 +108,9 @@ func (c *daemonClient) ListTabs(ctx context.Context, opts ListTabsOptions) ([]mo
 			return nil, err
 		}
 		defer cli.Close()
+		cli.SessionID = opts.SessionID
+		cli.PersonalTabID = opts.PersonalTabID
+		cli.NotifyMissingWindow = opts.NotifyMissingWindow
 		resp, err := cli.RequestContext(ctx, string(target.ID), internalcli.ExtCommand{
 			Cmd:  "tabs.list",
 			Args: map[string]any{"query": map[string]any{}},
@@ -161,7 +172,10 @@ func (c *daemonClient) FocusTab(ctx context.Context, req FocusTabRequest) (Focus
 	if req.BrowserID == "" {
 		return FocusTabResult{}, errors.New("browserId is required")
 	}
-	args := map[string]any{"tabId": req.TabID}
+	args := map[string]any{"tabId": req.TabID, "sessionId": req.SessionID, "allowFocus": req.AllowFocus}
+	if req.PersonalTabID > 0 {
+		args["personalTabId"] = req.PersonalTabID
+	}
 	if req.WindowID > 0 {
 		args["windowId"] = req.WindowID
 	}
@@ -191,6 +205,8 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 	if err != nil {
 		return nil, err
 	}
+	subscription.SessionID = opts.SessionID
+	subscription.NotifyMissingWindow = opts.NotifyMissingWindow
 	ctx, cancel := context.WithCancel(ctx)
 	c.mu.Lock()
 	if c.closed {
@@ -363,20 +379,7 @@ type commandResponse[T any] struct {
 }
 
 // CommandError is a structured error returned by the daemon or extension
-type CommandError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-func (e *CommandError) Error() string {
-	if e == nil {
-		return ""
-	}
-	if e.Code == "" {
-		return e.Message
-	}
-	return fmt.Sprintf("%s: %s", e.Code, e.Message)
-}
+type CommandError = internalcli.CommandError
 
 func decodeCommandResponse[T any](raw json.RawMessage, out *commandResponse[T]) error {
 	if err := json.Unmarshal(raw, out); err != nil {

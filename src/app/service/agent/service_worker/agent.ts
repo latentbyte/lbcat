@@ -42,7 +42,7 @@ import { createOPFSTools, setCreateBlobUrlFn } from "@App/app/service/agent/core
 import { createObjectURL } from "@App/app/service/offscreen/client";
 import { AgentOPFSService } from "./opfs_service";
 import { executeSkillScript } from "@App/app/service/offscreen/client";
-import { createTabTools } from "@App/app/service/agent/core/tools/tab_tools";
+import { createBrowserTaskTools } from "@App/app/service/agent/core/tools/browser_task_tools";
 import { ChatService } from "./chat_service";
 
 // 保留对外 API（测试文件直接从 "./agent" import 这三个函数）
@@ -116,19 +116,6 @@ export class AgentService {
       this.skillService,
       this.bgSessionManager,
       this.subAgentService,
-      {
-        executeInPage: (code, options) => this.domService.executeScript(code, options),
-        executeInSandbox: (code) => {
-          const uuid = SKILL_SCRIPT_UUID_PREFIX + uuidv4();
-          return executeSkillScript(this.sender, {
-            uuid,
-            code,
-            args: {},
-            grants: [],
-            name: "execute_script",
-          });
-        },
-      },
       {
         callLLM: (model, params, sendEvent, signal) => this.callLLM(model, params, sendEvent, signal),
         callLLMWithToolLoop: (params) => this.callLLMWithToolLoop(params),
@@ -233,11 +220,21 @@ export class AgentService {
       this.toolRegistry.registerBuiltin(t.definition, t.executor);
     }
     // 注册 Tab 操作工具
-    const tabTools = createTabTools({
-      sender: this.sender,
-      summarize: (content, prompt) => this.summarizeContent(content, prompt),
-    });
-    for (const t of tabTools.tools) {
+    const browserToolFactory = () =>
+      createBrowserTaskTools({
+        sender: this.sender,
+        summarize: (content, prompt) => this.summarizeContent(content, prompt),
+        executeInSandbox: (code) =>
+          executeSkillScript(this.sender, {
+            uuid: SKILL_SCRIPT_UUID_PREFIX + uuidv4(),
+            code,
+            args: {},
+            grants: [],
+            name: "execute_script",
+          }),
+      });
+    this.toolRegistry.registerSessionBuiltinFactory("browser", browserToolFactory);
+    for (const t of browserToolFactory().tools) {
       this.toolRegistry.registerBuiltin(t.definition, t.executor);
     }
     // 加载已安装的 Skills
