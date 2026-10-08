@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/daemon"
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
@@ -173,6 +175,38 @@ func TestHumanTabsList(t *testing.T) {
 			}
 			if test.wantBrowsers == 2 && decoded.Data[0].BrowserID == decoded.Data[2].BrowserID {
 				t.Fatalf("browser identities not distinct: %#v", decoded.Data)
+			}
+		})
+	}
+}
+
+func TestTabsListUnicode(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		title string
+		want  string
+	}{
+		{name: "保留六十个中文字符", title: strings.Repeat("猫", 60), want: strings.Repeat("猫", 60)},
+		{name: "保留边界处的完整表情", title: strings.Repeat("a", 56) + "😀end", want: strings.Repeat("a", 56) + "😀end"},
+		{name: "按字符截断中文长标题", title: strings.Repeat("猫", 61), want: strings.Repeat("猫", 57) + "..."},
+		{name: "按字符截断表情长标题", title: strings.Repeat("😀", 61), want: strings.Repeat("😀", 57) + "..."},
+		{name: "保持英文长标题截断规则", title: strings.Repeat("a", 61), want: strings.Repeat("a", 57) + "..."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response, err := json.Marshal(map[string]any{"data": []model.Tab{{ID: 42, Title: test.title, URL: "https://example.com"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			startTabListBrowsers(t, 1, response)
+			command := newTabsListCmd(true)
+			var output bytes.Buffer
+			command.SetOut(&output)
+			if err := command.RunE(command, nil); err != nil {
+				t.Fatal(err)
+			}
+			want := fmt.Sprintf("   %-12s %5d  %-60s  https://example.com\n", "zen-01", 42, test.want)
+			if !utf8.Valid(output.Bytes()) || output.String() != want {
+				t.Fatalf("text output = %q, want %q", output.String(), want)
 			}
 		})
 	}

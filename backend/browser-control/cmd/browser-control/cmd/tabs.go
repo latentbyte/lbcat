@@ -67,8 +67,9 @@ func newTabsListCmd(human bool) *cobra.Command {
 					marker = "*"
 				}
 				title := tab.Title
-				if len(title) > 60 {
-					title = title[:57] + "..."
+				titleRunes := []rune(title)
+				if len(titleRunes) > 60 {
+					title = string(titleRunes[:57]) + "..."
 				}
 				if _, err := fmt.Fprintf(cmd.OutOrStdout(), " %s %-12s %5d  %-60s  %s\n", marker, tab.BrowserID, tab.ID, title, tab.URL); err != nil {
 					return err
