@@ -44,11 +44,16 @@ func scriptFileName(name string) string {
 	return s + ".user.js"
 }
 
-var metaNameRe = regexp.MustCompile(`(?m)^//\s*@name\s+(.+)$`)
+var metaBlockRe = regexp.MustCompile(`(?s)//[ \t]*==UserScript==(.*?)//[ \t]*==/UserScript==`)
+var metaNameRe = regexp.MustCompile(`(?m)//[ \t]*@name[ \t]+([^\r\n]*)`)
 
 // parseScriptName extracts the @name from a userscript's metadata block.
 func parseScriptName(code []byte) string {
-	m := metaNameRe.FindSubmatch(code)
+	block := metaBlockRe.FindSubmatch(code)
+	if block == nil {
+		return ""
+	}
+	m := metaNameRe.FindSubmatch(block[1])
 	if m != nil {
 		return strings.TrimSpace(string(m[1]))
 	}

@@ -17,6 +17,49 @@ import (
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
 )
 
+func TestParseScriptNameUsesMetadataBlock(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name, code, want string
+	}{
+		{"忽略头部之前的名称注释", "// @name License note\n// ==UserScript==\n// @name Actual Script\n// ==/UserScript==\n", "Actual Script"},
+		{"忽略元数据之后的名称注释", "// ==UserScript==\n// @namespace test\n// ==/UserScript==\n// @name Body note\n", ""},
+		{"没有完整头部时不提取名称", "// ==UserScript==\n// @name Incomplete Script\n", ""},
+		{"空名称不读取下一行", "// ==UserScript==\n// @name   \n// @namespace test\n// ==/UserScript==\n", ""},
+		{"支持缩进和CRLF元数据", "\t// ==UserScript==\r\n\t//\t@name\t 中文 Script \r\n\t// ==/UserScript==\r\n", "中文 Script"},
+		{"保留普通名称", "// ==UserScript==\n// @name Actual Script\n// ==/UserScript==\n", "Actual Script"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := parseScriptName([]byte(test.code)); got != test.want {
+				t.Fatalf("parseScriptName() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestArchiveScriptUsesMetadataName(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("BROWSER_CONTROL_SCRIPTS_DIR", dir)
+	code := []byte("// @name License note\n// ==UserScript==\n// @name Actual Script\n// @namespace test\n// @version 1.0.0\n// ==/UserScript==\n")
+	archiveScript(code)
+	path := filepath.Join(dir, "actual-script.user.js")
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(code) {
+		t.Fatal("archived source differs from original")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(path) {
+		t.Fatalf("archive entries = %v", entries)
+	}
+}
+
 func TestScriptWatchProcess(t *testing.T) {
 	if os.Getenv("BROWSER_CONTROL_WATCH_TEST_PROCESS") != "1" {
 		return
