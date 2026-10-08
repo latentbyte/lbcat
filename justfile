@@ -71,6 +71,10 @@ browser-control-build:
 browser-control-install:
     just -f backend/browser-control/justfile install
 
+# 仅安装 Browser Control CLI
+browser-control-install-cli:
+    just -f backend/browser-control/justfile install-cli
+
 # run Browser Control Go tests
 browser-control-test:
     just -f backend/browser-control/justfile test
@@ -106,6 +110,7 @@ browser-control-smoke:
 
 alias bctl-build := browser-control-build
 alias bctl-install := browser-control-install
+alias bctl-install-cli := browser-control-install-cli
 alias bctl-test := browser-control-test
 alias bctl-check := browser-control-check
 alias bctl-dev := browser-control-dev

@@ -9,6 +9,14 @@ build:
     go build -o bin/browser-control-daemon ./cmd/browser-control-daemon
     go build -o bin/lbcat-shim ./cmd/lbcat-shim
 
+# 仅安装 CLI，不修改运行中的守护进程、原生桥接或浏览器配置
+install-cli:
+    go build -o bin/browser-control ./cmd/browser-control
+    mkdir -p ~/.local/bin
+    cp bin/browser-control ~/.local/bin/
+    ln -sf browser-control ~/.local/bin/bctl
+    codesign --sign - --force ~/.local/bin/browser-control
+
 # build, copy to ~/.local/bin, and register native host manifests
 install: build
     mkdir -p ~/.local/bin

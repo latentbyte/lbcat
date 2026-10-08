@@ -21,11 +21,16 @@ is unset.
 ```sh
 just browser-control-build
 just browser-control-install
+just browser-control-install-cli # CLI-only updates while Native Messaging is active
 browser-control daemon status --json
 browser-control --browser zen-01 agent-window create
 browser-control --browser zen-01 agent-window status
 browser-control --browser zen-01 session list
 ```
+
+`browser-control-install-cli` (alias `bctl-install-cli`) builds and installs only the CLI and its `bctl` link.
+It leaves the daemon, Native Messaging shim, and browser host manifests unchanged. Use the full install target when
+those components also need updating.
 
 ## Same-profile agent window
 
