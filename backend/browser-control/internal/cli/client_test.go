@@ -85,3 +85,66 @@ func TestRequestContextStopsBlockedWriteWhenCanceled(t *testing.T) {
 		t.Fatal("request write ignored cancellation")
 	}
 }
+
+func TestRequestContextStopsWaitingForQueuedRequest(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		deadline bool
+	}{
+		{"排队请求取消时立即返回且不影响正在执行的请求", false},
+		{"排队请求超时时立即返回且不影响正在执行的请求", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			clientConn, daemonConn := net.Pipe()
+			defer clientConn.Close()
+			defer daemonConn.Close()
+			client := &Client{conn: clientConn}
+			firstDone := make(chan error, 1)
+			go func() {
+				_, err := client.RequestContext(context.Background(), "daemon", ExtCommand{Cmd: "status"})
+				firstDone <- err
+			}()
+			first, err := protocol.ReadEnvelope(daemonConn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			want := context.Canceled
+			if test.deadline {
+				cancel()
+				ctx, cancel = context.WithTimeout(context.Background(), 20*time.Millisecond)
+				want = context.DeadlineExceeded
+			}
+			defer cancel()
+			queuedDone := make(chan error, 1)
+			go func() {
+				_, err := client.RequestContext(ctx, "daemon", ExtCommand{Cmd: "status"})
+				queuedDone <- err
+			}()
+			if !test.deadline {
+				cancel()
+			}
+			select {
+			case err := <-queuedDone:
+				if !errors.Is(err, want) {
+					t.Fatalf("queued request error = %v, want %v", err, want)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("queued request ignored context while first request remained pending")
+			}
+			if err := protocol.WriteEnvelope(daemonConn, &protocol.Envelope{
+				ID: first.ID, Type: protocol.MsgResponse, Payload: []byte(`{"data":{}}`),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case err := <-firstDone:
+				if err != nil {
+					t.Fatalf("first request failed after queued cancellation: %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("first request did not receive its response")
+			}
+		})
+	}
+}

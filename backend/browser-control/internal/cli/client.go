@@ -18,10 +18,11 @@ import (
 
 // Client connects to the Browser Control daemon over Unix socket.
 type Client struct {
-	conn   net.Conn
-	connID string   // assigned by daemon
-	peers  []string // other connected IDs at handshake time
-	reqMu  sync.Mutex
+	conn    net.Conn
+	connID  string   // assigned by daemon
+	peers   []string // other connected IDs at handshake time
+	reqOnce sync.Once
+	reqGate chan struct{}
 
 	SessionID           string
 	PersonalTabID       int
@@ -119,9 +120,19 @@ func (c *Client) request(ctx context.Context, target string, payload any, timeou
 	parentCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	c.reqMu.Lock()
-	defer c.reqMu.Unlock()
-	response, err := c.requestScoped(ctx, target, payload, timeout)
+	c.reqOnce.Do(func() { c.reqGate = make(chan struct{}, 1) })
+	var response json.RawMessage
+	var err error
+	select {
+	case c.reqGate <- struct{}{}:
+		defer func() { <-c.reqGate }()
+		err = ctx.Err()
+		if err == nil {
+			response, err = c.requestScoped(ctx, target, payload, timeout)
+		}
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
 	if errors.Is(err, context.DeadlineExceeded) && parentCtx.Err() == nil {
 		return response, fmt.Errorf("request timed out after %v waiting for %q response", timeout, target)
 	}
