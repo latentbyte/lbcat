@@ -85,6 +85,24 @@ owner (pause, resume, release, end) and a per-tab access setting: default, off (
 window), allow all agents (also for personal tabs outside it), or only one live task. Grants last until the tab closes
 or the browser restarts, and never bypass another task's lease.
 
+### Notes for the human operator
+
+Tasks can leave page-level notes on tabs they may access. Notes are keyed by the page URL without its hash, survive
+tab close and browser restart, and expire 7 days after their last change (200 notes max).
+
+```sh
+NOTE="$(bctl --browser zen-01 note add 123 --kind needs-human "Solve the captcha, then reply 'done'")"
+bctl --browser zen-01 note wait "$NOTE" --timeout 15m   # prints the note once acknowledged, replied to, or resolved
+bctl --browser zen-01 note resolve "$NOTE"
+bctl --browser zen-01 note list --status open
+```
+
+Kinds are `info`, `needs-human`, and `done`. Status starts `open`; the human can acknowledge, reply (which also
+acknowledges), resolve, or delete from the popup, which lists the current page's notes. Open notes show their count on
+the tab's toolbar badge. `note list` returns the current session's notes, or all notes without a session; `note get`
+and `note wait` work by note ID after the session ends. Notes are plain text up to 2000 characters, visible to
+anyone using the profile; never put secrets in them.
+
 Tab listings exclude the marker and other tasks' leased tabs. Tab event streams include registered-window work tabs
 across tasks, never ordinary windows; an event does not grant access. Built-in chat/task/subagent tab tools each get an
 independent scope. GM DOM calls share their service's scope, also restricted to the agent window.
