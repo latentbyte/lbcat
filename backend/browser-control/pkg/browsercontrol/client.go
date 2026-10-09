@@ -282,24 +282,15 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 				return nil, err
 			}
 		}
-		events := browserEventNames(opts.Events)
 		for _, target := range targets {
-			resp, err := subscription.RequestContext(ctx, string(target.ID), internalcli.ExtCommand{
-				Cmd:  c.tabCommand("subscribe"),
-				Args: map[string]any{"events": events},
-			})
-			if err != nil {
+			if err := c.subscribeBrowserTabs(ctx, subscription, target.ID, opts.Events); err != nil {
 				return nil, err
-			}
-			var decoded commandResponse[json.RawMessage]
-			if err := decodeCommandResponse(resp, &decoded); err != nil {
-				return nil, err
-			}
-			if decoded.Error != nil {
-				return nil, decoded.Error
 			}
 		}
 	}
+	// tab subscriptions are per browser, so extend all-browser subscriptions
+	// to browsers that connect later
+	followConnects := opts.AllBrowsers && wantsTabEvents(opts.Events)
 
 	out := make(chan model.Event, 32)
 	started = true
@@ -311,8 +302,15 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 			if err != nil {
 				return
 			}
-			evt, ok := decodeEventEnvelope(env, opts.Events, c.tabCommand("event"))
+			evt, ok := decodeEventEnvelope(env, nil, c.tabCommand("event"))
 			if !ok {
+				continue
+			}
+			if followConnects && evt.Type == model.EventTypeBrowserConnected && evt.BrowserID != "" {
+				// best effort: a failure only loses this browser's tab events
+				_ = c.subscribeBrowserTabs(ctx, subscription, evt.BrowserID, opts.Events)
+			}
+			if !eventAllowed(evt.Type, opts.Events) {
 				continue
 			}
 			if opts.BrowserID != "" && evt.BrowserID != opts.BrowserID {
@@ -326,6 +324,26 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 		}
 	}()
 	return out, nil
+}
+
+// subscribeBrowserTabs asks one browser to stream tab events on this connection.
+// Callers must not read the connection concurrently.
+func (c *daemonClient) subscribeBrowserTabs(ctx context.Context, subscription *internalcli.Client, browserID model.BrowserID, types []model.EventType) error {
+	resp, err := subscription.RequestContext(ctx, string(browserID), internalcli.ExtCommand{
+		Cmd:  c.tabCommand("subscribe"),
+		Args: map[string]any{"events": browserEventNames(types)},
+	})
+	if err != nil {
+		return err
+	}
+	var decoded commandResponse[json.RawMessage]
+	if err := decodeCommandResponse(resp, &decoded); err != nil {
+		return err
+	}
+	if decoded.Error != nil {
+		return decoded.Error
+	}
+	return nil
 }
 
 func (c *daemonClient) Status(ctx context.Context) (Status, error) {

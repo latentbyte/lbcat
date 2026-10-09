@@ -732,3 +732,60 @@ func TestSwitcherDaemonCapability(t *testing.T) {
 		})
 	}
 }
+
+func TestAllBrowserSubscriptionFollowsNewBrowsers(t *testing.T) {
+	t.Run("全浏览器订阅自动订阅后连接的浏览器", func(t *testing.T) {
+		client, _ := newSubscriptionTestBrowser(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		events, err := client.Subscribe(ctx, SubscribeOptions{AllBrowsers: true, Events: []model.EventType{model.EventTypeTabFocused}})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		late, err := net.Dial("unix", protocol.SocketPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = late.Close() })
+		if err := protocol.WriteJSON(late, &protocol.Handshake{ID: "late-browser", Type: protocol.MsgHandshake, Role: protocol.RoleBrowser, Browser: "zen"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := protocol.ReadFrame(late); err != nil {
+			t.Fatal(err)
+		}
+		_ = late.SetReadDeadline(time.Now().Add(time.Second))
+		for subscribed := false; !subscribed; {
+			env, err := protocol.ReadEnvelope(late)
+			if err != nil {
+				t.Fatalf("late browser was not subscribed: %v", err)
+			}
+			var command struct {
+				Cmd string `json:"cmd"`
+			}
+			_ = json.Unmarshal(env.Payload, &command)
+			reply := json.RawMessage(`{"data":{}}`)
+			switch command.Cmd {
+			case "agentWindow.status":
+				reply = json.RawMessage(`{"cmd":"agentWindow.status","data":{"windowId":7,"markerTabId":8}}`)
+			case "tabs.subscribe":
+				subscribed = true
+			default:
+				t.Fatalf("late browser command = %s, want tabs.subscribe", env.Payload)
+			}
+			if err := protocol.WriteEnvelope(late, &protocol.Envelope{ID: env.ID, Type: protocol.MsgResponse, Payload: reply}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		payload, err := json.Marshal(map[string]any{"cmd": "tabs.event", "data": model.Event{Type: model.EventTypeTabFocused}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := protocol.WriteEnvelope(late, &protocol.Envelope{ID: "late-event", Type: protocol.MsgEvent, Payload: payload}); err != nil {
+			t.Fatal(err)
+		}
+		// lifecycle events stay filtered when the caller did not ask for them
+		waitSubscriptionEvent(t, events, model.EventTypeTabFocused)
+	})
+}
