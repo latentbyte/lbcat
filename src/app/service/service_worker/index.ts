@@ -22,6 +22,7 @@ import { onRegularUpdateCheckAlarm } from "./regular_updatecheck";
 import { cacheInstance } from "@App/app/cache";
 import { InfoNotification } from "./utils";
 import { initNativeMessaging } from "./native-messaging";
+import { initAgentTabAccess } from "./agent-tab-access";
 import { AgentService } from "@App/app/service/agent/service_worker/agent";
 import { extensionEnv, getExtensionUserAgentData } from "../extension/extension_env";
 import { cleanupStaleTempStorageEntries } from "./temp";
@@ -122,6 +123,7 @@ export default class ServiceWorkerManager {
       faviconDAO
     );
     system.init();
+    initAgentTabAccess();
     initNativeMessaging(script);
     const agent = new AgentService(this.api.group("agent"), this.offscreenSend, resource);
     agent.init();

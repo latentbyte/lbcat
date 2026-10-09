@@ -1,11 +1,36 @@
 const STATE_KEY = "browserControl.agentWindow";
+// 标签 ID 仅在本次浏览器运行内有效，授权放在会话存储中随浏览器重启清除
+const GRANTS_KEY = "browserControl.tabGrants";
 const DEFAULT_TTL = 15 * 60 * 1000;
 const MAX_TTL = 24 * 60 * 60 * 1000;
+const MAX_LABEL = 60;
 
 export type AgentWindowStatus = { windowId: number; markerTabId: number };
 type Registration = AgentWindowStatus & { markerUrl: string; eligibleTabIds?: number[] };
-type Session = { sessionId: string; expiresAt: number; ttlMs: number; paused: boolean; tabIds: number[] };
-type State = { registration?: Registration; sessions: Session[] };
+type Session = {
+  sessionId: string;
+  label?: string;
+  expiresAt: number;
+  ttlMs: number;
+  paused: boolean;
+  tabIds: number[];
+};
+// 用户在标签上设置的代理访问：关闭、允许所有任务或仅允许指定任务
+export type TabGrant = { mode: "off" } | { mode: "all" } | { mode: "session"; sessionId: string };
+type State = { registration?: Registration; sessions: Session[]; tabGrants?: Record<number, TabGrant> };
+
+export type AgentSessionView = { sessionId: string; label?: string; expiresAt: number; paused: boolean };
+export type TabAccessView = {
+  tabId: number;
+  grant?: TabGrant;
+  inAgentWindow: boolean;
+  owner?: AgentSessionView;
+  sessions: AgentSessionView[];
+};
+export type TabIndicator =
+  | { kind: "owned"; sessionId: string; label?: string; paused: boolean; expiresAt: number }
+  | { kind: "off" };
+export type TabIndicatorListener = (indicators: Map<number, TabIndicator>) => void;
 
 export interface AgentWindowScope {
   status(): Promise<AgentWindowStatus>;
@@ -46,8 +71,18 @@ function missingWindow(): BrowserControlScopeError {
   return new BrowserControlScopeError("AGENT_WINDOW_MISSING", "Open or designate the agent window before continuing");
 }
 
+function sessionLabel(label: string | undefined): string | undefined {
+  const value = label?.replace(/\s+/g, " ").trim().slice(0, MAX_LABEL);
+  return value || undefined;
+}
+
+function sessionView({ sessionId, label, expiresAt, paused }: Session): AgentSessionView {
+  return { sessionId, label, expiresAt, paused };
+}
+
 export class AgentWindowService implements AgentWindowScope {
   private pending: Promise<void> = Promise.resolve();
+  private listeners = new Set<TabIndicatorListener>();
 
   constructor(private readonly deps: AgentWindowDependencies) {}
 
@@ -64,6 +99,10 @@ export class AgentWindowService implements AgentWindowScope {
       const state = saved ? (saved as State) : { sessions: [] };
       const result = await action(state);
       await this.deps.save(state);
+      if (this.listeners.size) {
+        const indicators = this.indicators(state);
+        for (const listener of this.listeners) listener(indicators);
+      }
       return result;
     } finally {
       release();
@@ -187,20 +226,21 @@ export class AgentWindowService implements AgentWindowScope {
     return session;
   }
 
-  async openSession(ttlMs = DEFAULT_TTL): Promise<{ sessionId: string; expiresAt: number }> {
+  async openSession(ttlMs = DEFAULT_TTL, label?: string): Promise<{ sessionId: string; expiresAt: number }> {
     if (!Number.isFinite(ttlMs) || ttlMs < 1000 || ttlMs > MAX_TTL)
       throw new Error("Session TTL must be between 1s and 24h");
     return this.withState(async (state) => {
       await this.registration(state);
-      return this.startSession(state, ttlMs);
+      return this.startSession(state, ttlMs, sessionLabel(label));
     });
   }
 
-  private startSession(state: State, ttlMs: number): { sessionId: string; expiresAt: number } {
+  private startSession(state: State, ttlMs: number, label?: string): { sessionId: string; expiresAt: number } {
     // 保留过期暂停记录，避免其他任务清理租约后绕过人工接管
     state.sessions = state.sessions.filter((item) => item.paused || item.expiresAt > this.deps.now());
     const session: Session = {
       sessionId: this.deps.id(),
+      ...(label ? { label } : {}),
       expiresAt: this.deps.now() + ttlMs,
       ttlMs,
       paused: false,
@@ -218,7 +258,7 @@ export class AgentWindowService implements AgentWindowScope {
       if (previous && previous.expiresAt > this.deps.now()) {
         return { sessionId: previous.sessionId, expiresAt: previous.expiresAt };
       }
-      return this.startSession(state, DEFAULT_TTL);
+      return this.startSession(state, DEFAULT_TTL, previous?.label);
     });
   }
 
@@ -250,12 +290,12 @@ export class AgentWindowService implements AgentWindowScope {
     });
   }
 
-  async listSessions(): Promise<Array<{ sessionId: string; expiresAt: number; paused: boolean; tabIds: number[] }>> {
+  async listSessions(): Promise<Array<AgentSessionView & { tabIds: number[] }>> {
     return this.withState(async (state) => {
       await this.registration(state);
       return state.sessions
         .filter((session) => session.expiresAt > this.deps.now())
-        .map(({ sessionId, expiresAt, paused, tabIds }) => ({ sessionId, expiresAt, paused, tabIds: [...tabIds] }));
+        .map((session) => ({ ...sessionView(session), tabIds: [...session.tabIds] }));
     });
   }
 
@@ -263,7 +303,35 @@ export class AgentWindowService implements AgentWindowScope {
     return state.sessions.find((item) => item.expiresAt > this.deps.now() && item.tabIds.includes(tabId));
   }
 
-  private async windowTab(state: State, tabId: number, personalTabId?: number): Promise<chrome.tabs.Tab> {
+  // 指定任务的授权仅在该任务仍存在（含暂停）时生效
+  private grant(state: State, tabId: number): TabGrant | undefined {
+    const grant = state.tabGrants?.[tabId];
+    if (grant?.mode !== "session") return grant;
+    const live = state.sessions.some(
+      (item) => item.sessionId === grant.sessionId && (item.paused || item.expiresAt > this.deps.now())
+    );
+    return live ? grant : undefined;
+  }
+
+  // 按用户授权判断任务能否使用标签；undefined 表示沿用专用窗口规则
+  private grantAllows(grant: TabGrant | undefined, sessionId?: string): boolean | undefined {
+    if (!grant) return undefined;
+    if (grant.mode === "off") return false;
+    return grant.mode === "all" || grant.sessionId === sessionId;
+  }
+
+  private release(state: State, tabId: number, keepSessionId?: string): void {
+    for (const session of state.sessions) {
+      if (session.sessionId !== keepSessionId) session.tabIds = session.tabIds.filter((id) => id !== tabId);
+    }
+  }
+
+  private async windowTab(
+    state: State,
+    tabId: number,
+    personalTabId?: number,
+    sessionId?: string
+  ): Promise<chrome.tabs.Tab> {
     const registration = await this.registration(state);
     if (tabId === registration.markerTabId) {
       throw new BrowserControlScopeError("AGENT_MARKER_PROTECTED", "Agent window marker is not a work tab");
@@ -272,9 +340,14 @@ export class AgentWindowService implements AgentWindowScope {
     if (this.isMarker(tab)) {
       throw new BrowserControlScopeError("AGENT_MARKER_PROTECTED", "Agent window marker is not a work tab");
     }
+    const granted = this.grantAllows(this.grant(state, tabId), sessionId);
+    if (granted === false) {
+      throw new BrowserControlScopeError("TAB_ACCESS_DENIED", "Agent access to this tab is turned off for this task");
+    }
     if (
       (tab.windowId !== registration.windowId || !registration.eligibleTabIds?.includes(tabId)) &&
-      personalTabId !== tabId
+      personalTabId !== tabId &&
+      !granted
     ) {
       throw new BrowserControlScopeError(
         "PERSONAL_TAB_DENIED",
@@ -297,7 +370,7 @@ export class AgentWindowService implements AgentWindowScope {
     return this.withState(async (state) => {
       await this.registration(state);
       const session = this.session(state, sessionId);
-      const tab = await this.windowTab(state, tabId, personalTabId);
+      const tab = await this.windowTab(state, tabId, personalTabId, sessionId);
       const owner = this.owner(state, tabId);
       if (owner && owner.sessionId !== sessionId)
         throw new BrowserControlScopeError("TAB_BUSY", "Tab belongs to another browser task");
@@ -324,6 +397,8 @@ export class AgentWindowService implements AgentWindowScope {
   async allowsTabEvent(tabId: number, windowId: number, url?: string): Promise<boolean> {
     return this.withState(async (state) => {
       const registration = await this.registration(state);
+      const grant = this.grant(state, tabId);
+      if (grant) return grant.mode !== "off";
       return (
         registration.windowId === windowId &&
         registration.markerTabId !== tabId &&
@@ -338,24 +413,109 @@ export class AgentWindowService implements AgentWindowScope {
       const registration = await this.registration(state);
       if (sessionId) this.session(state, sessionId).expiresAt = this.deps.now() + this.session(state, sessionId).ttlMs;
       const tabs = await this.deps.listTabs(registration.windowId);
+      const listed = new Set(tabs.map((tab) => tab.id));
+      const grantedIds = Object.keys(state.tabGrants ?? {})
+        .map(Number)
+        .filter((tabId) => !listed.has(tabId) && this.grantAllows(this.grant(state, tabId), sessionId));
+      // 已关闭的授权标签由 forgetTab 清理，这里只跳过尚未清理的记录
+      const granted = await Promise.allSettled(grantedIds.map((tabId) => this.deps.getTab(tabId)));
+      for (const result of granted) if (result.status === "fulfilled") tabs.push(result.value);
       return tabs.filter((tab) => {
-        if (
-          tab.id === undefined ||
-          tab.id === registration.markerTabId ||
-          this.isMarker(tab) ||
-          !registration.eligibleTabIds?.includes(tab.id)
-        )
+        if (tab.id === undefined || tab.id === registration.markerTabId || this.isMarker(tab)) return false;
+        const allowed = this.grantAllows(this.grant(state, tab.id), sessionId);
+        if (allowed === false) return false;
+        if (!allowed && (tab.windowId !== registration.windowId || !registration.eligibleTabIds?.includes(tab.id)))
           return false;
         const owner = this.owner(state, tab.id);
         return !owner || owner.sessionId === sessionId;
       });
     });
   }
+
+  async setTabGrant(tabId: number, grant: TabGrant | undefined): Promise<void> {
+    await this.withState(async (state) => {
+      if (grant?.mode === "session") this.session(state, grant.sessionId, true);
+      state.tabGrants ??= {};
+      if (!grant) {
+        delete state.tabGrants[tabId];
+        return;
+      }
+      state.tabGrants[tabId] = grant;
+      if (grant.mode === "off") this.release(state, tabId);
+      if (grant.mode === "session") this.release(state, tabId, grant.sessionId);
+    });
+  }
+
+  async tabAccess(tabId: number): Promise<TabAccessView> {
+    return this.withState(async (state) => {
+      const owner = this.owner(state, tabId);
+      return {
+        tabId,
+        grant: this.grant(state, tabId),
+        inAgentWindow: !!state.registration?.eligibleTabIds?.includes(tabId),
+        ...(owner ? { owner: sessionView(owner) } : {}),
+        sessions: state.sessions
+          .filter((item) => item.paused || item.expiresAt > this.deps.now())
+          .map((item) => sessionView(item)),
+      };
+    });
+  }
+
+  async releaseTab(tabId: number): Promise<void> {
+    await this.withState(async (state) => this.release(state, tabId));
+  }
+
+  async forgetTab(tabId: number): Promise<void> {
+    await this.withState(async (state) => {
+      this.release(state, tabId);
+      if (state.tabGrants) delete state.tabGrants[tabId];
+      if (state.registration?.eligibleTabIds)
+        state.registration.eligibleTabIds = state.registration.eligibleTabIds.filter((id) => id !== tabId);
+    });
+  }
+
+  // 订阅每个标签的代理标识，用于徽标与页面边框
+  subscribe(listener: TabIndicatorListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  async currentIndicators(): Promise<Map<number, TabIndicator>> {
+    return this.withState(async (state) => this.indicators(state));
+  }
+
+  private indicators(state: State): Map<number, TabIndicator> {
+    const indicators = new Map<number, TabIndicator>();
+    for (const [tabId, grant] of Object.entries(state.tabGrants ?? {})) {
+      if (grant.mode === "off") indicators.set(Number(tabId), { kind: "off" });
+    }
+    for (const session of state.sessions) {
+      if (session.expiresAt <= this.deps.now()) continue;
+      const { sessionId, label, paused, expiresAt } = session;
+      for (const tabId of session.tabIds) {
+        if (!indicators.has(tabId)) indicators.set(tabId, { kind: "owned", sessionId, label, paused, expiresAt });
+      }
+    }
+    return indicators;
+  }
 }
 
 export const agentWindowService = new AgentWindowService({
-  load: async () => (await chrome.storage.local.get(STATE_KEY))[STATE_KEY],
-  save: async (state) => chrome.storage.local.set({ [STATE_KEY]: state }),
+  load: async () => {
+    const [local, session] = await Promise.all([
+      chrome.storage.local.get(STATE_KEY),
+      chrome.storage.session.get(GRANTS_KEY),
+    ]);
+    const state = local[STATE_KEY] as State | undefined;
+    const tabGrants = session[GRANTS_KEY] as State["tabGrants"];
+    return state || tabGrants ? { sessions: [], ...state, tabGrants } : undefined;
+  },
+  save: async ({ tabGrants, ...state }) => {
+    await Promise.all([
+      chrome.storage.local.set({ [STATE_KEY]: state }),
+      chrome.storage.session.set({ [GRANTS_KEY]: tabGrants ?? {} }),
+    ]);
+  },
   markerUrl: () => chrome.runtime.getURL("src/agent-window.html"),
   id: () => crypto.randomUUID(),
   now: () => Date.now(),

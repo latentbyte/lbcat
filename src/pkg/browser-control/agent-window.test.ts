@@ -460,4 +460,110 @@ describe("代理专用窗口与标签租约", () => {
     await expect(next.assertWindowTab(tab.id!)).resolves.toEqual(tab);
     await next.close();
   });
+
+  it("任务会话保存可读标签并在列表中返回", async () => {
+    await service.designate(7);
+    const { sessionId } = await service.openSession(undefined, "  claude: fix login  ");
+    const unnamed = (await service.openSession()).sessionId;
+    const sessions = await service.listSessions();
+    expect(sessions.find((item) => item.sessionId === sessionId)?.label).toBe("claude: fix login");
+    expect(sessions.find((item) => item.sessionId === unnamed)?.label).toBeUndefined();
+    await service.openSession(undefined, "x".repeat(200));
+    expect((await service.listSessions()).at(-1)?.label).toHaveLength(60);
+  });
+
+  it("关闭标签访问后所有任务都不能操作且释放原有租约", async () => {
+    await service.designate(7);
+    const sessionId = (await service.openSession()).sessionId;
+    const tab = await service.createTab(sessionId, "https://example.com");
+    await service.setTabGrant(tab.id!, { mode: "off" });
+    await expect(service.assertTabAccess(tab.id!, sessionId)).rejects.toMatchObject({ code: "TAB_ACCESS_DENIED" });
+    expect((await service.listSessions())[0].tabIds).toEqual([]);
+    expect(await service.listTabs(sessionId)).toEqual([]);
+    await expect(service.allowsTabEvent(tab.id!, 7)).resolves.toBe(false);
+    await service.setTabGrant(tab.id!, undefined);
+    await expect(service.assertTabAccess(tab.id!, sessionId)).resolves.toEqual(tab);
+  });
+
+  it("允许所有代理时窗口外个人标签可被任一任务使用并仍保持独占", async () => {
+    await service.designate(7);
+    const first = (await service.openSession()).sessionId;
+    const second = (await service.openSession()).sessionId;
+    const personal = mockTab({ id: 1, windowId: 8, url: "https://personal.example" });
+    tabs.set(1, personal);
+    await expect(service.assertTabAccess(1, first)).rejects.toMatchObject({ code: "PERSONAL_TAB_DENIED" });
+    await service.setTabGrant(1, { mode: "all" });
+    expect(await service.listTabs(second)).toEqual([personal]);
+    await expect(service.assertTabAccess(1, first)).resolves.toEqual(personal);
+    await expect(service.assertTabAccess(1, second)).rejects.toMatchObject({ code: "TAB_BUSY" });
+    expect(await service.listTabs(second)).toEqual([]);
+    await expect(service.allowsTabEvent(1, 8)).resolves.toBe(true);
+  });
+
+  it("授权给指定任务时其他任务被拒绝且该任务结束后授权失效", async () => {
+    await service.designate(7);
+    const first = (await service.openSession()).sessionId;
+    const second = (await service.openSession()).sessionId;
+    const inside = await service.createTab(first, "https://example.com");
+    await service.closeSession(first);
+    const owner = (await service.openSession()).sessionId;
+    tabs.set(1, mockTab({ id: 1, windowId: 8, url: "https://personal.example" }));
+    await service.setTabGrant(1, { mode: "session", sessionId: owner });
+    await service.setTabGrant(inside.id!, { mode: "session", sessionId: owner });
+    await expect(service.assertTabAccess(1, second)).rejects.toMatchObject({ code: "TAB_ACCESS_DENIED" });
+    await expect(service.assertTabAccess(inside.id!, second)).rejects.toMatchObject({ code: "TAB_ACCESS_DENIED" });
+    expect((await service.listTabs(second)).map((tab) => tab.id)).toEqual([]);
+    expect((await service.listTabs(owner)).map((tab) => tab.id).sort()).toEqual([1, inside.id].sort());
+    await expect(service.assertTabAccess(1, owner)).resolves.toMatchObject({ id: 1 });
+    await service.closeSession(owner);
+    await expect(service.assertTabAccess(1, second)).rejects.toMatchObject({ code: "PERSONAL_TAB_DENIED" });
+    await expect(service.assertTabAccess(inside.id!, second)).resolves.toEqual(inside);
+  });
+
+  it("授权给不存在的任务时应拒绝保存", async () => {
+    await service.designate(7);
+    await expect(service.setTabGrant(1, { mode: "session", sessionId: "missing" })).rejects.toMatchObject({
+      code: "SESSION_EXPIRED",
+    });
+  });
+
+  it("标签访问视图返回授权、占用任务与可选任务", async () => {
+    await service.designate(7);
+    const sessionId = (await service.openSession(undefined, "codex")).sessionId;
+    const tab = await service.createTab(sessionId, "https://example.com");
+    const view = await service.tabAccess(tab.id!);
+    expect(view).toMatchObject({
+      tabId: tab.id,
+      inAgentWindow: true,
+      owner: { sessionId, label: "codex", paused: false },
+    });
+    expect(view.sessions.map((item) => item.sessionId)).toEqual([sessionId]);
+    expect(view.grant).toBeUndefined();
+    await service.releaseTab(tab.id!);
+    expect((await service.tabAccess(tab.id!)).owner).toBeUndefined();
+  });
+
+  it("标签关闭后清除授权与租约记录", async () => {
+    await service.designate(7);
+    const sessionId = (await service.openSession()).sessionId;
+    const tab = await service.createTab(sessionId, "https://example.com");
+    await service.setTabGrant(tab.id!, { mode: "all" });
+    await service.forgetTab(tab.id!);
+    expect((await service.listSessions())[0].tabIds).toEqual([]);
+    expect((await service.tabAccess(tab.id!)).grant).toBeUndefined();
+  });
+
+  it("状态变化时通知指示器并给出每个标签的标识", async () => {
+    await service.designate(7);
+    const changes: Array<Map<number, unknown>> = [];
+    service.subscribe((indicators) => changes.push(indicators));
+    const sessionId = (await service.openSession(undefined, "claude")).sessionId;
+    const tab = await service.createTab(sessionId, "https://example.com");
+    tabs.set(1, mockTab({ id: 1, windowId: 8 }));
+    await service.setTabGrant(1, { mode: "off" });
+    const latest = changes.at(-1)!;
+    expect(latest.get(tab.id!)).toMatchObject({ kind: "owned", label: "claude", sessionId, paused: false });
+    expect(latest.get(1)).toEqual({ kind: "off" });
+    expect(latest.size).toBe(2);
+  });
 });

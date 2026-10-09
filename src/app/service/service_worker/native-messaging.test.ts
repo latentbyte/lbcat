@@ -276,6 +276,7 @@ describe("原生消息并发控制", () => {
             }),
           };
         })(),
+        session: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) },
       },
       runtime: {
         getManifest: () => ({ version: "4.2.1", manifest_version: 3 }),
@@ -331,6 +332,19 @@ describe("原生消息并发控制", () => {
   function request(id: string, cmd: string, args: Record<string, unknown>): Promise<void> {
     return dispatch({ id, type: "request", payload: { cmd, args: { sessionId: "task", ...args } } });
   }
+
+  it("开启任务时保存标签供列表与标识显示", async () => {
+    await request("open-labeled", "sessions.open", { label: "claude: fix login" });
+    await request("list-labeled", "sessions.list", {});
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "list-labeled",
+        payload: expect.objectContaining({
+          data: expect.arrayContaining([expect.objectContaining({ label: "claude: fix login" })]),
+        }),
+      })
+    );
+  });
 
   it("内容注入错误应保留原因且不存在元素仍返回空值", async () => {
     executeScript.mockResolvedValueOnce([{ error: { message: "Missing host permission" } }]);

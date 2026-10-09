@@ -15,6 +15,7 @@ import {
   startNativeTabOperations,
   stopNativeTabOperations,
 } from "@App/pkg/browser-control/tab-operation";
+import { agentTabIndicators } from "./agent-tab-access";
 import { prepareScriptByCode } from "@App/pkg/utils/script";
 import type { ScriptService } from "./script";
 
@@ -97,6 +98,7 @@ function setNativeBadge(state: NativeMessagingConnectionState) {
   actionApi.setBadgeText({ text: badge.text });
   actionApi.setBadgeBackgroundColor({ color: badge.color });
   actionApi.setTitle({ title: badge.title });
+  agentTabIndicators.setDefaults({ text: badge.text, color: badge.color, title: badge.title });
 }
 
 function setConnectionState(state: NativeMessagingConnectionState, error = "") {
@@ -386,7 +388,12 @@ const handlers: Record<string, Handler> = {
     return { data: { cleared: true } };
   },
   async "sessions.open"(args) {
-    return { data: await agentWindowService.openSession(typeof args.ttlMs === "number" ? args.ttlMs : undefined) };
+    return {
+      data: await agentWindowService.openSession(
+        typeof args.ttlMs === "number" ? args.ttlMs : undefined,
+        typeof args.label === "string" ? args.label : undefined
+      ),
+    };
   },
   async "sessions.list"() {
     return { data: await agentWindowService.listSessions() };

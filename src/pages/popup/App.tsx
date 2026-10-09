@@ -19,6 +19,7 @@ import { useTranslation } from "react-i18next";
 import ScriptMenuList from "../components/ScriptMenuList";
 import PopupWarnings, { type NativeMessagingStatusResponse } from "../components/PopupWarnings";
 import ConnectionStatusDot from "./ConnectionStatusDot";
+import AgentAccessCard from "@App/pages/components/AgentAccessCard";
 import { popupClient, requestOpenBatchUpdatePage } from "@App/pages/store/features/script";
 import type { ScriptMenu, TPopupScript } from "@App/app/service/service_worker/types";
 import { systemConfig } from "@App/pages/store/global";
@@ -471,6 +472,7 @@ function App() {
   return (
     <>
       <PopupWarnings isBlacklist={isBlacklist} nativeStatus={nativeStatus} />
+      <AgentAccessCard />
       <Card
         size="small"
         title={
