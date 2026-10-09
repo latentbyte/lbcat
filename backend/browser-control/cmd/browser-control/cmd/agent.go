@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -57,42 +58,7 @@ func newAgentWindowCmd() *cobra.Command {
 
 func newSessionCmd() *cobra.Command {
 	command := &cobra.Command{Use: "session", Short: "Manage agent task sessions and exclusive tab ownership"}
-	begin := &cobra.Command{
-		Use: "begin", Short: "Begin a task and print its session ID", Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			args := map[string]any{}
-			if cmd.Flags().Changed("ttl") {
-				ttl, _ := cmd.Flags().GetDuration("ttl")
-				if ttl <= 0 {
-					return fmt.Errorf("--ttl must be positive")
-				}
-				args["ttlMs"] = ttl.Milliseconds()
-			}
-			response, err := runAgentCommand(cmd, "sessions.open", args)
-			if err != nil {
-				return err
-			}
-			if flagJSON {
-				fmt.Fprintln(cmd.OutOrStdout(), string(response))
-				return nil
-			}
-			var result struct {
-				Data struct {
-					SessionID string `json:"sessionId"`
-				} `json:"data"`
-			}
-			if err := json.Unmarshal(response, &result); err != nil {
-				return err
-			}
-			if result.Data.SessionID == "" {
-				return fmt.Errorf("session response missing sessionId")
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), result.Data.SessionID)
-			return nil
-		},
-	}
-	begin.Flags().Duration("ttl", 15*time.Minute, "session lease duration (extension default unless provided)")
-	command.AddCommand(begin)
+	command.AddCommand(newSessionBeginCmd())
 	command.AddCommand(&cobra.Command{
 		Use: "list", Short: "List active task sessions and owned tab IDs", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return printAgentResponse(cmd, "sessions.list", nil) },
@@ -127,6 +93,62 @@ func newSessionCmd() *cobra.Command {
 		},
 	})
 	return command
+}
+
+// sessionOpenArgs builds sessions.open arguments from the begin flags and environment.
+func sessionOpenArgs(cmd *cobra.Command) (map[string]any, error) {
+	args := map[string]any{}
+	if cmd.Flags().Changed("ttl") {
+		ttl, _ := cmd.Flags().GetDuration("ttl")
+		if ttl <= 0 {
+			return nil, fmt.Errorf("--ttl must be positive")
+		}
+		args["ttlMs"] = ttl.Milliseconds()
+	}
+	label, _ := cmd.Flags().GetString("label")
+	if label == "" {
+		label = os.Getenv("BROWSER_CONTROL_LABEL")
+	}
+	if label != "" {
+		args["label"] = label
+	}
+	return args, nil
+}
+
+func newSessionBeginCmd() *cobra.Command {
+	begin := &cobra.Command{
+		Use: "begin", Short: "Begin a task and print its session ID", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			args, err := sessionOpenArgs(cmd)
+			if err != nil {
+				return err
+			}
+			response, err := runAgentCommand(cmd, "sessions.open", args)
+			if err != nil {
+				return err
+			}
+			if flagJSON {
+				fmt.Fprintln(cmd.OutOrStdout(), string(response))
+				return nil
+			}
+			var result struct {
+				Data struct {
+					SessionID string `json:"sessionId"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(response, &result); err != nil {
+				return err
+			}
+			if result.Data.SessionID == "" {
+				return fmt.Errorf("session response missing sessionId")
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), result.Data.SessionID)
+			return nil
+		},
+	}
+	begin.Flags().Duration("ttl", 15*time.Minute, "session lease duration (extension default unless provided)")
+	begin.Flags().String("label", "", "human-readable task name shown on agent tabs (defaults to BROWSER_CONTROL_LABEL)")
+	return begin
 }
 
 func init() { rootCmd.AddCommand(newAgentWindowCmd(), newSessionCmd()) }

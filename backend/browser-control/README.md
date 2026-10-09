@@ -62,7 +62,7 @@ page JavaScript, site popups, and profile-wide userscript changes are not isolat
 Pin `--browser <id>`, begin a separate session for each task/subagent, and retain explicit tab IDs:
 
 ```sh
-BROWSER_CONTROL_SESSION="$(bctl --browser zen-01 session begin)"
+BROWSER_CONTROL_SESSION="$(bctl --browser zen-01 session begin --label "claude: fix login")"
 export BROWSER_CONTROL_SESSION
 bctl --browser zen-01 tabs create https://example.com --active=false --json
 bctl --browser zen-01 page content 123 --json
@@ -77,6 +77,13 @@ range 1s to 24h). Work tab creation and access claim exclusive ownership; activi
 renews before long idle periods. `session end` releases ownership and leaves tabs open. Expired sessions must be replaced.
 `session list` exposes live task IDs, expiry, pause state, and owned tab IDs so an operator can `session pause <id>` before
 taking over a tab and `session resume <id>` afterward. Already-running page JavaScript is not cancelled by pause.
+
+`session begin --label <name>` (or `BROWSER_CONTROL_LABEL`) names the task for humans. Each tab a task owns shows the
+label as initials on the extension's toolbar badge and as a colored page border with an "Agent: <label>" pill on
+http(s) pages. The pill's Stop button only turns access off for that tab. The extension popup shows the current tab's
+owner (pause, resume, release, end) and a per-tab access setting: default, off (blocks every task, even in the agent
+window), allow all agents (also for personal tabs outside it), or only one live task. Grants last until the tab closes
+or the browser restarts, and never bypass another task's lease.
 
 Tab listings exclude the marker and other tasks' leased tabs. Tab event streams include registered-window work tabs
 across tasks, never ordinary windows; an event does not grant access. Built-in chat/task/subagent tab tools each get an
