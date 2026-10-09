@@ -263,8 +263,18 @@ export type BrowserControlTab = {
   active: boolean;
   incognito: boolean;
   audible: boolean;
+  favIconUrl?: string;
   sharingState?: BrowserControlSharingState;
 };
+
+// inline data: favicons ride along with every tab list; drop outliers so one
+// huge icon cannot bloat native messages
+const MAX_FAVICON_URL_LENGTH = 64 * 1024;
+
+function publicFavIconUrl(url: string | undefined): string | undefined {
+  if (!url || url.length > MAX_FAVICON_URL_LENGTH) return undefined;
+  return url;
+}
 
 export type BrowserControlTabID = {
   browser: string;
@@ -295,6 +305,7 @@ export function tabToBrowserControlTab(
     active: Boolean(tab.active),
     incognito: Boolean(tab.incognito),
     audible: Boolean(tab.audible),
+    ...(publicFavIconUrl(tab.favIconUrl) ? { favIconUrl: tab.favIconUrl } : {}),
     ...(tab.sharingState ? { sharingState: { ...tab.sharingState } } : {}),
   };
 }

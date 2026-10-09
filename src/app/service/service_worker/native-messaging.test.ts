@@ -195,6 +195,18 @@ describe("tabToBrowserControlTab", () => {
     });
   });
 
+  it("passes favicon URLs through and drops oversized ones", () => {
+    const tab = { id: 1, windowId: 2, favIconUrl: "https://example.com/favicon.ico" } as chrome.tabs.Tab;
+    expect(tabToBrowserControlTab(tab)).toMatchObject({ favIconUrl: "https://example.com/favicon.ico" });
+
+    const huge = {
+      id: 1,
+      windowId: 2,
+      favIconUrl: "data:image/png;base64," + "A".repeat(64 * 1024),
+    } as chrome.tabs.Tab;
+    expect(tabToBrowserControlTab(huge)).not.toHaveProperty("favIconUrl");
+  });
+
   it("derives common browser names from user agent", () => {
     expect(browserIdentityFromUserAgent("Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36")).toEqual({
       browserName: "chrome",

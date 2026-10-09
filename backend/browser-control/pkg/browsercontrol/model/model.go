@@ -23,6 +23,7 @@ type Tab struct {
 	Active       bool          `json:"active"`
 	Incognito    bool          `json:"incognito"`
 	Audible      bool          `json:"audible"`
+	FavIconURL   string        `json:"favIconUrl,omitempty"` // http(s) or data: URL; empty when unknown
 	SharingState *SharingState `json:"sharingState,omitempty"`
 }
 
