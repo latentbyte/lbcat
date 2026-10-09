@@ -10,6 +10,7 @@ import {
 } from "./native-messaging";
 import type { ScriptService } from "./script";
 import { withNativeWindowOperation } from "@App/pkg/browser-control/capture";
+import { agentNotesService } from "@App/pkg/browser-control/agent-notes";
 
 describe("原生消息大小限制", () => {
   it.each([1n, { nested: 1n }])("JSON 不兼容结果应返回结构化错误", (data) => {
@@ -255,24 +256,27 @@ describe("原生消息并发控制", () => {
     vi.stubGlobal("chrome", {
       storage: {
         local: (() => {
-          let state: unknown = {
-            registration: {
-              windowId: 7,
-              markerTabId: 900,
-              markerUrl: "chrome-extension://test/src/agent-window.html?registration=test",
-              eligibleTabIds: [101, 102],
+          const values: Record<string, unknown> = {
+            "browserControl.agentWindow": {
+              registration: {
+                windowId: 7,
+                markerTabId: 900,
+                markerUrl: "chrome-extension://test/src/agent-window.html?registration=test",
+                eligibleTabIds: [101, 102],
+              },
+              sessions: [
+                { sessionId: "task", expiresAt: Date.now() + 900000, ttlMs: 900000, paused: false, tabIds: [] },
+              ],
             },
-            sessions: [{ sessionId: "task", expiresAt: Date.now() + 900000, ttlMs: 900000, paused: false, tabIds: [] }],
           };
           return {
             get: vi.fn(async (key: string, callback?: (value: Record<string, unknown>) => void) => {
-              const result =
-                key === "browserControl.agentWindow" ? { "browserControl.agentWindow": structuredClone(state) } : {};
+              const result = key in values ? { [key]: structuredClone(values[key]) } : {};
               callback?.(result);
               return result;
             }),
             set: vi.fn(async (value: Record<string, unknown>) => {
-              state = structuredClone(value["browserControl.agentWindow"]);
+              Object.assign(values, structuredClone(value));
             }),
           };
         })(),
@@ -342,6 +346,51 @@ describe("原生消息并发控制", () => {
         payload: expect.objectContaining({
           data: expect.arrayContaining([expect.objectContaining({ label: "claude: fix login" })]),
         }),
+      })
+    );
+  });
+
+  it("代理在可访问标签留下页面便签并读取人工回复", async () => {
+    tabsGet.mockImplementation(async (id: number) => ({
+      id,
+      windowId: 7,
+      url: "https://example.com/pay#card",
+      title: "Pay",
+    }));
+    await request("note-add", "notes.add", { tabId: 101, kind: "needs-human", text: "Solve the captcha" });
+    const added = postMessage.mock.calls.find(([message]) => message.id === "note-add")![0];
+    expect(added.payload.data).toMatchObject({
+      url: "https://example.com/pay",
+      title: "Pay",
+      sessionId: "task",
+      kind: "needs-human",
+      status: "open",
+    });
+    await agentNotesService.reply(added.payload.data.id, "done");
+    await request("note-get", "notes.get", { id: added.payload.data.id });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "note-get",
+        payload: { cmd: "notes.get", data: expect.objectContaining({ status: "acknowledged", reply: "done" }) },
+      })
+    );
+    await request("note-resolve", "notes.resolve", { id: added.payload.data.id });
+    await request("note-list", "notes.list", { status: "resolved" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "note-list",
+        payload: { cmd: "notes.list", data: [expect.objectContaining({ id: added.payload.data.id })] },
+      })
+    );
+  });
+
+  it("代理不能在无权访问的标签留下便签", async () => {
+    tabsGet.mockResolvedValue({ id: 101, windowId: 8, url: "https://bank.example/" });
+    await request("note-denied", "notes.add", { tabId: 101, kind: "info", text: "hi" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "note-denied",
+        payload: expect.objectContaining({ error: expect.objectContaining({ code: "PERSONAL_TAB_DENIED" }) }),
       })
     );
   });

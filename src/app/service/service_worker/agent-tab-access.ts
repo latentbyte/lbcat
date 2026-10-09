@@ -1,10 +1,14 @@
-// 代理标签可视化与用户访问控制：徽标、页面边框、弹出页授权以及页面内停止按钮
+// 代理标签可视化与用户访问控制：徽标、页面边框、弹出页授权、页面内停止按钮以及代理便签
 
+import { agentNotesService, noteUrl } from "@App/pkg/browser-control/agent-notes";
 import { agentWindowService } from "@App/pkg/browser-control/agent-window";
 import { renderAgentOverlay, TabIndicatorController } from "@App/pkg/browser-control/tab-indicator";
 import {
+  AGENT_NOTES_MESSAGE,
   AGENT_STOP_TAB_MESSAGE,
   AGENT_TAB_ACCESS_MESSAGE,
+  type NotesRequest,
+  type NotesResponse,
   type TabAccessRequest,
   type TabAccessResponse,
 } from "@App/pkg/browser-control/tab-access-message";
@@ -69,6 +73,45 @@ async function handleTabAccess(request: TabAccessRequest): Promise<TabAccessResp
   return { ok: true, data: await agentWindowService.tabAccess(request.tabId) };
 }
 
+async function handleNotes(request: NotesRequest): Promise<NotesResponse> {
+  switch (request.action) {
+    case "acknowledge":
+      await agentNotesService.acknowledge(request.id);
+      break;
+    case "reply":
+      await agentNotesService.reply(request.id, request.text);
+      break;
+    case "resolve":
+      await agentNotesService.resolve(request.id);
+      break;
+    case "remove":
+      await agentNotesService.remove(request.id);
+      break;
+  }
+  return { ok: true, data: await agentNotesService.list({ url: request.url }) };
+}
+
+// 便签按网址保存，徽标按标签当前网址统计未读数量
+async function refreshNoteBadges() {
+  const counts = new Map<string, number>();
+  for (const note of await agentNotesService.list({ status: "open" })) {
+    counts.set(note.url, (counts.get(note.url) ?? 0) + 1);
+  }
+  const tabs = counts.size ? await chrome.tabs.query({}) : [];
+  const byTab = new Map<number, number>();
+  for (const tab of tabs) {
+    const count = tab.id !== undefined && tab.url ? counts.get(noteUrl(tab.url)) : undefined;
+    if (count) byTab.set(tab.id!, count);
+  }
+  agentTabIndicators.setNotes(byTab);
+}
+
+function respondWith<T>(promise: Promise<T>, sendResponse: (response: T | { ok: false; error: string }) => void) {
+  promise.then(sendResponse, (error: unknown) =>
+    sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })
+  );
+}
+
 function isExtensionPage(sender: chrome.runtime.MessageSender): boolean {
   return sender.id === chrome.runtime.id && !!sender.url?.startsWith(chrome.runtime.getURL(""));
 }
@@ -79,8 +122,13 @@ export function initAgentTabAccess() {
     scheduleExpiryRefresh();
   });
   agentWindowService.currentIndicators().catch(warn);
+  agentNotesService.subscribe(() => {
+    refreshNoteBadges().catch(warn);
+  });
+  refreshNoteBadges().catch(warn);
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.url) refreshNoteBadges().catch(warn);
     if (changeInfo.status === "complete") agentTabIndicators.refresh(tabId);
   });
   chrome.tabs.onRemoved.addListener((tabId) => {
@@ -97,10 +145,15 @@ export function initAgentTabAccess() {
       agentWindowService.setTabGrant(tabId, { mode: "off" }).catch(warn);
       return undefined;
     }
-    if (type !== AGENT_TAB_ACCESS_MESSAGE || !isExtensionPage(sender)) return undefined;
-    handleTabAccess(message as TabAccessRequest).then(sendResponse, (error: unknown) =>
-      sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })
-    );
-    return true;
+    if (!isExtensionPage(sender)) return undefined;
+    if (type === AGENT_TAB_ACCESS_MESSAGE) {
+      respondWith(handleTabAccess(message as TabAccessRequest), sendResponse);
+      return true;
+    }
+    if (type === AGENT_NOTES_MESSAGE) {
+      respondWith(handleNotes(message as NotesRequest), sendResponse);
+      return true;
+    }
+    return undefined;
   });
 }

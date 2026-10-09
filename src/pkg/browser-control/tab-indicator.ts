@@ -3,6 +3,7 @@ import type { TabIndicator } from "./agent-window";
 const PALETTE = ["#E53935", "#8E24AA", "#3949AB", "#039BE5", "#00897B", "#D81B60", "#FB8C00", "#6D4C41"];
 const PAUSED_COLOR = "#9E9E9E";
 const OFF_COLOR = "#616161";
+const NOTE_COLOR = "#F57C00";
 
 export type BadgeView = { text: string; color: string; title: string };
 export type OverlayView = { label: string; color: string; paused: boolean };
@@ -41,9 +42,10 @@ export function presentIndicator(indicator: TabIndicator): IndicatorPresentation
 
 const log = (...args: unknown[]) => console.warn("[agent-tab-indicator]", ...args);
 
-// 将任务租约同步为工具栏徽标与页面边框；只更新变化的标签
+// 将任务租约与未读便签同步为工具栏徽标与页面边框；只更新变化的标签
 export class TabIndicatorController {
   private current = new Map<number, TabIndicator>();
+  private notes = new Map<number, number>();
   // 曾设置过标签专属徽标、现已恢复默认的标签，需要跟随全局徽标颜色
   private restored = new Set<number>();
 
@@ -53,30 +55,49 @@ export class TabIndicatorController {
   ) {}
 
   apply(next: Map<number, TabIndicator>): void {
-    for (const tabId of this.current.keys()) {
-      if (!next.has(tabId)) this.clear(tabId);
+    for (const tabId of [...this.current.keys()]) {
+      if (next.has(tabId)) continue;
+      this.current.delete(tabId);
+      this.drawBadge(tabId);
+      this.run(this.deps.setOverlay(tabId, null));
     }
     for (const [tabId, indicator] of next) {
       if (JSON.stringify(this.current.get(tabId)) === JSON.stringify(indicator)) continue;
       this.current.set(tabId, indicator);
-      this.restored.delete(tabId);
-      this.draw(tabId, indicator);
+      this.drawBadge(tabId);
+      this.drawOverlay(tabId, indicator);
+    }
+  }
+
+  // 每个标签当前网址上的未读便签数量
+  setNotes(next: Map<number, number>): void {
+    for (const tabId of [...this.notes.keys()]) {
+      if (next.has(tabId)) continue;
+      this.notes.delete(tabId);
+      this.drawBadge(tabId);
+    }
+    for (const [tabId, count] of next) {
+      if (this.notes.get(tabId) === count) continue;
+      this.notes.set(tabId, count);
+      this.drawBadge(tabId);
     }
   }
 
   refresh(tabId: number): void {
     const indicator = this.current.get(tabId);
-    if (indicator) this.draw(tabId, indicator);
+    if (indicator || this.notes.has(tabId)) this.drawBadge(tabId);
+    if (indicator) this.drawOverlay(tabId, indicator);
   }
 
   forget(tabId: number): void {
     this.current.delete(tabId);
+    this.notes.delete(tabId);
     this.restored.delete(tabId);
   }
 
   setDefaults(defaults: BadgeView): void {
     this.defaults = defaults;
-    for (const tabId of this.restored) this.run(this.deps.setBadge(tabId, this.defaultBadge()));
+    for (const tabId of this.restored) this.run(this.deps.setBadge(tabId, { ...this.defaults }));
   }
 
   nextExpiry(): number | undefined {
@@ -87,20 +108,28 @@ export class TabIndicatorController {
     return next;
   }
 
-  private defaultBadge(): BadgeView {
-    return { ...this.defaults };
+  private badge(tabId: number): BadgeView | undefined {
+    const indicator = this.current.get(tabId);
+    const view = indicator && presentIndicator(indicator);
+    const count = this.notes.get(tabId) ?? 0;
+    if (!count) return view && { text: view.text, color: view.color, title: view.title };
+    const notes = count === 1 ? "1 agent note needs attention" : `${count} agent notes need attention`;
+    return {
+      text: count > 9 ? "9+" : String(count),
+      color: NOTE_COLOR,
+      title: view ? `${notes}\n${view.title}` : notes,
+    };
   }
 
-  private clear(tabId: number): void {
-    this.current.delete(tabId);
-    this.restored.add(tabId);
-    this.run(this.deps.setBadge(tabId, this.defaultBadge()));
-    this.run(this.deps.setOverlay(tabId, null));
+  private drawBadge(tabId: number): void {
+    const badge = this.badge(tabId);
+    if (badge) this.restored.delete(tabId);
+    else this.restored.add(tabId);
+    this.run(this.deps.setBadge(tabId, badge ?? { ...this.defaults }));
   }
 
-  private draw(tabId: number, indicator: TabIndicator): void {
-    const { text, color, title, label, paused } = presentIndicator(indicator);
-    this.run(this.deps.setBadge(tabId, { text, color, title }));
+  private drawOverlay(tabId: number, indicator: TabIndicator): void {
+    const { label, color, paused } = presentIndicator(indicator);
     this.run(this.deps.setOverlay(tabId, indicator.kind === "owned" ? { label, color, paused } : null));
   }
 

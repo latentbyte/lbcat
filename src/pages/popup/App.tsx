@@ -20,6 +20,7 @@ import ScriptMenuList from "../components/ScriptMenuList";
 import PopupWarnings, { type NativeMessagingStatusResponse } from "../components/PopupWarnings";
 import ConnectionStatusDot from "./ConnectionStatusDot";
 import AgentAccessCard from "@App/pages/components/AgentAccessCard";
+import AgentNotesCard from "@App/pages/components/AgentNotesCard";
 import { popupClient, requestOpenBatchUpdatePage } from "@App/pages/store/features/script";
 import type { ScriptMenu, TPopupScript } from "@App/app/service/service_worker/types";
 import { systemConfig } from "@App/pages/store/global";
@@ -472,6 +473,7 @@ function App() {
   return (
     <>
       <PopupWarnings isBlacklist={isBlacklist} nativeStatus={nativeStatus} />
+      <AgentNotesCard />
       <AgentAccessCard />
       <Card
         size="small"

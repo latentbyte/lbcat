@@ -96,3 +96,57 @@ describe("代理标签标识", () => {
     expect(instance.nextExpiry()).toBe(900);
   });
 });
+
+describe("页面便签徽标", () => {
+  it("未读便签数量优先显示在徽标上且保留代理说明", () => {
+    const { deps, instance } = controller();
+    instance.apply(new Map([[1, owned("s1", "claude")]]));
+    deps.setBadge.mockClear();
+    deps.setOverlay.mockClear();
+    instance.setNotes(new Map([[1, 2]]));
+    expect(deps.setBadge).toHaveBeenCalledWith(1, {
+      text: "2",
+      color: "#F57C00",
+      title: "2 agent notes need attention\nAgent: claude",
+    });
+    expect(deps.setOverlay).not.toHaveBeenCalled();
+    instance.setNotes(new Map());
+    expect(deps.setBadge).toHaveBeenLastCalledWith(1, expect.objectContaining({ text: "CL" }));
+  });
+
+  it("仅有便签的标签在便签清空后恢复全局徽标", () => {
+    const { deps, instance } = controller();
+    instance.setNotes(new Map([[3, 12]]));
+    expect(deps.setBadge).toHaveBeenCalledWith(3, expect.objectContaining({ text: "9+" }));
+    expect(deps.setOverlay).not.toHaveBeenCalled();
+    instance.setNotes(new Map([[3, 12]]));
+    expect(deps.setBadge).toHaveBeenCalledTimes(1);
+    instance.setNotes(new Map());
+    expect(deps.setBadge).toHaveBeenLastCalledWith(3, { text: "●", color: "#4CAF50", title: "connected" });
+    deps.setBadge.mockClear();
+    instance.setDefaults({ text: "×", color: "#F44336", title: "disconnected" });
+    expect(deps.setBadge).toHaveBeenCalledWith(3, { text: "×", color: "#F44336", title: "disconnected" });
+  });
+
+  it("代理离开标签后仍显示便签数量", () => {
+    const { deps, instance } = controller();
+    instance.apply(new Map([[1, owned("s1", "claude")]]));
+    instance.setNotes(new Map([[1, 1]]));
+    instance.apply(new Map());
+    expect(deps.setBadge).toHaveBeenLastCalledWith(1, {
+      text: "1",
+      color: "#F57C00",
+      title: "1 agent note needs attention",
+    });
+    expect(deps.setOverlay).toHaveBeenLastCalledWith(1, null);
+  });
+
+  it("导航后重绘便签徽标", () => {
+    const { deps, instance } = controller();
+    instance.setNotes(new Map([[4, 1]]));
+    deps.setBadge.mockClear();
+    instance.refresh(4);
+    expect(deps.setBadge).toHaveBeenCalledWith(4, expect.objectContaining({ text: "1" }));
+    expect(deps.setOverlay).not.toHaveBeenCalled();
+  });
+});

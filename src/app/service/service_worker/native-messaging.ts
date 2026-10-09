@@ -10,6 +10,7 @@ import {
 } from "@App/pkg/browser-control/identity";
 import { captureNativeTab, withNativeTabOperation, withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-control/agent-window";
+import { agentNotesService, type AgentNoteKind, type AgentNoteStatus } from "@App/pkg/browser-control/agent-notes";
 import {
   isNativeTabQuarantined,
   startNativeTabOperations,
@@ -419,6 +420,38 @@ const handlers: Record<string, Handler> = {
       data: tabToBrowserControlTab(await assertNativeTab(args, args.tabId), await resolveBrowserControlIdentity()),
     };
   },
+  // --- notes ---
+
+  async "notes.add"(args) {
+    if (typeof args.tabId !== "number") throw new Error("tabId is required");
+    const tab = await assertNativeTab(args, args.tabId);
+    const { owner } = await agentWindowService.tabAccess(args.tabId);
+    return {
+      data: await agentNotesService.add({
+        url: tab.url || tab.pendingUrl || "",
+        title: tab.title,
+        sessionId: sessionId(args) ?? "",
+        label: owner?.label,
+        kind: args.kind as AgentNoteKind,
+        text: args.text as string,
+      }),
+    };
+  },
+  async "notes.list"(args) {
+    return {
+      data: await agentNotesService.list({
+        sessionId: sessionId(args),
+        status: typeof args.status === "string" ? (args.status as AgentNoteStatus) : undefined,
+      }),
+    };
+  },
+  async "notes.get"(args) {
+    return { data: await agentNotesService.get(String(args.id ?? "")) };
+  },
+  async "notes.resolve"(args) {
+    return { data: await agentNotesService.resolve(String(args.id ?? "")) };
+  },
+
   // --- tabs ---
 
   async "tabs.list"(args) {
