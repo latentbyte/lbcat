@@ -1,5 +1,23 @@
-- bump version with changes following normal semantic versioning rules.
+## LBcat fork notes
 
+Fork of `scriptscat/scriptcat` (remote `upstream`); `origin` is the fork, work lands on `dev`. Ships as **LBcat**
+(`package.json` name `lbcat`); keep upstream identifiers and the add-on ID (see `docs/DEVELOP.md` -> LBcat releases).
+The upstream guidance below still applies.
+
+- Bump the version with every change, plain semver `x.y.z`: `just set-version x.y.z` (writes `package.json` and
+  `src/manifest.json` together; never edit one by hand).
+- Commands (`Justfile` wraps pnpm): `just check` (tsc + eslint; existing warnings, 0 errors expected), `just test`,
+  `pnpm test:ci`, `just fmt`. Go side: `just bctl-test`, `just bctl-check`. `just bctl-install` / `bctl-install-cli`
+  write to `~/.local/bin` and native host manifests; don't run them unless asked.
+- Gotcha: under full parallel runs the 500ms `--test-timeout` can flake `scripts/*.test.js` (they spawn node);
+  rerun `pnpm exec vitest run scripts/` before treating it as a regression.
+- Fork-only subsystems:
+  - `backend/browser-control/` - Go: `browser-control` CLI (`bctl`), daemon (Unix socket), `lbcat-shim` Native
+    Messaging host `com.latentbyte.browser_control`. Own justfile, `env.example`, README, `SMOKE-TEST.md`.
+  - `src/app/service/service_worker/native-messaging.ts` - extension end of that bridge.
+  - `src/pkg/browser-control/` - agent window, tab ops/access, capture, agent notes, tab indicator.
+  - `src/app/service/agent/` - in-extension LLM agent: `core/` (providers, tools, MCP client, skills, scheduler),
+    `service_worker/` (chat, LLM client, MCP, skill, sub-agent services).
 - Browser Control integration skill: canonical source is `$HOME/dotfiles/templates/agents/skills/browser-control/SKILL.md`
   ([GitHub source](https://github.com/hamidzr/dotfiles/blob/main/templates/agents/skills/browser-control/SKILL.md)).
   Update it when `backend/browser-control/`, `src/pkg/browser-control/`, or agent browser tools change CLI commands,
