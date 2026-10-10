@@ -3,13 +3,15 @@ export type PageExecResult =
   | { success: false; code: string; error: string };
 
 // 通过 executeScript 注入页面主世界：必须自包含，不能引用模块作用域
-export async function runPageExec(code: string, maxChars?: number): Promise<PageExecResult> {
+// compiledKey：页面 CSP 禁止 eval 时，代码已由 userScripts 编译为 globalThis[Symbol.for(compiledKey)]
+export async function runPageExec(code: string, maxChars?: number, compiledKey?: string): Promise<PageExecResult> {
   const fail = (failure: string, error: string): PageExecResult => ({ success: false, code: failure, error });
   const AsyncFunction = (async () => {}).constructor as new (body: string) => () => Promise<unknown>;
   // 解析失败不会执行任何代码，可安全换一种形式重试
   const NEEDS_FUNCTION_BODY = /Illegal return|return not in function|await is only valid/i;
 
   const evaluate = async (): Promise<unknown> => {
+    if (compiledKey) return compiled!();
     let expression: (() => Promise<unknown>) | undefined;
     try {
       expression = new AsyncFunction(`return (\n${code.replace(/[\s;]+$/, "")}\n)`);
@@ -34,6 +36,16 @@ export async function runPageExec(code: string, maxChars?: number): Promise<Page
     }
     return value;
   };
+
+  let compiled: (() => Promise<unknown>) | undefined;
+  if (compiledKey) {
+    const host = globalThis as unknown as Record<symbol, (() => Promise<unknown>) | undefined>;
+    const key = Symbol.for(compiledKey);
+    compiled = host[key];
+    delete host[key];
+    // 源码解析失败时不会写入，由调用方换一种形式重试
+    if (typeof compiled !== "function") return fail("NOT_COMPILED", "code did not compile in this form");
+  }
 
   let value: unknown;
   try {

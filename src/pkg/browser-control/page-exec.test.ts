@@ -70,4 +70,16 @@ describe("页面脚本执行结果", () => {
     });
     await expect(runPageExec("'ab'", 3)).resolves.toEqual({ success: true, value: "ab" });
   });
+
+  it("使用预编译函数时调用并移除它，缺失时返回 NOT_COMPILED", async () => {
+    const key = Symbol.for("bctl.exec.test");
+    const host = globalThis as unknown as Record<symbol, unknown>;
+    host[key] = async () => ({ answer: Promise.resolve(42) });
+    await expect(runPageExec("ignored", 0, "bctl.exec.test")).resolves.toEqual({
+      success: true,
+      value: { answer: 42 },
+    });
+    expect(host[key]).toBeUndefined();
+    await expect(runPageExec("ignored", 0, "bctl.exec.test")).resolves.toMatchObject({ code: "NOT_COMPILED" });
+  });
 });

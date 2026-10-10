@@ -1381,6 +1381,39 @@ describe("原生消息并发控制", () => {
     );
   });
 
+  it("页面 CSP 禁止 eval 时经 userScripts 注入源码执行，语句形式回退为函数体", async () => {
+    const execute = vi.fn(async ({ js }: { js: [{ code: string }] }) => {
+      (0, eval)(js[0].code);
+      return [{ frameId: 0 }];
+    });
+    (chrome as unknown as { userScripts: unknown }).userScripts = { execute };
+    executeScript.mockImplementation(
+      async ({ func, args }: { func: (...values: unknown[]) => unknown; args: unknown[] }) =>
+        args.length === 2
+          ? [{ frameId: 0, result: { success: false, code: "CSP_BLOCKED", error: "unsafe-eval" } }]
+          : [{ frameId: 0, result: await func(...args) }]
+    );
+    await request("csp-expr", "page.exec", { tabId: 101, code: "({ sum: 1 + 1 })" });
+    expect(responseOf("csp-expr")).toEqual({ cmd: "page.exec", data: { result: { sum: 2 } } });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ target: { tabId: 101 }, world: "MAIN" }));
+
+    await request("csp-body", "page.exec", { tabId: 101, code: "const a = 2;\nreturn a * 3" });
+    expect(responseOf("csp-body")).toEqual({ cmd: "page.exec", data: { result: 6 } });
+    expect(execute).toHaveBeenCalledTimes(3);
+
+    await request("csp-syntax", "page.exec", { tabId: 101, code: "return (" });
+    expect(responseOf("csp-syntax").error).toMatchObject({ code: "SCRIPT_ERROR" });
+  });
+
+  it("没有 userScripts.execute 时保留 CSP_BLOCKED", async () => {
+    executeScript.mockResolvedValueOnce([
+      { frameId: 0, result: { success: false, code: "CSP_BLOCKED", error: "unsafe-eval" } },
+    ]);
+    await request("csp-none", "page.exec", { tabId: 101, code: "1" });
+    expect(responseOf("csp-none").error.code).toBe("CSP_BLOCKED");
+  });
+
   it("脚本返回空值应保持成功并区别于注入失败", async () => {
     executeScript.mockImplementationOnce(
       async ({ func, args }: { func: (code: string) => unknown; args: [string] }) => [

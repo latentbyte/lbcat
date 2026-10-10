@@ -92,8 +92,10 @@ A single expression returns its value and may use await ({a: 1} is an object,
 not a block). Statements return the last expression's value; top-level return
 and await also work. Promises inside a returned object or array are awaited.
 undefined becomes null. DOM nodes, functions, and circular values fail with
-RESULT_NOT_SERIALIZABLE; exceptions fail with SCRIPT_ERROR and page CSP that
-forbids eval with CSP_BLOCKED. --max-chars truncates long results and reports
+RESULT_NOT_SERIALIZABLE; exceptions fail with SCRIPT_ERROR. When page CSP
+forbids eval, the code is injected as source through userScripts.execute
+(Chrome 135+) and statements then need return for a value; without that API
+it fails with CSP_BLOCKED. --max-chars truncates long results and reports
 truncated/totalLength.`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {

@@ -12,7 +12,7 @@ import { captureNativeTab, withNativeTabOperation, withNativeWindowOperation } f
 import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-control/agent-window";
 import { BrowserControlError } from "@App/pkg/browser-control/errors";
 import { runPageContent } from "@App/pkg/browser-control/page-content";
-import { runPageExec } from "@App/pkg/browser-control/page-exec";
+import { runPageExec, type PageExecResult } from "@App/pkg/browser-control/page-exec";
 import { runPageFetch, type PageFetchRequest } from "@App/pkg/browser-control/page-fetch";
 import { pageMonitorService, type PageDialogMode } from "@App/pkg/browser-control/page-monitor";
 import { runPageAction, type PageActionRequest, type PageWaitState } from "@App/pkg/browser-control/page-actions";
@@ -431,6 +431,56 @@ async function injectPageAction(tabId: number, request: PageActionRequest) {
 const UPLOAD_TTL_MS = 120_000;
 const UPLOAD_MAX_CHARS = 64 * 1024 * 1024;
 const pendingUploads = new Map<string, { data: string; expiresAt: number }>();
+
+async function injectExec(tabId: number, code: string, maxChars: number, compiledKey?: string) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: runPageExec,
+    args: compiledKey ? [code, maxChars, compiledKey] : [code, maxChars],
+  });
+  const injection = results?.[0];
+  if (injection && "error" in injection && injection.error) {
+    const error = injection.error;
+    throw new Error(typeof error === "object" && "message" in error ? String(error.message) : String(error));
+  }
+  const result = injection?.result;
+  if (!result) throw new Error("page execution produced no result");
+  return result;
+}
+
+// 页面 CSP 禁止 eval 时，经 userScripts 把源码作为脚本注入主世界（不受页面 CSP 限制），
+// 编译成函数存入一次性全局键，再由 runPageExec 调用；先试表达式形式，解析失败再试函数体
+async function execInPage(tabId: number, code: string, maxChars: number): Promise<PageExecResult> {
+  const result = await injectExec(tabId, code, maxChars);
+  if (result.success || result.code !== "CSP_BLOCKED") return result;
+  if (typeof chrome.userScripts?.execute !== "function")
+    return {
+      ...result,
+      error: `${result.error}; the source-injection fallback needs userScripts.execute (Chrome 135+ with user scripts allowed)`,
+    };
+  const key = `bctl.exec.${crypto.randomUUID()}`;
+  let injectError = "";
+  for (const body of [`(\n${code.replace(/[\s;]+$/, "")}\n)`, `{\n${code}\n}`]) {
+    await chrome.userScripts
+      .execute({
+        target: { tabId },
+        world: "MAIN",
+        js: [{ code: `globalThis[Symbol.for(${JSON.stringify(key)})] = async () => ${body};` }],
+      })
+      .catch((error: unknown) => {
+        // 语法错误可能以拒绝返回；记录后试下一种形式
+        injectError = error instanceof Error ? error.message : String(error);
+      });
+    const compiled = await injectExec(tabId, code, maxChars, key);
+    if (compiled.success || compiled.code !== "NOT_COMPILED") return compiled;
+  }
+  return {
+    success: false,
+    code: "SCRIPT_ERROR",
+    error: `code has a syntax error (page CSP blocks eval, so it was injected as source)${injectError ? `: ${injectError}` : ""}`,
+  };
+}
 
 async function measureViewport(tabId: number): Promise<{ width: number; height: number }> {
   const results = await chrome.scripting.executeScript({
@@ -944,32 +994,19 @@ const handlers: Record<string, Handler> = {
     }
     const expiresAt = Date.now() + timeoutMs;
     let quarantine: (() => void) | undefined;
-    const results = await withTimeout(
+    const result = await withTimeout(
       withNativeTabOperation(tabId, async (operation) => {
         if (Date.now() >= expiresAt) throw new Error(`page.exec timed out after ${timeoutMs}ms`);
         await assertNativeTab(args, tabId);
         if (Date.now() >= expiresAt) throw new Error(`page.exec timed out after ${timeoutMs}ms`);
         quarantine = operation.quarantine;
         operation.bindToDocument();
-        return chrome.scripting.executeScript({
-          target: { tabId },
-          world: "MAIN",
-          func: runPageExec,
-          args: [code, typeof args.maxChars === "number" ? args.maxChars : 0],
-        });
+        return execInPage(tabId, code, typeof args.maxChars === "number" ? args.maxChars : 0);
       }),
       timeoutMs,
       "page.exec",
       () => quarantine?.()
     );
-    const injection = results?.[0];
-    if (injection && "error" in injection && injection.error) {
-      const error = injection.error;
-      const message = typeof error === "object" && "message" in error ? String(error.message) : String(error);
-      throw new Error(message);
-    }
-    const result = injection?.result;
-    if (!result) throw new Error("page execution produced no result");
     if (!result.success) throw new BrowserControlError(result.code, result.error);
     return {
       data: {

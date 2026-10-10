@@ -149,7 +149,9 @@ Tab creation defaults inactive. `tabs focus --foreground` and `tabs create --act
 activation. Screenshot `--focus-on-error` additionally requires `--foreground` to enable caller capture recovery.
 Screenshot `--timeout` defaults to `2m`. Dynamic `page exec` uses `MAIN`; `ISOLATED`
 dynamic evaluation is unavailable under Manifest V3 CSP and returns an error. Script exceptions and rejected promises fail
-with `SCRIPT_ERROR`, page CSP that forbids eval with `CSP_BLOCKED`, including in JSON mode; a legitimate `null` result
+with `SCRIPT_ERROR`, including in JSON mode. When page CSP or Trusted Types forbid eval, the code is injected as source
+through `userScripts.execute` (Chrome 135+ with user scripts allowed; page CSP does not apply) and still runs in `MAIN`;
+there, statements need `return` for a value. Without that API the error is `CSP_BLOCKED`. A legitimate `null` result
 remains successful. A single expression returns its value and may use `await` (`{a: 1}` is an object, not a block);
 statements return the last expression's value, and top-level `return`/`await` work too. Promises inside a returned
 object or array are awaited; `undefined` becomes `null`; Map/Set become objects/arrays. DOM nodes, functions, and
