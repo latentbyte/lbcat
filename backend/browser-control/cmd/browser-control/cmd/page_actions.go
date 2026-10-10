@@ -63,6 +63,11 @@ func sendPageCommand(cmd *cobra.Command, name string, args map[string]any, timeo
 	if err != nil {
 		return nil, err
 	}
+	return decodePageResult(cmd, name, resp)
+}
+
+// decodePageResult prints the raw response for --json (returning nil) or decodes it
+func decodePageResult(cmd *cobra.Command, name string, resp []byte) (*pageResult, error) {
 	if flagJSON {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), string(resp))
 		return nil, err

@@ -252,4 +252,76 @@ describe("页面动作", () => {
       await expect(pending).resolves.toMatchObject({ success: false, code: "WAIT_TIMEOUT" });
     });
   });
+
+  describe("上传文件", () => {
+    const file = (name: string, text: string) => ({ name, type: "text/plain", data: btoa(text) });
+    // jsdom 没有 DataTransfer，且 files 只接受真实 FileList：替换为可观察的实现
+    const captureFiles = (input: HTMLInputElement) => {
+      const assigned: File[][] = [];
+      Object.defineProperty(input, "files", {
+        configurable: true,
+        get: () => assigned.at(-1) ?? [],
+        set: (files: File[]) => assigned.push(Array.from(files)),
+      });
+      return assigned;
+    };
+    beforeEach(() => {
+      vi.stubGlobal(
+        "DataTransfer",
+        class {
+          readonly list: File[] = [];
+          readonly items = { add: (item: File) => this.list.push(item) };
+          get files() {
+            return this.list;
+          }
+        }
+      );
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("按标签文本找到隐藏的文件输入并触发 input 与 change", async () => {
+      document.body.innerHTML = `<label for="cv">Resume</label><input id="cv" type="file" hidden>`;
+      const input = document.getElementById("cv") as HTMLInputElement;
+      const assigned = captureFiles(input);
+      const events: string[] = [];
+      for (const type of ["input", "change"]) input.addEventListener(type, () => events.push(type));
+      const result = await runPageAction({ op: "upload", text: "Resume", files: [file("cv.txt", "hello")] });
+      expect(result).toEqual({ success: true, value: { matched: { tag: "input", id: "cv" } } });
+      expect(assigned).toHaveLength(1);
+      expect(assigned[0][0]).toMatchObject({ name: "cv.txt", type: "text/plain" });
+      const reader = new FileReader();
+      const read = new Promise((resolve) => reader.addEventListener("load", () => resolve(reader.result)));
+      reader.readAsText(assigned[0][0]);
+      expect(await read).toBe("hello");
+      expect(events).toEqual(["input", "change"]);
+    });
+
+    it("未指定定位时使用页面唯一的文件输入，多个时要求明确", async () => {
+      document.body.innerHTML = `<div id="drop"><input type="file" multiple></div>`;
+      const assigned = captureFiles(document.querySelector("input")!);
+      await expect(
+        runPageAction({ op: "upload", files: [file("a.txt", "a"), file("b.txt", "b")] })
+      ).resolves.toMatchObject({ success: true });
+      expect(assigned[0].map((item) => item.name)).toEqual(["a.txt", "b.txt"]);
+      document.body.insertAdjacentHTML("beforeend", `<input type="file">`);
+      await expect(runPageAction({ op: "upload", files: [file("a.txt", "a")] })).resolves.toMatchObject({
+        code: "AMBIGUOUS_MATCH",
+      });
+    });
+
+    it("选择器指向容器时使用其中的文件输入，找不到或数量超限时报错", async () => {
+      document.body.innerHTML = `<div id="drop"><input id="one" type="file"></div><button id="plain">Go</button>`;
+      captureFiles(document.getElementById("one") as HTMLInputElement);
+      await expect(runPageAction({ op: "upload", selector: "#drop", files: [file("a.txt", "a")] })).resolves.toEqual({
+        success: true,
+        value: { matched: { tag: "input", id: "one" } },
+      });
+      await expect(
+        runPageAction({ op: "upload", selector: "#plain", files: [file("a.txt", "a")] })
+      ).resolves.toMatchObject({ code: "NOT_FILE_INPUT" });
+      await expect(
+        runPageAction({ op: "upload", selector: "#drop", files: [file("a.txt", "a"), file("b.txt", "b")] })
+      ).resolves.toMatchObject({ code: "INVALID_ARGUMENT" });
+    });
+  });
 });

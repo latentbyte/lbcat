@@ -8,7 +8,10 @@ export type PageActionRequest =
   | ({ op: "select"; value: string } & PageLocator)
   | ({ op: "press"; key: string } & PageLocator)
   | { op: "wait"; selector?: string; text?: string; state: PageWaitState; timeoutMs: number }
-  | { op: "snapshot"; selector?: string; max: number };
+  | { op: "snapshot"; selector?: string; max: number }
+  | ({ op: "upload"; files: PageUploadFile[] } & PageLocator);
+// data 为 base64 编码的文件内容
+export type PageUploadFile = { name: string; type: string; data: string };
 export type PageElementSummary = { tag: string; id?: string; text?: string };
 export type PageSnapshotElement = {
   ref?: string;
@@ -247,7 +250,16 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
     };
   };
 
-  const locate = (locator: PageLocator, kind: "click" | "edit"): Element => {
+  // 文件输入常被隐藏并由 label 或拖放区代替，定位到这些元素时取其关联或包含的文件输入
+  const FILE_INPUT = "input[type=file]";
+  const fileInputOf = (el: Element): HTMLInputElement | undefined => {
+    if (el.matches(FILE_INPUT)) return el as HTMLInputElement;
+    const control = el instanceof HTMLLabelElement ? el.control : null;
+    if (control?.matches(FILE_INPUT)) return control as HTMLInputElement;
+    return el.querySelector<HTMLInputElement>(FILE_INPUT) ?? undefined;
+  };
+
+  const locate = (locator: PageLocator, kind: "click" | "edit" | "upload"): Element => {
     let matches: Element[];
     if (locator.ref) {
       const refs = (globalThis as { __bctlRefs?: Map<string, WeakRef<Element>> }).__bctlRefs;
@@ -260,7 +272,13 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
       if (locator.text) matches = byText(matches, (el) => [clickLabel(el), ...fieldLabels(el)], locator.text);
     } else if (locator.text) {
       const all = roots().flatMap((root) => Array.from(root.querySelectorAll("*")));
-      if (kind === "edit") {
+      if (kind === "upload") {
+        matches = byText(
+          all.filter((el) => el.matches(`${FILE_INPUT},${CLICKABLE}`)),
+          (el) => [clickLabel(el), ...fieldLabels(el)],
+          locator.text
+        );
+      } else if (kind === "edit") {
         matches = byText(
           all.filter((el) => el.matches(EDITABLE)),
           fieldLabels,
@@ -277,11 +295,22 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
           matches = byText(all, (el) => [normalize(textOf(el))], locator.text).map((el) => el.closest(CLICKABLE) ?? el);
         }
       }
+    } else if (kind === "upload") {
+      matches = queryAll(FILE_INPUT);
     } else {
       throw new ActionError("INVALID_ARGUMENT", "provide a selector, --text, or a ref");
     }
-    const shown = [...new Set(matches)].filter(visible);
-    const target = locator.selector ?? `text "${locator.text}"`;
+    if (kind === "upload") {
+      const inputs = matches.map(fileInputOf).filter((el): el is HTMLInputElement => Boolean(el));
+      if (matches.length && !inputs.length)
+        throw new ActionError(
+          "NOT_FILE_INPUT",
+          `no file input at or inside ${locator.selector ?? `text "${locator.text}"`}`
+        );
+      matches = inputs;
+    }
+    const shown = [...new Set(matches)].filter(kind === "upload" ? (el: Element) => el.isConnected : visible);
+    const target = locator.selector ?? (locator.text ? `text "${locator.text}"` : "file input");
     if (!shown.length) throw new ActionError("SELECTOR_NOT_FOUND", `no visible element matches ${target}`);
     if (locator.nth !== undefined) {
       const el = shown[locator.nth - 1];
@@ -426,6 +455,20 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
       }
       case "snapshot":
         return { success: true, value: { snapshot: snapshot(request.selector, request.max) } };
+      case "upload": {
+        const input = locate(request, "upload") as HTMLInputElement;
+        if (request.files.length > 1 && !input.multiple)
+          throw new ActionError("INVALID_ARGUMENT", `${request.files.length} files given but the input takes one`);
+        const transfer = new DataTransfer();
+        for (const file of request.files) {
+          const bytes = Uint8Array.from(atob(file.data), (char) => char.charCodeAt(0));
+          transfer.items.add(new File([bytes], file.name, { type: file.type }));
+        }
+        input.files = transfer.files;
+        fire(input, "input");
+        fire(input, "change");
+        return { success: true, value: { matched: summary(input) } };
+      }
     }
   } catch (error) {
     if (error instanceof ActionError) return { success: false, code: error.code, error: error.message };

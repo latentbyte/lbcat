@@ -428,6 +428,10 @@ async function injectPageAction(tabId: number, request: PageActionRequest) {
   return result.value;
 }
 
+const UPLOAD_TTL_MS = 120_000;
+const UPLOAD_MAX_CHARS = 64 * 1024 * 1024;
+const pendingUploads = new Map<string, { data: string; expiresAt: number }>();
+
 async function measureViewport(tabId: number): Promise<{ width: number; height: number }> {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
@@ -723,6 +727,35 @@ const handlers: Record<string, Handler> = {
 
   async "page.forward"(args) {
     return nativeNavigate(args, (id) => chrome.tabs.goForward(id));
+  },
+
+  // 原生消息单帧上限 1 MB，文件内容以 base64 分块先行送达，按 uploadId 拼接
+  async "page.upload.chunk"(args) {
+    const { uploadId, data } = args;
+    if (typeof uploadId !== "string" || !uploadId) throw new Error("uploadId is required");
+    if (typeof data !== "string") throw new Error("data is required");
+    const now = Date.now();
+    for (const [id, pending] of pendingUploads) if (pending.expiresAt < now) pendingUploads.delete(id);
+    const received = (pendingUploads.get(uploadId)?.data ?? "") + data;
+    if (received.length > UPLOAD_MAX_CHARS) {
+      pendingUploads.delete(uploadId);
+      throw new BrowserControlError("UPLOAD_TOO_LARGE", `uploads are limited to ${UPLOAD_MAX_CHARS} base64 characters`);
+    }
+    pendingUploads.set(uploadId, { data: received, expiresAt: now + UPLOAD_TTL_MS });
+    return { data: { uploadId, received: received.length } };
+  },
+
+  async "page.upload"(args) {
+    if (!Array.isArray(args.files) || !args.files.length) throw new Error("files are required");
+    const requested = args.files as Array<{ name: string; type: string; uploadId: string }>;
+    const files = requested.map(({ name, type, uploadId }) => {
+      const pending = pendingUploads.get(uploadId);
+      if (!pending)
+        throw new BrowserControlError("UPLOAD_NOT_FOUND", `upload ${uploadId} was not received or has expired`);
+      return { name, type, data: pending.data };
+    });
+    for (const { uploadId } of requested) pendingUploads.delete(uploadId);
+    return nativePageAction(args, { op: "upload", files, ...locatorArgs(args) });
   },
 
   async "page.click"(args) {

@@ -204,6 +204,13 @@ body; non-2xx statuses still print it and exit non-zero. `--json` returns `{stat
 Network/CORS failures return `FETCH_FAILED`, timeouts `FETCH_TIMEOUT`. Firefox/Zen use `content.fetch` so requests
 carry the page's identity rather than the extension's.
 
+`page upload <tab> [selector|@ref] --file PATH` sets local files on an `<input type=file>` and fires input/change,
+without the file picker or a debugger. `--text` matches the input's label or the label/button that opens it; a
+selector or ref may point at a container or label holding the input (hidden inputs are fine); with no locator the
+page's only file input is used. Repeat `--file` for `multiple` inputs. Contents travel base64-encoded in 512 KB
+`page.upload.chunk` frames (native messaging caps frames at 1 MB), about 48 MB per file. Errors: `NOT_FILE_INPUT`,
+`UPLOAD_TOO_LARGE`, `UPLOAD_NOT_FOUND` (chunks expire after 2 minutes).
+
 `page run <tab> -f steps.json` runs a JSON array of steps (`{"action": "click", "text": "Save"}`) over one connection
 and stops at the first failure with a non-zero exit. Actions: `goto back forward reload click fill select press wait
 content snapshot exec fetch viewport`; other keys are the extension's argument names (camelCase, e.g. `maxChars`),

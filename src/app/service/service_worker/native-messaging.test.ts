@@ -681,6 +681,33 @@ describe("原生消息并发控制", () => {
       expect(responseOf("monitor-gone").error.code).toBe("MONITOR_NOT_STARTED");
     });
 
+    it("分块接收上传内容后交给页面设置文件", async () => {
+      executeScript.mockImplementation(async () => [
+        { result: { success: true, value: { matched: { tag: "input" } } } },
+      ]);
+      await request("chunk-1", "page.upload.chunk", { uploadId: "u1", data: "aGVs" });
+      await request("chunk-2", "page.upload.chunk", { uploadId: "u1", data: "bG8=" });
+      expect(responseOf("chunk-2").data).toEqual({ uploadId: "u1", received: 8 });
+      await request("upload", "page.upload", {
+        tabId: 101,
+        selector: "#cv",
+        wait: "none",
+        files: [{ name: "cv.txt", type: "text/plain", uploadId: "u1" }],
+      });
+      expect(executeScript).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          args: [{ op: "upload", selector: "#cv", files: [{ name: "cv.txt", type: "text/plain", data: "aGVsbG8=" }] }],
+        })
+      );
+      expect(responseOf("upload").data).toMatchObject({ matched: { tag: "input" }, navigated: false });
+
+      await request("upload-again", "page.upload", {
+        tabId: 101,
+        files: [{ name: "cv.txt", type: "text/plain", uploadId: "u1" }],
+      });
+      expect(responseOf("upload-again").error.code).toBe("UPLOAD_NOT_FOUND");
+    });
+
     it("跳转地址并等待加载完成", async () => {
       const tab = { id: 101, windowId: 7, url: "https://a.test/", title: "A", status: "complete" };
       tabsGet.mockImplementation(async () => ({ ...tab }));
