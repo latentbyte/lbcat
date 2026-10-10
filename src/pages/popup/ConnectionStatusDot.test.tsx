@@ -2,7 +2,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import ConnectionStatusDot from "./ConnectionStatusDot";
 
-describe.concurrent("浏览器控制连接状态指示器", () => {
+describe("浏览器控制连接状态指示器", () => {
   it.each([
     ["connected", "success"],
     ["connecting", "warning"],

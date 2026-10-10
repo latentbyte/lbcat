@@ -6,7 +6,8 @@ import { execFileSync } from "node:child_process";
 import process from "node:process";
 
 describe("发布版本号", () => {
-  it("应使用标准语义版本且不添加四段版本或预发布标签", () => {
+  // spawns node; exceeds the 500ms CLI timeout under parallel load
+  it("应使用标准语义版本且不添加四段版本或预发布标签", { timeout: 10_000 }, () => {
     const root = mkdtempSync(join(tmpdir(), "lbcat-version-"));
     try {
       mkdirSync(join(root, "src"));

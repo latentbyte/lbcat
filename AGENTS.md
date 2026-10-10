@@ -9,8 +9,9 @@ The upstream guidance below still applies.
 - Commands (`Justfile` wraps pnpm): `just check` (tsc + eslint; existing warnings, 0 errors expected), `just test`,
   `pnpm test:ci`, `just fmt`. Go side: `just bctl-test`, `just bctl-check`. `just bctl-install` / `bctl-install-cli`
   write to `~/.local/bin` and native host manifests; don't run them unless asked.
-- Gotcha: under full parallel runs the 500ms `--test-timeout` can flake `scripts/*.test.js` (they spawn node);
-  rerun `pnpm exec vitest run scripts/` before treating it as a regression.
+- Gotcha: `pnpm test:ci` uses a 500ms `--test-timeout`. Tests that spawn processes (`scripts/*.test.js`) set a
+  per-test `{ timeout: 10_000 }`; do the same for new ones. Avoid `describe.concurrent` for sync render tests:
+  timers start together but bodies run serially, so they flake under load.
 - Fork-only subsystems:
   - `backend/browser-control/` - Go: `browser-control` CLI (`bctl`), daemon (Unix socket), `lbcat-shim` Native
     Messaging host `com.latentbyte.browser_control`. Own justfile, `env.example`, README, `SMOKE-TEST.md`.
