@@ -138,7 +138,10 @@ whole element to fit in the viewport after scrolling; otherwise it fails explici
 JPEG quality applies to the final cropped or stitched image. Screenshot file output enforces `--max-pixels` against
 decoded bitmap dimensions and reports saved bitmap dimensions; raw screenshot JSON retains CSS region dimensions.
 With `--output`, `--json` prints only `{path, width, height, bytes}`; base64 is printed only for `--json` without
-`--output`. `page content --selector` fails with `SELECTOR_NOT_FOUND` when nothing matches. `browsers --json` returns
+`--output`. `page content --selector` fails with `SELECTOR_NOT_FOUND` when nothing matches.
+`page content --format markdown` returns visible content as Markdown (headings, lists, links with absolute URLs, tables,
+code); hidden elements, scripts, and styles are dropped. `--max-chars N` truncates any format and appends
+`[truncated: N of M characters; ...]`. `browsers --json` returns
 `{cmd: "browsers", data: [ids]}` like other commands.
 
 Tab creation defaults inactive. `tabs focus --foreground` and `tabs create --active=true` explicitly opt into foreground

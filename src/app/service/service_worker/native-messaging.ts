@@ -11,6 +11,7 @@ import {
 import { captureNativeTab, withNativeTabOperation, withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-control/agent-window";
 import { BrowserControlError } from "@App/pkg/browser-control/errors";
+import { runPageContent } from "@App/pkg/browser-control/page-content";
 import { runPageExec } from "@App/pkg/browser-control/page-exec";
 import { runPageAction, type PageActionRequest, type PageWaitState } from "@App/pkg/browser-control/page-actions";
 import {
@@ -645,26 +646,15 @@ const handlers: Record<string, Handler> = {
   async "page.content"(args) {
     const tabId = args["tabId"] as number | undefined;
     const selector = (args["selector"] as string) || "body";
-    const format = (args["format"] as string) || "text";
+    const format = args.format === "html" || args.format === "markdown" ? args.format : "text";
+    const maxChars = typeof args.maxChars === "number" ? args.maxChars : 0;
     if (!tabId) throw new Error("tabId is required");
     const results = await withNativeTabOperation(tabId, async () => {
       await assertNativeTab(args, tabId);
       return chrome.scripting.executeScript({
         target: { tabId },
-        func: (sel: string, fmt: string) => {
-          try {
-            const el = document.querySelector(sel);
-            if (!el)
-              return { success: false, code: "SELECTOR_NOT_FOUND", error: `no element matches selector: ${sel}` };
-            return {
-              success: true,
-              value: fmt === "html" ? (el as HTMLElement).innerHTML : (el as HTMLElement).innerText,
-            };
-          } catch (error: unknown) {
-            return { success: false, error: error instanceof Error ? error.message : String(error) };
-          }
-        },
-        args: [selector, format],
+        func: runPageContent,
+        args: [{ selector, format, maxChars }],
       });
     });
     const injection = results?.[0];
@@ -674,8 +664,7 @@ const handlers: Record<string, Handler> = {
     }
     const result = injection?.result;
     if (!result) throw new Error("page content injection produced no result");
-    if (!result.success)
-      throw result.code ? new BrowserControlError(result.code, result.error) : new Error(result.error);
+    if (!result.success) throw new BrowserControlError(result.code, result.error);
     return { data: result.value };
   },
 

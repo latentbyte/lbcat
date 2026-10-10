@@ -38,6 +38,7 @@ var pageContentCmd = &cobra.Command{
 
 		selector, _ := cmd.Flags().GetString("selector")
 		format, _ := cmd.Flags().GetString("format")
+		maxChars, _ := cmd.Flags().GetInt("max-chars")
 
 		c, err := connectScoped()
 		if err != nil {
@@ -56,26 +57,28 @@ var pageContentCmd = &cobra.Command{
 				"tabId":    tabID,
 				"selector": selector,
 				"format":   format,
+				"maxChars": maxChars,
 			},
 		})
 		if err != nil {
 			return err
 		}
 
+		out := cmd.OutOrStdout()
 		if flagJSON {
-			fmt.Println(string(resp))
-			return nil
+			_, err := fmt.Fprintln(out, string(resp))
+			return err
 		}
 
 		var result struct {
 			Data string `json:"data"`
 		}
 		if err := json.Unmarshal(resp, &result); err != nil {
-			fmt.Println(string(resp))
-			return nil
+			_, err := fmt.Fprintln(out, string(resp))
+			return err
 		}
-		fmt.Print(result.Data)
-		return nil
+		_, err = fmt.Fprint(out, result.Data)
+		return err
 	},
 }
 
@@ -472,7 +475,8 @@ func resizeImage(imageData []byte, format string, quality, maxPixels int) ([]byt
 
 func init() {
 	pageContentCmd.Flags().String("selector", "body", "CSS selector for content extraction")
-	pageContentCmd.Flags().String("format", "text", "output format: text, html")
+	pageContentCmd.Flags().String("format", "text", "output format: text, markdown (links, headings, lists, tables), html")
+	pageContentCmd.Flags().Int("max-chars", 0, "truncate to this many characters and append a [truncated: N of M] note (0 = no limit)")
 
 	pageExecCmd.Flags().StringP("file", "f", "", "read JavaScript from file")
 	pageExecCmd.Flags().String("world", "MAIN", "execution world: MAIN (dynamic code requires page context)")
