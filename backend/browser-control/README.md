@@ -67,8 +67,7 @@ export BROWSER_CONTROL_SESSION
 bctl --browser zen-01 tabs create https://example.com --active=false --json
 bctl --browser zen-01 page content 123 --json
 bctl --browser zen-01 page screenshot 123 --output /tmp/worker-1.png
-bctl --browser zen-01 tabs close 123
-bctl --browser zen-01 session end
+bctl --browser zen-01 session end --close-tabs
 unset BROWSER_CONTROL_SESSION
 ```
 
@@ -78,7 +77,9 @@ with the same name fail and list the IDs.
 Use `--session <id>` instead of the environment variable when convenient. The CLI reads the environment directly;
 `env.example` documents it and is not automatically loaded. `session begin --ttl 30m` sets lease duration (default 15m,
 range 1s to 24h). Work tab creation and access claim exclusive ownership; activity renews the lease. `session renew`
-renews before long idle periods. `session end` releases ownership and leaves tabs open. Expired sessions must be replaced.
+renews before long idle periods. `session end` releases ownership and leaves tabs open; `session end --close-tabs`
+also closes the task's agent-window work tabs and reports `closedTabIds`/`keptTabIds` (personal tabs, and every tab of a
+paused task, stay open). Expired sessions must be replaced.
 `tabs close <tab-id>...` closes agent-window work tabs owned by the task or unowned; personal tabs (even when granted),
 other tasks' tabs, and the marker are refused.
 `session list` exposes live task IDs, expiry, pause state, and owned tab IDs so an operator can `session pause <id>` before

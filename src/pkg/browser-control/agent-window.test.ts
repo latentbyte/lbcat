@@ -376,6 +376,34 @@ describe("代理专用窗口与标签租约", () => {
     expect(tabs.has(tab.id!)).toBe(true);
   });
 
+  it("结束任务时可关闭自己的工作标签但保留个人标签与已消失标签", async () => {
+    const sessionId = await prepare();
+    const work = await service.createTab(sessionId, "https://example.com");
+    const gone = await service.createTab(sessionId, "https://example.com/gone");
+    tabs.set(1, mockTab({ id: 1, windowId: 8, url: "https://personal.example" }));
+    await service.setTabGrant(1, { mode: "all" });
+    await service.assertTabAccess(1, sessionId);
+    tabs.delete(gone.id!);
+    await expect(service.closeSession(sessionId, { closeTabs: true })).resolves.toEqual({
+      closedTabIds: [work.id],
+      keptTabIds: [1],
+    });
+    expect(deps.removeTab).toHaveBeenCalledTimes(1);
+    expect(tabs.has(1)).toBe(true);
+    await expect(service.listSessions()).resolves.toEqual([]);
+  });
+
+  it("暂停的任务结束时不关闭人工可能正在使用的标签", async () => {
+    const sessionId = await prepare();
+    const tab = await service.createTab(sessionId, "https://example.com");
+    await service.pauseSession(sessionId);
+    await expect(service.closeSession(sessionId, { closeTabs: true })).resolves.toEqual({
+      closedTabIds: [],
+      keptTabIds: [tab.id],
+    });
+    expect(deps.removeTab).not.toHaveBeenCalled();
+  });
+
   it("标签移出窗口后应拒绝原任务继续操作", async () => {
     const sessionId = await prepare();
     const tab = await service.createTab(sessionId, "https://example.com");

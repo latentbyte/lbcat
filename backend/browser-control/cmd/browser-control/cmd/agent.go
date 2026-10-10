@@ -64,7 +64,7 @@ func newSessionCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error { return printAgentResponse(cmd, "sessions.list", nil) },
 	})
 	for _, operation := range []struct{ name, remote string }{{"renew", "renew"}, {"end", "close"}, {"pause", "pause"}, {"resume", "resume"}} {
-		command.AddCommand(&cobra.Command{
+		child := &cobra.Command{
 			Use: operation.name + " [session-id]", Short: operation.name + " a task session", Args: cobra.MaximumNArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				sessionID := sessionFromFlag()
@@ -74,9 +74,18 @@ func newSessionCmd() *cobra.Command {
 				if sessionID == "" {
 					return fmt.Errorf("provide session ID or --session")
 				}
-				return printAgentResponse(cmd, "sessions."+operation.remote, map[string]any{"sessionId": sessionID})
+				request := map[string]any{"sessionId": sessionID}
+				if closeTabs, _ := cmd.Flags().GetBool("close-tabs"); closeTabs {
+					request["closeTabs"] = true
+				}
+				return printAgentResponse(cmd, "sessions."+operation.remote, request)
 			},
-		})
+		}
+		if operation.name == "end" {
+			child.Flags().Bool("close-tabs", false,
+				"also close the task's agent-window work tabs (personal tabs and paused tasks' tabs stay open)")
+		}
+		command.AddCommand(child)
 	}
 	command.AddCommand(&cobra.Command{
 		Use: "claim <tab-id>", Short: "Claim an agent tab for the current task", Args: cobra.ExactArgs(1),

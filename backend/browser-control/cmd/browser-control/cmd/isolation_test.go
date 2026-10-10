@@ -49,12 +49,14 @@ func TestAgentCommandPayloads(t *testing.T) {
 		args           []string
 		expectedRemote string
 		session        string
+		flags          map[string]string
 	}{
 		{name: "创建窗口保持管理命令独立", commandName: "create", expectedRemote: "agentWindow.create"},
 		{name: "指定窗口发送精确ID", commandName: "designate", args: []string{"17"}, expectedRemote: "agentWindow.designate"},
 		{name: "开始会话输出可用于后续命令的ID", commandName: "begin", expectedRemote: "sessions.open"},
 		{name: "认领标签发送任务ID", commandName: "claim", args: []string{"42"}, expectedRemote: "sessions.claim", session: "task-123"},
 		{name: "结束会话发送任务ID", commandName: "end", args: []string{"task-123"}, expectedRemote: "sessions.close"},
+		{name: "结束会话可关闭任务标签", commandName: "end", args: []string{"task-123"}, flags: map[string]string{"close-tabs": "true"}, expectedRemote: "sessions.close"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			oldSession := flagSession
@@ -71,6 +73,11 @@ func TestAgentCommandPayloads(t *testing.T) {
 				t.Fatal(err)
 			}
 			child.SetOut(io.Discard)
+			for name, value := range test.flags {
+				if err := child.Flags().Set(name, value); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := child.RunE(child, test.args); err != nil {
 				t.Fatal(err)
 			}
@@ -83,6 +90,9 @@ func TestAgentCommandPayloads(t *testing.T) {
 				t.Fatal(err)
 			}
 			if test.expectedRemote == "sessions.claim" && sentArgs["sessionId"] != "task-123" {
+				t.Fatalf("args = %#v", requests[0].Args)
+			}
+			if test.commandName == "end" && (sentArgs["closeTabs"] == true) != (test.flags["close-tabs"] == "true") {
 				t.Fatalf("args = %#v", requests[0].Args)
 			}
 			if test.commandName == "designate" && sentArgs["windowId"] != float64(17) {

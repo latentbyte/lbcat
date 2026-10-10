@@ -495,8 +495,8 @@ const handlers: Record<string, Handler> = {
     return { data: await agentWindowService.renewSession(sessionId(args) ?? "") };
   },
   async "sessions.close"(args) {
-    await agentWindowService.closeSession(sessionId(args) ?? "");
-    return { data: { closed: true } };
+    const tabs = await agentWindowService.closeSession(sessionId(args) ?? "", { closeTabs: Boolean(args.closeTabs) });
+    return { data: { closed: true, ...(args.closeTabs ? tabs : {}) } };
   },
   async "sessions.pause"(args) {
     await agentWindowService.pauseSession(sessionId(args) ?? "");

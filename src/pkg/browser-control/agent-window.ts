@@ -309,9 +309,34 @@ export class AgentWindowService implements AgentWindowScope {
     });
   }
 
-  async closeSession(sessionId: string): Promise<void> {
-    await this.withState(async (state) => {
+  // 可选关闭任务拥有的代理窗口工作标签；个人标签与暂停（人工接管）时的标签保留
+  async closeSession(
+    sessionId: string,
+    options: { closeTabs?: boolean } = {}
+  ): Promise<{ closedTabIds: number[]; keptTabIds: number[] }> {
+    return this.withState(async (state) => {
+      const session = state.sessions.find((item) => item.sessionId === sessionId);
+      const closedTabIds: number[] = [];
+      const keptTabIds: number[] = [];
+      const registration = state.registration;
+      for (const tabId of options.closeTabs ? (session?.tabIds ?? []) : []) {
+        const tab = await this.deps.getTab(tabId).catch(() => undefined);
+        if (!tab) continue;
+        const workTab =
+          registration &&
+          tab.windowId === registration.windowId &&
+          tabId !== registration.markerTabId &&
+          registration.eligibleTabIds?.includes(tabId);
+        if (!workTab || session!.paused) {
+          keptTabIds.push(tabId);
+          continue;
+        }
+        await this.deps.removeTab(tabId);
+        registration.eligibleTabIds = registration.eligibleTabIds!.filter((id) => id !== tabId);
+        closedTabIds.push(tabId);
+      }
       state.sessions = state.sessions.filter((item) => item.sessionId !== sessionId);
+      return { closedTabIds, keptTabIds };
     });
   }
 
