@@ -204,6 +204,14 @@ body; non-2xx statuses still print it and exit non-zero. `--json` returns `{stat
 Network/CORS failures return `FETCH_FAILED`, timeouts `FETCH_TIMEOUT`. Firefox/Zen use `content.fetch` so requests
 carry the page's identity rather than the extension's.
 
+`page monitor start|read|stop <tab>` captures failed requests (HTTP >= 400 and network errors, via `webRequest`,
+persisting across navigations) plus console errors/warnings, uncaught errors, unhandled rejections, and dialogs (hooked
+in the page's main world and re-attached after each navigation; reload after `start` to catch load-time output).
+`read` prints entries since the last read (`--keep` leaves them); `stop` prints the rest. `start --dialogs
+accept|dismiss` answers alert/confirm/prompt without showing them (default `pass` shows them, which blocks the page and
+later commands). Buffers hold 500 entries per tab; monitors end when the extension background restarts
+(`MONITOR_NOT_STARTED`). No debugger is attached, so Chrome shows no debugging banner.
+
 `page viewport <tab> [--width W] [--height H]` resizes the agent window so the page viewport is W x H CSS pixels (page
 zoom accounted for), un-maximizing it first; with neither flag it prints the current viewport. It affects every tab in
 the agent window and refuses tabs elsewhere (`VIEWPORT_WINDOW_DENIED`). Browsers and screens clamp window sizes, so the

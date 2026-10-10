@@ -228,6 +228,10 @@ describe("原生消息并发控制", () => {
   const tabsReload = vi.fn();
   const tabsRemove = vi.fn();
   const commits = new Set<(info: { tabId: number; frameId: number }) => void>();
+  const requestEvents = {
+    onCompleted: new Set<(details: object) => void>(),
+    onErrorOccurred: new Set<(details: object) => void>(),
+  };
   const tabUpdates = new Set<(tabId: number, change: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => void>();
   const activations = new Set<(info: { tabId: number; windowId: number }) => void>();
   const windowsUpdate = vi.fn();
@@ -346,6 +350,15 @@ describe("原生消息并发控制", () => {
       },
       windows: { get: windowsGet, update: windowsUpdate, getCurrent: vi.fn().mockResolvedValue({ id: 7 }) },
       scripting: { executeScript },
+      webRequest: Object.fromEntries(
+        Object.entries(requestEvents).map(([name, listeners]) => [
+          name,
+          {
+            addListener: (listener: (details: object) => void) => listeners.add(listener),
+            removeListener: (listener: (details: object) => void) => listeners.delete(listener),
+          },
+        ])
+      ),
       webNavigation: {
         onCommitted: {
           addListener: (listener: (info: { tabId: number; frameId: number }) => void) => commits.add(listener),
@@ -608,6 +621,64 @@ describe("原生消息并发控制", () => {
       await request("viewport-personal", "page.viewport", { tabId: 101, personalTabId: 101, width: 390 });
       expect(responseOf("viewport-personal").error.code).toBe("VIEWPORT_WINDOW_DENIED");
       expect(windowsUpdate).not.toHaveBeenCalled();
+    });
+
+    it("监控记录失败请求、控制台错误与导航，读取后清空", async () => {
+      const t0 = Date.now();
+      await request("monitor-start", "page.monitor.start", { tabId: 101, dialogs: "dismiss" });
+      expect(responseOf("monitor-start").data).toEqual({ tabId: 101, monitoring: true });
+      expect(executeScript).toHaveBeenLastCalledWith(
+        expect.objectContaining({ target: { tabId: 101 }, world: "MAIN", args: ["install", "dismiss"] })
+      );
+      const failed = { tabId: 101, method: "GET", url: "https://a.test/api", statusCode: 404, timeStamp: t0 + 1 };
+      for (const listener of requestEvents.onCompleted) {
+        listener(failed);
+        listener({ ...failed, statusCode: 200 });
+        listener({ ...failed, tabId: 102 });
+      }
+      for (const listener of requestEvents.onErrorOccurred) {
+        listener({
+          tabId: 101,
+          method: "POST",
+          url: "https://a.test/save",
+          error: "net::ERR_FAILED",
+          timeStamp: t0 + 2,
+        });
+        listener({
+          tabId: 101,
+          method: "GET",
+          url: "https://a.test/img",
+          error: "net::ERR_ABORTED",
+          timeStamp: t0 + 3,
+        });
+      }
+      vi.advanceTimersByTime(5);
+      console.error("oops");
+      vi.advanceTimersByTime(5);
+      for (const listener of [...commits]) listener({ tabId: 101, frameId: 0, url: "https://a.test/next" } as never);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(executeScript).toHaveBeenLastCalledWith(
+        expect.objectContaining({ injectImmediately: true, world: "MAIN" })
+      );
+
+      await request("monitor-read", "page.monitor.read", { tabId: 101 });
+      expect(responseOf("monitor-read").data).toEqual({
+        tabId: 101,
+        dropped: 0,
+        entries: [
+          expect.objectContaining({ type: "request", status: 404, message: "GET https://a.test/api -> 404" }),
+          expect.objectContaining({ type: "request", message: "POST https://a.test/save failed: net::ERR_FAILED" }),
+          expect.objectContaining({ type: "console", level: "error", message: "oops" }),
+          expect.objectContaining({ type: "navigation", url: "https://a.test/next" }),
+        ],
+      });
+      await request("monitor-reread", "page.monitor.read", { tabId: 101 });
+      expect(responseOf("monitor-reread").data.entries).toEqual([]);
+
+      await request("monitor-stop", "page.monitor.stop", { tabId: 101 });
+      expect(requestEvents.onCompleted.size).toBe(0);
+      await request("monitor-gone", "page.monitor.read", { tabId: 101 });
+      expect(responseOf("monitor-gone").error.code).toBe("MONITOR_NOT_STARTED");
     });
 
     it("跳转地址并等待加载完成", async () => {

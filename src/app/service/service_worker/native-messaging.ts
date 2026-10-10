@@ -14,6 +14,7 @@ import { BrowserControlError } from "@App/pkg/browser-control/errors";
 import { runPageContent } from "@App/pkg/browser-control/page-content";
 import { runPageExec } from "@App/pkg/browser-control/page-exec";
 import { runPageFetch, type PageFetchRequest } from "@App/pkg/browser-control/page-fetch";
+import { pageMonitorService, type PageDialogMode } from "@App/pkg/browser-control/page-monitor";
 import { runPageAction, type PageActionRequest, type PageWaitState } from "@App/pkg/browser-control/page-actions";
 import {
   navigateTab,
@@ -780,6 +781,31 @@ const handlers: Record<string, Handler> = {
       return injectPageAction(tabId, { op: "snapshot", selector, max });
     });
     return { data: value.snapshot };
+  },
+
+  async "page.monitor.start"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    const dialogs = args.dialogs ?? "pass";
+    if (dialogs !== "pass" && dialogs !== "accept" && dialogs !== "dismiss")
+      throw new BrowserControlError("INVALID_ARGUMENT", "dialogs must be pass, accept, or dismiss");
+    await assertNativeTab(args, tabId);
+    await pageMonitorService.start(tabId, dialogs as PageDialogMode);
+    return { data: { tabId, monitoring: true } };
+  },
+
+  async "page.monitor.read"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    await assertNativeTab(args, tabId);
+    return { data: { tabId, ...(await pageMonitorService.read(tabId, Boolean(args.keep))) } };
+  },
+
+  async "page.monitor.stop"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    await assertNativeTab(args, tabId);
+    return { data: { tabId, ...(await pageMonitorService.stop(tabId)) } };
   },
 
   // 调整代理窗口外框使页面视口达到目标尺寸；不提供尺寸时只读取当前视口
