@@ -204,6 +204,12 @@ body; non-2xx statuses still print it and exit non-zero. `--json` returns `{stat
 Network/CORS failures return `FETCH_FAILED`, timeouts `FETCH_TIMEOUT`. Firefox/Zen use `content.fetch` so requests
 carry the page's identity rather than the extension's.
 
+`page run <tab> -f steps.json` runs a JSON array of steps (`{"action": "click", "text": "Save"}`) over one connection
+and stops at the first failure with a non-zero exit. Actions: `goto back forward reload click fill select press wait
+content snapshot exec fetch viewport`; other keys are the extension's argument names (camelCase, e.g. `maxChars`),
+`timeout` takes a duration, refs accept `@e3`, and navigating actions wait for load unless `"wait": "none"`. `-f -`
+reads stdin. `--json` returns `{steps: [{action, data}], failed?: {step, action, error}}`.
+
 `page monitor start|read|stop <tab>` captures failed requests (HTTP >= 400 and network errors, via `webRequest`,
 persisting across navigations) plus console errors/warnings, uncaught errors, unhandled rejections, and dialogs (hooked
 in the page's main world and re-attached after each navigation; reload after `start` to catch load-time output).
