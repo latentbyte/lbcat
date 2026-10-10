@@ -62,10 +62,16 @@ describe("代理专用窗口与标签租约", () => {
         tabs.set(tab.id!, tab);
         return { id: 7, focused: false, alwaysOnTop: false, incognito: false, type: "normal", tabs: [tab] };
       }),
-      pinTab: vi.fn(async () => {}),
+      allTabs: async () => [...tabs.values()],
     };
     service = new AgentWindowService(deps);
   });
+
+  // 重启会清空标签与会话存储，只保留本地存储中的登记
+  function restartBrowser(): void {
+    tabs.clear();
+    delete (stored as { verifiedMarkerUrl?: string }).verifiedMarkerUrl;
+  }
 
   async function prepare(): Promise<string> {
     await service.designate(7);
@@ -77,11 +83,15 @@ describe("代理专用窗口与标签租约", () => {
     expect(deps.createTab).not.toHaveBeenCalled();
   });
 
-  it("创建专用窗口时不抢焦点并固定标记标签", async () => {
+  it("创建专用窗口时不抢焦点", async () => {
     const status = await service.create();
     expect(deps.createWindow).toHaveBeenCalledWith(expect.objectContaining({ focused: false, type: "normal" }));
-    expect(deps.pinTab).toHaveBeenCalledWith(status.markerTabId);
     await expect(service.status()).resolves.toEqual(status);
+  });
+
+  it("指定窗口时不固定标记标签以免 Zen 将其复制到每个新窗口", async () => {
+    await service.designate(7);
+    expect(deps.createTab).toHaveBeenCalledWith(expect.not.objectContaining({ pinned: true }));
   });
 
   it("新窗口返回多个标签时按唯一标记 URL 选择而非标签顺序", async () => {
@@ -94,7 +104,6 @@ describe("代理专用窗口与标签租约", () => {
     };
     const status = await service.create();
     expect(tabs.get(status.markerTabId)?.url).toContain("?registration=");
-    expect(deps.pinTab).not.toHaveBeenCalledWith(1);
     await expect(service.status()).resolves.toEqual(status);
   });
 
@@ -115,7 +124,6 @@ describe("代理专用窗口与标签租约", () => {
       };
       const pending = service.create();
       await vi.advanceTimersByTimeAsync(25);
-      expect(deps.pinTab).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(75);
       const status = await pending;
       await expect(service.status()).resolves.toEqual(status);
@@ -157,13 +165,11 @@ describe("代理专用窗口与标签租约", () => {
         (error: unknown) => ({ error })
       );
       await vi.advanceTimersByTimeAsync(50);
-      expect(deps.pinTab).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(50);
       const result = await outcome;
       expect(result).toHaveProperty("status");
       if (!("status" in result)) throw result.error;
       expect(deps.listTabs).toHaveBeenCalledTimes(4);
-      expect(deps.pinTab).not.toHaveBeenCalledWith(1);
       await expect(service.status()).resolves.toEqual(result.status);
       const sessionId = (await service.openSession()).sessionId;
       await expect(service.listTabs(sessionId)).resolves.toEqual([]);
@@ -193,7 +199,6 @@ describe("代理专用窗口与标签租约", () => {
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1900);
       await result;
-      expect(deps.pinTab).not.toHaveBeenCalled();
       await expect(service.status()).resolves.toEqual(original);
     } finally {
       vi.useRealTimers();
@@ -214,21 +219,11 @@ describe("代理专用窗口与标签租约", () => {
       const result = expect(service.create()).rejects.toMatchObject({ code: "AGENT_WINDOW_MISSING" });
       await vi.advanceTimersByTimeAsync(2000);
       await result;
-      expect(deps.pinTab).not.toHaveBeenCalled();
       await service.designate(7);
       await expect(service.status()).resolves.toMatchObject({ windowId: 7 });
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it.each(["window", "url"])("固定标记后 %s 身份变化不得报告创建成功", async (identity) => {
-    deps.pinTab = async (id) => {
-      if (identity === "window") tabs.get(id)!.windowId = 8;
-      else tabs.get(id)!.url = "about:blank";
-    };
-    await expect(service.create()).rejects.toMatchObject({ code: "AGENT_WINDOW_MISSING" });
-    await expect(service.status()).rejects.toMatchObject({ code: "AGENT_WINDOW_MISSING" });
   });
 
   it("创建窗口继承的标签不因窗口 ID 相同而获得授权", async () => {
@@ -290,6 +285,38 @@ describe("代理专用窗口与标签租约", () => {
   it("复用数字标签 ID 但 URL 不匹配时应拒绝", async () => {
     const status = await service.designate(7);
     tabs.get(status.markerTabId)!.url = "https://example.com";
+    await expect(service.status()).rejects.toMatchObject({ code: "AGENT_WINDOW_MISSING" });
+  });
+
+  it("浏览器重启后按唯一登记标记恢复窗口并清除失效的标签授权", async () => {
+    tabs.set(1, mockTab({ id: 1, url: "https://example.org" }));
+    const sessionId = await prepare();
+    await service.assertTabAccess(1, sessionId);
+    const { markerUrl } = (stored as { registration: { markerUrl: string } }).registration;
+    restartBrowser();
+    tabs.set(1, mockTab({ id: 1, windowId: 9, url: "https://personal.example" }));
+    tabs.set(50, mockTab({ id: 50, windowId: 9, url: markerUrl }));
+    await expect(service.status()).resolves.toEqual({ windowId: 9, markerTabId: 50 });
+    await expect(service.listTabs(sessionId)).resolves.toEqual([]);
+    await expect(service.assertTabAccess(1, sessionId)).rejects.toMatchObject({ code: "PERSONAL_TAB_DENIED" });
+    const created = await service.createTab(sessionId, "https://example.com");
+    expect(created.windowId).toBe(9);
+  });
+
+  it("重启后存在多个相同登记标记副本时拒绝恢复", async () => {
+    await service.designate(7);
+    const { markerUrl } = (stored as { registration: { markerUrl: string } }).registration;
+    restartBrowser();
+    tabs.set(50, mockTab({ id: 50, windowId: 9, url: markerUrl }));
+    tabs.set(51, mockTab({ id: 51, windowId: 10, url: markerUrl }));
+    await expect(service.status()).rejects.toMatchObject({ code: "AGENT_WINDOW_MISSING" });
+  });
+
+  it("同一次浏览器运行中关闭标记后不得改绑到残留的标记副本", async () => {
+    const status = await service.designate(7);
+    const { markerUrl } = (stored as { registration: { markerUrl: string } }).registration;
+    tabs.delete(status.markerTabId);
+    tabs.set(50, mockTab({ id: 50, windowId: 9, url: markerUrl }));
     await expect(service.status()).rejects.toMatchObject({ code: "AGENT_WINDOW_MISSING" });
   });
 

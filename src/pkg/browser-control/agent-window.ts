@@ -1,6 +1,8 @@
 const STATE_KEY = "browserControl.agentWindow";
 // 标签 ID 仅在本次浏览器运行内有效，授权放在会话存储中随浏览器重启清除
 const GRANTS_KEY = "browserControl.tabGrants";
+// 本次浏览器运行内已确认的标记，重启后才允许按 URL 恢复登记
+const VERIFIED_KEY = "browserControl.verifiedMarkerUrl";
 const DEFAULT_TTL = 15 * 60 * 1000;
 const MAX_TTL = 24 * 60 * 60 * 1000;
 const MAX_LABEL = 60;
@@ -17,7 +19,12 @@ type Session = {
 };
 // 用户在标签上设置的代理访问：关闭、允许所有任务或仅允许指定任务
 export type TabGrant = { mode: "off" } | { mode: "all" } | { mode: "session"; sessionId: string };
-type State = { registration?: Registration; sessions: Session[]; tabGrants?: Record<number, TabGrant> };
+type State = {
+  registration?: Registration;
+  sessions: Session[];
+  tabGrants?: Record<number, TabGrant>;
+  verifiedMarkerUrl?: string;
+};
 
 export type AgentSessionView = { sessionId: string; label?: string; expiresAt: number; paused: boolean };
 export type TabAccessView = {
@@ -50,11 +57,11 @@ export interface AgentWindowDependencies {
   now(): number;
   getTab(tabId: number): Promise<chrome.tabs.Tab>;
   listTabs(windowId: number): Promise<chrome.tabs.Tab[]>;
+  allTabs(): Promise<chrome.tabs.Tab[]>;
   createTab(properties: chrome.tabs.CreateProperties): Promise<chrome.tabs.Tab>;
   getWindow(windowId: number): Promise<chrome.windows.Window>;
   listWindows(): Promise<chrome.windows.Window[]>;
   createWindow(properties: chrome.windows.CreateData): Promise<chrome.windows.Window | undefined>;
-  pinTab(tabId: number): Promise<void>;
 }
 
 export class BrowserControlScopeError extends Error {
@@ -112,14 +119,30 @@ export class AgentWindowService implements AgentWindowScope {
   private async registration(state: State): Promise<Registration> {
     const registration = state.registration;
     if (!registration) throw missingWindow();
-    let marker: chrome.tabs.Tab;
-    try {
-      marker = await this.deps.getTab(registration.markerTabId);
-    } catch {
-      throw missingWindow();
-    }
-    if (marker.windowId !== registration.windowId || marker.url !== registration.markerUrl) throw missingWindow();
+    const marker = await this.deps.getTab(registration.markerTabId).catch(() => undefined);
+    if (marker?.url !== registration.markerUrl) return this.recoverRegistration(state, registration);
+    if (marker.windowId !== registration.windowId) throw missingWindow();
+    state.verifiedMarkerUrl = registration.markerUrl;
     return registration;
+  }
+
+  // 浏览器重启后标签 ID 失效，仅在唯一匹配登记标记时重新绑定，旧 ID 授权全部作废
+  private async recoverRegistration(state: State, registration: Registration): Promise<Registration> {
+    // 本次运行中已确认过的标记消失表示被关闭，不得改绑到残留副本
+    if (state.verifiedMarkerUrl === registration.markerUrl) throw missingWindow();
+    const markers = (await this.deps.allTabs()).filter((tab) => tab.url === registration.markerUrl);
+    const marker = markers[0];
+    if (markers.length !== 1 || marker.id === undefined) throw missingWindow();
+    const recovered: Registration = {
+      windowId: marker.windowId,
+      markerTabId: marker.id,
+      markerUrl: registration.markerUrl,
+      eligibleTabIds: [],
+    };
+    state.registration = recovered;
+    state.verifiedMarkerUrl = registration.markerUrl;
+    for (const session of state.sessions) session.tabIds = [];
+    return recovered;
   }
 
   async status(): Promise<AgentWindowStatus> {
@@ -170,7 +193,6 @@ export class AgentWindowService implements AgentWindowScope {
       }
       if (marker?.id === undefined) throw new Error("Could not identify agent window marker");
       await this.readyMarker(marker.id, window.id, markerUrl);
-      await this.deps.pinTab(marker.id);
       const registration: Registration = {
         windowId: window.id,
         markerTabId: marker.id,
@@ -179,6 +201,7 @@ export class AgentWindowService implements AgentWindowScope {
       };
       await this.registration({ registration, sessions: [] });
       state.registration = registration;
+      state.verifiedMarkerUrl = markerUrl;
       state.sessions = [];
       return { windowId: window.id, markerTabId: marker.id };
     });
@@ -197,12 +220,14 @@ export class AgentWindowService implements AgentWindowScope {
         .filter((tab) => tab.id !== undefined && !this.isMarker(tab))
         .map((tab) => tab.id!);
       const markerUrl = this.deps.markerUrl() + "?registration=" + this.deps.id();
-      const marker = await this.deps.createTab({ windowId, url: markerUrl, active: false, pinned: true });
+      // 不固定标记：Zen 会把固定标签复制到每个新窗口
+      const marker = await this.deps.createTab({ windowId, url: markerUrl, active: false });
       if (marker.id === undefined) throw new Error("Could not create agent window marker");
       await this.readyMarker(marker.id, windowId, markerUrl);
       const registration: Registration = { windowId, markerTabId: marker.id, markerUrl, eligibleTabIds };
       await this.registration({ registration, sessions: [] });
       state.registration = registration;
+      state.verifiedMarkerUrl = markerUrl;
       state.sessions = [];
       return { windowId, markerTabId: marker.id };
     });
@@ -504,16 +529,20 @@ export const agentWindowService = new AgentWindowService({
   load: async () => {
     const [local, session] = await Promise.all([
       chrome.storage.local.get(STATE_KEY),
-      chrome.storage.session.get(GRANTS_KEY),
+      chrome.storage.session.get([GRANTS_KEY, VERIFIED_KEY]),
     ]);
     const state = local[STATE_KEY] as State | undefined;
     const tabGrants = session[GRANTS_KEY] as State["tabGrants"];
-    return state || tabGrants ? { sessions: [], ...state, tabGrants } : undefined;
+    const verifiedMarkerUrl = session[VERIFIED_KEY] as string | undefined;
+    return state || tabGrants ? { sessions: [], ...state, tabGrants, verifiedMarkerUrl } : undefined;
   },
-  save: async ({ tabGrants, ...state }) => {
+  save: async ({ tabGrants, verifiedMarkerUrl, ...state }) => {
     await Promise.all([
       chrome.storage.local.set({ [STATE_KEY]: state }),
-      chrome.storage.session.set({ [GRANTS_KEY]: tabGrants ?? {} }),
+      chrome.storage.session.set({
+        [GRANTS_KEY]: tabGrants ?? {},
+        ...(verifiedMarkerUrl ? { [VERIFIED_KEY]: verifiedMarkerUrl } : {}),
+      }),
     ]);
   },
   markerUrl: () => chrome.runtime.getURL("src/agent-window.html"),
@@ -521,13 +550,11 @@ export const agentWindowService = new AgentWindowService({
   now: () => Date.now(),
   getTab: (tabId) => chrome.tabs.get(tabId),
   listTabs: (windowId) => chrome.tabs.query({ windowId }),
+  allTabs: () => chrome.tabs.query({}),
   createTab: (properties) => chrome.tabs.create(properties),
   getWindow: (windowId) => chrome.windows.get(windowId),
   listWindows: () => chrome.windows.getAll({ windowTypes: ["normal"] }),
   createWindow: (properties) => chrome.windows.create(properties),
-  pinTab: async (tabId) => {
-    await chrome.tabs.update(tabId, { pinned: true });
-  },
 });
 
 // 每次聊天、任务或子代理独立持有租约，不共享全局工具的标签权限

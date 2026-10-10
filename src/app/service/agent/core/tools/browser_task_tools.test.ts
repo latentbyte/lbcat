@@ -64,7 +64,7 @@ describe("请求浏览器工具共享租约", () => {
       getWindow: async (id) => ({ id, focused: false, alwaysOnTop: false, incognito: false, type: "normal" }),
       listWindows: async () => [],
       createWindow: async () => undefined,
-      pinTab: async () => {},
+      allTabs: async () => [...tabs.values()],
     });
     await service.designate(7);
     vi.stubGlobal("chrome", {
