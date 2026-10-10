@@ -20,6 +20,7 @@ type Tab struct {
 	Index        int           `json:"index"`
 	Title        string        `json:"title"`
 	URL          string        `json:"url"`
+	Status       string        `json:"status,omitempty"` // loading or complete
 	Active       bool          `json:"active"`
 	Incognito    bool          `json:"incognito"`
 	Audible      bool          `json:"audible"`

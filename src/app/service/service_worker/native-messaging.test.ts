@@ -228,6 +228,7 @@ describe("原生消息并发控制", () => {
   const tabsReload = vi.fn();
   const tabsRemove = vi.fn();
   const commits = new Set<(info: { tabId: number; frameId: number }) => void>();
+  const tabUpdates = new Set<(tabId: number, change: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => void>();
   const activations = new Set<(info: { tabId: number; windowId: number }) => void>();
   const windowsUpdate = vi.fn();
   const captureTab = vi.fn();
@@ -252,6 +253,7 @@ describe("原生消息并发控制", () => {
     ]);
     activations.clear();
     commits.clear();
+    tabUpdates.clear();
     tabsCreate.mockImplementation(async ({ active }: { active: boolean }) => {
       if (active) activeTab = 103;
       return { id: 103, windowId: 7 };
@@ -328,6 +330,12 @@ describe("原生消息并发控制", () => {
         },
         onCreated: { addListener: eventAdd, removeListener: eventRemove },
         onRemoved: { addListener: vi.fn(), removeListener: vi.fn() },
+        onUpdated: {
+          addListener: (fn: Parameters<typeof tabUpdates.add>[0]) => tabUpdates.add(fn),
+          removeListener: (fn: Parameters<typeof tabUpdates.add>[0]) => tabUpdates.delete(fn),
+        },
+        goBack: vi.fn(async () => {}),
+        goForward: vi.fn(async () => {}),
       },
       windows: { update: windowsUpdate, getCurrent: vi.fn().mockResolvedValue({ id: 7 }) },
       scripting: { executeScript },
@@ -432,6 +440,136 @@ describe("原生消息并发控制", () => {
         },
       })
     );
+  });
+
+  function tabUpdated(tabId: number, change: Partial<chrome.tabs.OnUpdatedInfo>) {
+    for (const listener of [...tabUpdates])
+      listener(tabId, change as chrome.tabs.OnUpdatedInfo, { id: tabId, ...change } as chrome.tabs.Tab);
+  }
+
+  function responseOf(id: string) {
+    return postMessage.mock.calls.find(([message]) => message.id === id)?.[0].payload;
+  }
+
+  describe("页面动作与导航", () => {
+    beforeEach(() => {
+      (Element.prototype as Element & { checkVisibility?: () => boolean }).checkVisibility = () => true;
+      document.body.innerHTML = "";
+      executeScript.mockImplementation(async ({ func, args }) => [{ result: await func(...args) }]);
+    });
+    afterEach(() => {
+      delete (Element.prototype as { checkVisibility?: unknown }).checkVisibility;
+    });
+
+    it("点击按文本定位并返回匹配元素与当前页面", async () => {
+      document.body.innerHTML = `<button id="save">Save</button>`;
+      const clicked = vi.fn();
+      document.getElementById("save")!.addEventListener("click", clicked);
+      tabsGet.mockResolvedValue({ id: 101, windowId: 7, url: "https://a.test/", title: "A", status: "complete" });
+      await request("click", "page.click", { tabId: 101, text: "Save" });
+      expect(clicked).toHaveBeenCalledTimes(1);
+      expect(responseOf("click")).toEqual({
+        cmd: "page.click",
+        data: {
+          matched: { tag: "button", id: "save", text: "Save" },
+          navigated: false,
+          url: "https://a.test/",
+          title: "A",
+        },
+      });
+    });
+
+    it("点击触发导航时等待新页面加载完成", async () => {
+      document.body.innerHTML = `<a id="next">Next</a>`;
+      const tab = { id: 101, windowId: 7, url: "https://a.test/", title: "A", status: "complete" };
+      tabsGet.mockImplementation(async () => ({ ...tab }));
+      document.getElementById("next")!.addEventListener("click", () => {
+        setTimeout(() => {
+          Object.assign(tab, { status: "loading", url: "https://a.test/next" });
+          tabUpdated(101, { status: "loading", url: "https://a.test/next" });
+        }, 50);
+        setTimeout(() => {
+          Object.assign(tab, { status: "complete", title: "Next" });
+          tabUpdated(101, { status: "complete" });
+        }, 400);
+      });
+      const pending = request("nav-click", "page.click", { tabId: 101, selector: "#next", wait: "load" });
+      await vi.advanceTimersByTimeAsync(500);
+      await pending;
+      expect(responseOf("nav-click").data).toMatchObject({
+        navigated: true,
+        url: "https://a.test/next",
+        title: "Next",
+      });
+    });
+
+    it("动作错误以错误码返回", async () => {
+      document.body.innerHTML = `<button>Go</button><button>Go</button>`;
+      await request("missing", "page.click", { tabId: 101, selector: "#none" });
+      await request("ambiguous", "page.click", { tabId: 101, text: "Go" });
+      await request("no-value", "page.fill", { tabId: 101, selector: "input" });
+      expect(responseOf("missing").error.code).toBe("SELECTOR_NOT_FOUND");
+      expect(responseOf("ambiguous").error.code).toBe("AMBIGUOUS_MATCH");
+      expect(responseOf("no-value").error.message).toBe("value is required");
+    });
+
+    it("代理不能在个人标签执行动作", async () => {
+      tabsGet.mockResolvedValue({ id: 101, windowId: 8 });
+      await request("denied", "page.click", { tabId: 101, selector: "button" });
+      expect(responseOf("denied").error.code).toBe("PERSONAL_TAB_DENIED");
+      expect(executeScript).not.toHaveBeenCalled();
+    });
+
+    it("跳转地址并等待加载完成", async () => {
+      const tab = { id: 101, windowId: 7, url: "https://a.test/", title: "A", status: "complete" };
+      tabsGet.mockImplementation(async () => ({ ...tab }));
+      tabsUpdate.mockImplementation(async (id: number, { url }: { url: string }) => {
+        Object.assign(tab, { status: "loading", url });
+        tabUpdated(id, { status: "loading", url });
+        return tab;
+      });
+      const pending = request("goto", "page.goto", { tabId: 101, url: "https://b.test/", wait: "load" });
+      await vi.advanceTimersByTimeAsync(100);
+      Object.assign(tab, { status: "complete", title: "B" });
+      tabUpdated(101, { status: "complete" });
+      await pending;
+      expect(tabsUpdate).toHaveBeenCalledWith(101, { url: "https://b.test/" });
+      expect(responseOf("goto").data).toEqual({
+        tabId: 101,
+        navigated: true,
+        url: "https://b.test/",
+        title: "B",
+        status: "complete",
+      });
+    });
+
+    it("等待元素出现，超时返回 WAIT_TIMEOUT，缺少条件时拒绝", async () => {
+      tabsGet.mockResolvedValue({ id: 101, windowId: 7, url: "https://a.test/done", status: "complete" });
+      setTimeout(() => document.body.insertAdjacentHTML("beforeend", `<p class="ok">ok</p>`), 200);
+      const found = request("wait", "page.wait", { tabId: 101, selector: ".ok", url: "/done$", timeoutMs: 2000 });
+      await vi.advanceTimersByTimeAsync(300);
+      await found;
+      expect(responseOf("wait").data).toMatchObject({ matched: { tag: "p" }, url: "https://a.test/done" });
+
+      const missing = request("wait-timeout", "page.wait", { tabId: 101, selector: ".never", timeoutMs: 500 });
+      await vi.advanceTimersByTimeAsync(600);
+      await missing;
+      expect(responseOf("wait-timeout").error.code).toBe("WAIT_TIMEOUT");
+
+      await request("wait-empty", "page.wait", { tabId: 101 });
+      expect(responseOf("wait-empty").error.code).toBe("INVALID_ARGUMENT");
+    });
+
+    it("新建标签可等待加载完成并返回状态", async () => {
+      let status = "loading";
+      tabsGet.mockImplementation(async (id: number) => ({ id, windowId: 7, status }));
+      const pending = request("create-wait", "tabs.create", { url: "https://a.test/", wait: "load" });
+      await vi.advanceTimersByTimeAsync(100);
+      status = "complete";
+      tabUpdated(103, { status: "complete" });
+      await pending;
+      expect(responseOf("create-wait").data).toMatchObject({ id: 103, status: "complete" });
+    });
   });
 
   it("无效选择器应通过可克隆结果保留语法错误", async () => {

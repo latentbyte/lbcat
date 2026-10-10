@@ -11,6 +11,13 @@ import {
 import { captureNativeTab, withNativeTabOperation, withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-control/agent-window";
 import { BrowserControlError } from "@App/pkg/browser-control/errors";
+import { runPageAction, type PageActionRequest, type PageWaitState } from "@App/pkg/browser-control/page-actions";
+import {
+  navigateTab,
+  waitForTabComplete,
+  waitForTabUrl,
+  type TabWaitMode,
+} from "@App/pkg/browser-control/tab-navigation";
 import { agentNotesService, type AgentNoteKind, type AgentNoteStatus } from "@App/pkg/browser-control/agent-notes";
 import {
   isNativeTabQuarantined,
@@ -264,6 +271,7 @@ export type BrowserControlTab = {
   active: boolean;
   incognito: boolean;
   audible: boolean;
+  status?: string;
   favIconUrl?: string;
   sharingState?: BrowserControlSharingState;
 };
@@ -306,6 +314,7 @@ export function tabToBrowserControlTab(
     active: Boolean(tab.active),
     incognito: Boolean(tab.incognito),
     audible: Boolean(tab.audible),
+    ...(tab.status ? { status: tab.status } : {}),
     ...(publicFavIconUrl(tab.favIconUrl) ? { favIconUrl: tab.favIconUrl } : {}),
     ...(tab.sharingState ? { sharingState: { ...tab.sharingState } } : {}),
   };
@@ -377,6 +386,78 @@ export async function focusNativeTab(tabId: number, requestedWindowId?: number, 
       await chrome.windows.update(windowId, { focused: true });
     }
     return { tabId, windowId };
+  });
+}
+
+const DEFAULT_LOAD_TIMEOUT_MS = 30_000;
+const DEFAULT_ACTION_SETTLE_MS = 300;
+// 注入失败多因导航中文档被替换，等待期间短暂重试
+const WAIT_RETRY_MS = 100;
+
+function waitMode(args: Record<string, unknown>): TabWaitMode {
+  return args.wait === "load" ? "load" : "none";
+}
+
+function timeoutArg(args: Record<string, unknown>, fallback: number): number {
+  return typeof args.timeoutMs === "number" && args.timeoutMs > 0 ? args.timeoutMs : fallback;
+}
+
+function locatorArgs(args: Record<string, unknown>) {
+  return {
+    ...(typeof args.selector === "string" && args.selector ? { selector: args.selector } : {}),
+    ...(typeof args.text === "string" && args.text ? { text: args.text } : {}),
+    ...(typeof args.ref === "string" && args.ref ? { ref: args.ref } : {}),
+    ...(typeof args.nth === "number" && args.nth > 0 ? { nth: args.nth } : {}),
+  };
+}
+
+async function injectPageAction(tabId: number, request: PageActionRequest) {
+  const results = await chrome.scripting.executeScript({ target: { tabId }, func: runPageAction, args: [request] });
+  const injection = results?.[0];
+  if (injection && "error" in injection && injection.error) {
+    const error = injection.error;
+    throw new Error(typeof error === "object" && "message" in error ? String(error.message) : String(error));
+  }
+  const result = injection?.result;
+  if (!result) throw new Error("page action produced no result");
+  if (!result.success) throw new BrowserControlError(result.code, result.error);
+  return result.value;
+}
+
+// 动作可能触发导航：在同一标签队列内执行并观察导航，返回动作结果与最终页面
+async function nativePageAction(args: Record<string, unknown>, request: PageActionRequest) {
+  const tabId = args.tabId;
+  if (typeof tabId !== "number") throw new Error("tabId is required");
+  return withNativeTabOperation(tabId, async () => {
+    await assertNativeTab(args, tabId);
+    let value: Awaited<ReturnType<typeof injectPageAction>> | undefined;
+    const { navigated, tab } = await navigateTab(
+      tabId,
+      async () => {
+        value = await injectPageAction(tabId, request);
+      },
+      {
+        wait: waitMode(args),
+        timeoutMs: timeoutArg(args, DEFAULT_LOAD_TIMEOUT_MS),
+        settleMs: typeof args.settleMs === "number" ? args.settleMs : DEFAULT_ACTION_SETTLE_MS,
+      }
+    );
+    return { data: { ...value, navigated, url: tab.url || tab.pendingUrl || "", title: tab.title || "" } };
+  });
+}
+
+async function nativeNavigate(args: Record<string, unknown>, trigger: (tabId: number) => Promise<unknown>) {
+  const tabId = args.tabId;
+  if (typeof tabId !== "number") throw new Error("tabId is required");
+  return withNativeTabOperation(tabId, async () => {
+    await assertNativeTab(args, tabId);
+    const { navigated, tab } = await navigateTab(tabId, () => trigger(tabId), {
+      wait: waitMode(args),
+      timeoutMs: timeoutArg(args, DEFAULT_LOAD_TIMEOUT_MS),
+    });
+    return {
+      data: { tabId, navigated, url: tab.url || tab.pendingUrl || "", title: tab.title || "", status: tab.status },
+    };
   });
 }
 
@@ -486,13 +567,15 @@ const handlers: Record<string, Handler> = {
         "FOREGROUND_PERMISSION_REQUIRED",
         "Foreground tab creation requires explicit permission"
       );
-    const tab = await agentWindowService.createTab(sessionId(args), url);
+    let tab = await agentWindowService.createTab(sessionId(args), url);
     if (active && tab.id !== undefined) {
       const tabId = tab.id;
       await focusNativeTab(tabId, undefined, async () => {
         await assertNativeTab(args, tabId);
       });
     }
+    if (waitMode(args) === "load" && tab.id !== undefined)
+      tab = await waitForTabComplete(tab.id, timeoutArg(args, DEFAULT_LOAD_TIMEOUT_MS));
     return { data: tabToBrowserControlTab(tab, await resolveBrowserControlIdentity()) };
   },
 
@@ -602,15 +685,96 @@ const handlers: Record<string, Handler> = {
     const bypassCache = Boolean(args["bypassCache"]);
     if (!tabId) throw new Error("tabId is required");
     await assertNativeTab(args, tabId);
+    // 超时执行仍在运行时队列被隔离，重新加载是恢复手段，不等待加载
     if (isNativeTabQuarantined(tabId)) {
       await chrome.tabs.reload(tabId, { bypassCache });
       return { data: { tabId } };
     }
-    await withNativeTabOperation(tabId, async () => {
-      await assertNativeTab(args, tabId);
-      await chrome.tabs.reload(tabId, { bypassCache });
-    });
-    return { data: { tabId } };
+    return nativeNavigate(args, (id) => chrome.tabs.reload(id, { bypassCache }));
+  },
+
+  async "page.goto"(args) {
+    const url = args.url;
+    if (typeof url !== "string" || !url) throw new Error("url is required");
+    return nativeNavigate(args, (id) => chrome.tabs.update(id, { url }));
+  },
+
+  async "page.back"(args) {
+    return nativeNavigate(args, (id) => chrome.tabs.goBack(id));
+  },
+
+  async "page.forward"(args) {
+    return nativeNavigate(args, (id) => chrome.tabs.goForward(id));
+  },
+
+  async "page.click"(args) {
+    return nativePageAction(args, { op: "click", ...locatorArgs(args) });
+  },
+
+  async "page.fill"(args) {
+    if (typeof args.value !== "string") throw new Error("value is required");
+    return nativePageAction(args, { op: "fill", value: args.value, ...locatorArgs(args) });
+  },
+
+  async "page.select"(args) {
+    if (typeof args.value !== "string") throw new Error("value is required");
+    return nativePageAction(args, { op: "select", value: args.value, ...locatorArgs(args) });
+  },
+
+  async "page.press"(args) {
+    if (typeof args.key !== "string" || !args.key) throw new Error("key is required");
+    return nativePageAction(args, { op: "press", key: args.key, ...locatorArgs(args) });
+  },
+
+  // 依次等待加载、地址、元素或文本，共享同一超时
+  async "page.wait"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    const timeoutMs = timeoutArg(args, 10_000);
+    const expiresAt = Date.now() + timeoutMs;
+    const remaining = () => Math.max(0, expiresAt - Date.now());
+    const selector = typeof args.selector === "string" && args.selector ? args.selector : undefined;
+    const text = typeof args.text === "string" && args.text ? args.text : undefined;
+    const urlPattern = typeof args.url === "string" && args.url ? args.url : undefined;
+    if (!args.load && !urlPattern && !selector && !text)
+      throw new BrowserControlError("INVALID_ARGUMENT", "wait needs --load, --url, --selector, or --text");
+    let pattern: RegExp | undefined;
+    try {
+      pattern = urlPattern ? new RegExp(urlPattern) : undefined;
+    } catch (error) {
+      throw new BrowserControlError("INVALID_ARGUMENT", `invalid --url pattern: ${(error as Error).message}`);
+    }
+    await assertNativeTab(args, tabId);
+    const startedAt = Date.now();
+    if (args.load) await waitForTabComplete(tabId, remaining());
+    if (pattern) await waitForTabUrl(tabId, pattern, remaining());
+    let matched: unknown;
+    if (selector || text) {
+      const state: PageWaitState = args.state === "attached" || args.state === "gone" ? args.state : "visible";
+      for (;;) {
+        try {
+          await assertNativeTab(args, tabId);
+          matched = (
+            await withNativeTabOperation(tabId, () =>
+              injectPageAction(tabId, { op: "wait", selector, text, state, timeoutMs: remaining() })
+            )
+          ).matched;
+          break;
+        } catch (error) {
+          if (error instanceof BrowserControlError || remaining() <= WAIT_RETRY_MS) throw error;
+          await new Promise((resolve) => setTimeout(resolve, WAIT_RETRY_MS));
+        }
+      }
+    }
+    const tab = await chrome.tabs.get(tabId);
+    return {
+      data: {
+        ...(matched ? { matched } : {}),
+        elapsedMs: Date.now() - startedAt,
+        url: tab.url || tab.pendingUrl || "",
+        title: tab.title || "",
+      },
+    };
   },
 
   async "page.exec"(args) {

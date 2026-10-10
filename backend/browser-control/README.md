@@ -152,6 +152,33 @@ Daemon event queues hold at most 32 pending events per client; overflow or a soc
 that client so a stalled event reader cannot block unrelated responses. Event streams end on disconnection; reconnect and
 subscribe again when continuous observation is needed.
 
+## Page actions and waiting
+
+Prefer these over `page exec` + `sleep`; each returns what happened instead of `null`:
+
+```sh
+bctl page click 123 --text "Sign in"          # or a CSS selector: page click 123 'button[type=submit]'
+bctl page fill 123 --text Email --value a@b.c # label, aria-label, placeholder, or name
+bctl page select 123 '#country' --value Canada
+bctl page press 123 Enter '#search'           # no selector: the focused element
+bctl page wait 123 --text "Welcome" --timeout 15s
+bctl page wait 123 --selector .spinner --state gone
+bctl page goto 123 https://example.com/next   # also page back|forward
+```
+
+Locators: a CSS selector (open shadow roots included), `--text` (visible text or field label, case-insensitive, exact
+match before substring), or both. Only visible elements count. Several matches fail with `AMBIGUOUS_MATCH` listing up to
+five candidates; pick one with `--nth N`. No match fails with `SELECTOR_NOT_FOUND`. Text clicks target the closest
+clickable ancestor. `fill` uses the native value setter and fires `input`/`change`, so React/Vue inputs update.
+`press` accepts modifiers (`Control+a`); Enter in a form field submits the form.
+
+Actions and `goto`/`back`/`forward`/`reload` default to `--wait load`: if the action starts a navigation (including
+SPA URL changes), the command returns after it finishes loading (`LOAD_TIMEOUT` after `--timeout`, default 30s);
+otherwise it returns after a short settle window. The result is `{matched, navigated, url, title}`. `--wait none`
+returns immediately. `tabs create` also waits for load by default. `page wait` checks `--load`, then `--url <regex>`,
+then `--selector`/`--text` (`--state visible|attached|gone`), sharing one `--timeout` (default 10s) and failing with
+`WAIT_TIMEOUT`. Tab JSON includes `status` (`loading` or `complete`).
+
 ## Human-operated tab switchers
 
 For an operator listing or closing tabs directly from the CLI:

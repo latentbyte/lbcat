@@ -174,24 +174,24 @@ var pageReloadCmd = &cobra.Command{
 			return err
 		}
 
-		resp, err := c.Request(target, cli.ExtCommand{
-			Cmd: "page.reload",
-			Args: map[string]any{
-				"tabId":       tabID,
-				"bypassCache": bypassCache,
-			},
-		})
+		request, timeout, err := waitArgs(cmd, map[string]any{"tabId": tabID, "bypassCache": bypassCache})
+		if err != nil {
+			return err
+		}
+		request["timeoutMs"] = int(timeout / time.Millisecond)
+		resp, err := c.RequestWithTimeout(target, cli.ExtCommand{Cmd: "page.reload", Args: request},
+			timeout+pageRequestMargin)
 		if err != nil {
 			return err
 		}
 
 		if flagJSON {
-			fmt.Println(string(resp))
-			return nil
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), string(resp))
+			return err
 		}
 
-		fmt.Printf("reloaded tab %d\n", tabID)
-		return nil
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "reloaded tab %d\n", tabID)
+		return err
 	},
 }
 

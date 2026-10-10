@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
 	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol"
@@ -278,14 +279,13 @@ var tabsCreateCmd = &cobra.Command{
 			return err
 		}
 
-		resp, err := c.Request(target, cli.ExtCommand{
-			Cmd: "tabs.create",
-			Args: map[string]any{
-				"url":        url,
-				"active":     active,
-				"allowFocus": active,
-			},
-		})
+		request, timeout, err := waitArgs(cmd, map[string]any{"url": url, "active": active, "allowFocus": active})
+		if err != nil {
+			return err
+		}
+		request["timeoutMs"] = int(timeout / time.Millisecond)
+		resp, err := c.RequestWithTimeout(target, cli.ExtCommand{Cmd: "tabs.create", Args: request},
+			timeout+pageRequestMargin)
 		if err != nil {
 			return err
 		}
