@@ -82,7 +82,10 @@ describe("代理专用窗口与标签租约", () => {
   }
 
   it("未登记窗口时应阻止任务而非选择当前窗口", async () => {
-    await expect(service.openSession()).rejects.toMatchObject({ code: "AGENT_WINDOW_MISSING" });
+    await expect(service.openSession()).rejects.toMatchObject({
+      code: "AGENT_WINDOW_MISSING",
+      message: expect.stringContaining("No agent window is registered"),
+    });
     expect(deps.createTab).not.toHaveBeenCalled();
   });
 
@@ -280,9 +283,15 @@ describe("代理专用窗口与标签租约", () => {
   it("标记被关闭或移动后应拒绝旧登记", async () => {
     const status = await service.designate(7);
     tabs.get(status.markerTabId)!.windowId = 8;
-    await expect(service.status()).rejects.toMatchObject({ code: "AGENT_WINDOW_MISSING" });
+    await expect(service.status()).rejects.toMatchObject({
+      code: "AGENT_WINDOW_MISSING",
+      message: expect.stringContaining("marker tab moved to another window"),
+    });
     tabs.delete(status.markerTabId);
-    await expect(service.status()).rejects.toMatchObject({ code: "AGENT_WINDOW_MISSING" });
+    await expect(service.status()).rejects.toMatchObject({
+      code: "AGENT_WINDOW_MISSING",
+      message: expect.stringContaining("marker tab was closed"),
+    });
   });
 
   it("复用数字标签 ID 但 URL 不匹配时应拒绝", async () => {
@@ -312,7 +321,19 @@ describe("代理专用窗口与标签租约", () => {
     restartBrowser();
     tabs.set(50, mockTab({ id: 50, windowId: 9, url: markerUrl }));
     tabs.set(51, mockTab({ id: 51, windowId: 10, url: markerUrl }));
-    await expect(service.status()).rejects.toMatchObject({ code: "AGENT_WINDOW_MISSING" });
+    await expect(service.status()).rejects.toMatchObject({
+      code: "AGENT_WINDOW_MISSING",
+      message: expect.stringContaining("2 copies of the agent window marker"),
+    });
+  });
+
+  it("扩展重载或浏览器重启后标记丢失时提示原因与恢复命令", async () => {
+    await service.designate(7);
+    restartBrowser();
+    await expect(service.status()).rejects.toMatchObject({
+      code: "AGENT_WINDOW_MISSING",
+      message: expect.stringMatching(/marker tab is gone .*extension reload.*browser restart.*agent-window create/),
+    });
   });
 
   it("同一次浏览器运行中关闭标记后不得改绑到残留的标记副本", async () => {

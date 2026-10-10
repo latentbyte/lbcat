@@ -74,8 +74,12 @@ export class BrowserControlScopeError extends BrowserControlError {
   }
 }
 
-function missingWindow(): BrowserControlScopeError {
-  return new BrowserControlScopeError("AGENT_WINDOW_MISSING", "Open or designate the agent window before continuing");
+// 说明登记失效的原因，便于区分从未创建与扩展重载、重启后丢失
+function missingWindow(reason: string): BrowserControlScopeError {
+  return new BrowserControlScopeError(
+    "AGENT_WINDOW_MISSING",
+    `${reason}; open or designate the agent window (agent-window create) before continuing`
+  );
 }
 
 function sessionLabel(label: string | undefined): string | undefined {
@@ -118,10 +122,11 @@ export class AgentWindowService implements AgentWindowScope {
 
   private async registration(state: State): Promise<Registration> {
     const registration = state.registration;
-    if (!registration) throw missingWindow();
+    if (!registration) throw missingWindow("No agent window is registered");
     const marker = await this.deps.getTab(registration.markerTabId).catch(() => undefined);
     if (marker?.url !== registration.markerUrl) return this.recoverRegistration(state, registration);
-    if (marker.windowId !== registration.windowId) throw missingWindow();
+    if (marker.windowId !== registration.windowId)
+      throw missingWindow("The agent window marker tab moved to another window");
     state.verifiedMarkerUrl = registration.markerUrl;
     return registration;
   }
@@ -129,10 +134,14 @@ export class AgentWindowService implements AgentWindowScope {
   // 浏览器重启后标签 ID 失效，仅在唯一匹配登记标记时重新绑定，旧 ID 授权全部作废
   private async recoverRegistration(state: State, registration: Registration): Promise<Registration> {
     // 本次运行中已确认过的标记消失表示被关闭，不得改绑到残留副本
-    if (state.verifiedMarkerUrl === registration.markerUrl) throw missingWindow();
+    if (state.verifiedMarkerUrl === registration.markerUrl)
+      throw missingWindow("The agent window marker tab was closed");
     const markers = (await this.deps.allTabs()).filter((tab) => tab.url === registration.markerUrl);
     const marker = markers[0];
-    if (markers.length !== 1 || marker.id === undefined) throw missingWindow();
+    if (!markers.length)
+      throw missingWindow("The agent window marker tab is gone (extension reload/update or browser restart)");
+    if (markers.length !== 1 || marker.id === undefined)
+      throw missingWindow(`Found ${markers.length} copies of the agent window marker`);
     const recovered: Registration = {
       windowId: marker.windowId,
       markerTabId: marker.id,
@@ -166,12 +175,13 @@ export class AgentWindowService implements AgentWindowScope {
   private async readyMarker(tabId: number, windowId: number, markerUrl: string): Promise<void> {
     for (let attempt = 0; attempt < 80; attempt++) {
       const tab = await this.deps.getTab(tabId);
-      if (tab.windowId !== windowId) throw missingWindow();
+      if (tab.windowId !== windowId) throw missingWindow("The new agent window marker tab left its window");
       if (tab.url === markerUrl) return;
-      if (tab.pendingUrl !== markerUrl && tab.url && tab.url !== "about:blank") throw missingWindow();
+      if (tab.pendingUrl !== markerUrl && tab.url && tab.url !== "about:blank")
+        throw missingWindow("The new agent window marker tab navigated away");
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
-    throw missingWindow();
+    throw missingWindow("The new agent window marker tab did not load");
   }
 
   async create(): Promise<AgentWindowStatus> {
