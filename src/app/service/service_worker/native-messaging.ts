@@ -427,6 +427,16 @@ async function injectPageAction(tabId: number, request: PageActionRequest) {
   return result.value;
 }
 
+async function measureViewport(tabId: number): Promise<{ width: number; height: number }> {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => ({ width: window.innerWidth, height: window.innerHeight }),
+  });
+  const size = results?.[0]?.result;
+  if (!size) throw new Error("viewport measurement produced no result");
+  return size;
+}
+
 // 动作可能触发导航：在同一标签队列内执行并观察导航，返回动作结果与最终页面
 async function nativePageAction(args: Record<string, unknown>, request: PageActionRequest) {
   const tabId = args.tabId;
@@ -770,6 +780,46 @@ const handlers: Record<string, Handler> = {
       return injectPageAction(tabId, { op: "snapshot", selector, max });
     });
     return { data: value.snapshot };
+  },
+
+  // 调整代理窗口外框使页面视口达到目标尺寸；不提供尺寸时只读取当前视口
+  async "page.viewport"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    const width = typeof args.width === "number" && args.width > 0 ? args.width : undefined;
+    const height = typeof args.height === "number" && args.height > 0 ? args.height : undefined;
+    const tab = await withNativeTabOperation(tabId, () => assertNativeTab(args, tabId));
+    const { windowId } = await agentWindowService.status();
+    const result = { tabId, windowId };
+    if (width === undefined && height === undefined) return { data: { ...result, ...(await measureViewport(tabId)) } };
+    if (tab.windowId !== windowId)
+      throw new BrowserControlError(
+        "VIEWPORT_WINDOW_DENIED",
+        "only the agent window is resized; move the tab into the agent window first"
+      );
+    return withNativeWindowOperation(windowId, async () => {
+      if ((await chrome.windows.get(windowId)).state !== "normal")
+        await chrome.windows.update(windowId, { state: "normal" });
+      const win = await chrome.windows.get(windowId);
+      const before = await measureViewport(tabId);
+      // 窗口尺寸以屏幕像素计，视口以 CSS 像素计，二者相差页面缩放
+      const zoom = await chrome.tabs.getZoom(tabId);
+      const outer = (current: number | undefined, target: number | undefined, inner: number) =>
+        target === undefined ? current : Math.round((current ?? 0) + (target - inner) * zoom);
+      await chrome.windows.update(windowId, {
+        width: outer(win.width, width, before.width),
+        height: outer(win.height, height, before.height),
+      });
+      // 尺寸变化异步生效；系统最小窗口尺寸可能使结果偏离目标
+      const matches = (size: { width: number; height: number }) =>
+        (width === undefined || size.width === width) && (height === undefined || size.height === height);
+      let after = await measureViewport(tabId);
+      for (let attempt = 0; attempt < 10 && !matches(after); attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        after = await measureViewport(tabId);
+      }
+      return { data: { ...result, ...after, exact: matches(after) } };
+    });
   },
 
   // 依次等待加载、地址、元素或文本，共享同一超时

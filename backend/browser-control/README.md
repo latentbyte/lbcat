@@ -204,6 +204,11 @@ body; non-2xx statuses still print it and exit non-zero. `--json` returns `{stat
 Network/CORS failures return `FETCH_FAILED`, timeouts `FETCH_TIMEOUT`. Firefox/Zen use `content.fetch` so requests
 carry the page's identity rather than the extension's.
 
+`page viewport <tab> [--width W] [--height H]` resizes the agent window so the page viewport is W x H CSS pixels (page
+zoom accounted for), un-maximizing it first; with neither flag it prints the current viewport. It affects every tab in
+the agent window and refuses tabs elsewhere (`VIEWPORT_WINDOW_DENIED`). Browsers and screens clamp window sizes, so the
+reached size is reported with `exact: false` when it differs.
+
 ## Human-operated tab switchers
 
 For an operator listing or closing tabs directly from the CLI:

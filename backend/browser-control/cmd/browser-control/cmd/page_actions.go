@@ -479,6 +479,72 @@ Refs stay stable for the same element across snapshots and expire when the page 
 	},
 }
 
+var pageViewportCmd = &cobra.Command{
+	Use:   "viewport <tab-id>",
+	Short: "Resize the agent window so the tab's viewport has the given CSS size",
+	Long: `Resize the agent window so the page viewport is --width x --height CSS pixels; with neither flag, print the
+current viewport. Resizing affects every tab in the agent window and un-maximizes it. Tabs outside the agent window
+are refused. Browsers enforce a minimum window size, so narrow mobile widths may not be reachable; the actual size is
+reported.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tabID, err := parseTabArg(args[0])
+		if err != nil {
+			return err
+		}
+		request := map[string]any{"tabId": tabID}
+		width, _ := cmd.Flags().GetInt("width")
+		height, _ := cmd.Flags().GetInt("height")
+		if width > 0 {
+			request["width"] = width
+		}
+		if height > 0 {
+			request["height"] = height
+		}
+		c, err := connectScoped()
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		target, err := resolveBrowser(c.Peers())
+		if err != nil {
+			return err
+		}
+		resp, err := c.Request(target, cli.ExtCommand{Cmd: "page.viewport", Args: request})
+		if err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		if flagJSON {
+			_, err := fmt.Fprintln(out, string(resp))
+			return err
+		}
+		var result struct {
+			Data struct {
+				Width  int   `json:"width"`
+				Height int   `json:"height"`
+				Exact  *bool `json:"exact"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(resp, &result); err != nil {
+			return fmt.Errorf("decoding page.viewport response: %w", err)
+		}
+		line := fmt.Sprintf("viewport %dx%d", result.Data.Width, result.Data.Height)
+		if result.Data.Exact != nil && !*result.Data.Exact {
+			requested := func(size, actual int) int {
+				if size > 0 {
+					return size
+				}
+				return actual
+			}
+			line += fmt.Sprintf(" (requested %dx%d; the browser or screen clamps the window size)",
+				requested(width, result.Data.Width), requested(height, result.Data.Height))
+		}
+		_, err = fmt.Fprintln(out, line)
+		return err
+	},
+}
+
 func init() {
 	pageSelectCmd.Flags().String("value", "", "option value or visible label")
 	pageFillCmd.Flags().String("value", "", "text to enter (replaces the current value)")
@@ -500,9 +566,12 @@ func init() {
 	pageSnapshotCmd.Flags().String("selector", "", "only include elements inside the first match")
 	pageSnapshotCmd.Flags().Int("max", 150, "max elements to list")
 
+	pageViewportCmd.Flags().Int("width", 0, "target viewport width in CSS pixels")
+	pageViewportCmd.Flags().Int("height", 0, "target viewport height in CSS pixels")
+
 	addWaitFlags(pageReloadCmd)
 	addWaitFlags(tabsCreateCmd)
 
 	pageCmd.AddCommand(pageClickCmd, pageFillCmd, pageSelectCmd, pagePressCmd, pageWaitCmd,
-		pageGotoCmd, pageBackCmd, pageForwardCmd, pageSnapshotCmd, pageFetchCmd)
+		pageGotoCmd, pageBackCmd, pageForwardCmd, pageSnapshotCmd, pageFetchCmd, pageViewportCmd)
 }

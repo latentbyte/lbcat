@@ -231,6 +231,7 @@ describe("原生消息并发控制", () => {
   const tabUpdates = new Set<(tabId: number, change: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => void>();
   const activations = new Set<(info: { tabId: number; windowId: number }) => void>();
   const windowsUpdate = vi.fn();
+  const windowsGet = vi.fn();
   const captureTab = vi.fn();
   const captureVisibleTab = vi.fn();
   const executeScript = vi.fn();
@@ -339,10 +340,11 @@ describe("原生消息并发控制", () => {
           addListener: (fn: Parameters<typeof tabUpdates.add>[0]) => tabUpdates.add(fn),
           removeListener: (fn: Parameters<typeof tabUpdates.add>[0]) => tabUpdates.delete(fn),
         },
+        getZoom: vi.fn(async () => 1),
         goBack: vi.fn(async () => {}),
         goForward: vi.fn(async () => {}),
       },
-      windows: { update: windowsUpdate, getCurrent: vi.fn().mockResolvedValue({ id: 7 }) },
+      windows: { get: windowsGet, update: windowsUpdate, getCurrent: vi.fn().mockResolvedValue({ id: 7 }) },
       scripting: { executeScript },
       webNavigation: {
         onCommitted: {
@@ -581,6 +583,31 @@ describe("原生消息并发控制", () => {
       await request("push-plain", "script.push", { code });
       expect(tabsReload).toHaveBeenCalledTimes(1);
       expect(responseOf("push-plain").data).not.toHaveProperty("reloadedTabs");
+    });
+
+    it("调整代理窗口使页面视口达到目标尺寸", async () => {
+      const win = { id: 7, state: "maximized", width: 1200, height: 900 };
+      const chromeSize = { width: 200, height: 160 };
+      windowsGet.mockImplementation(async () => ({ ...win }));
+      windowsUpdate.mockImplementation(async (_id: number, update: Partial<typeof win>) => Object.assign(win, update));
+      executeScript.mockImplementation(async () => [
+        { result: { width: win.width - chromeSize.width, height: win.height - chromeSize.height } },
+      ]);
+      await request("viewport", "page.viewport", { tabId: 101, width: 390, height: 844 });
+      expect(windowsUpdate).toHaveBeenNthCalledWith(1, 7, { state: "normal" });
+      expect(windowsUpdate).toHaveBeenNthCalledWith(2, 7, { width: 590, height: 1004 });
+      expect(responseOf("viewport").data).toEqual({ tabId: 101, windowId: 7, width: 390, height: 844, exact: true });
+
+      await request("viewport-read", "page.viewport", { tabId: 101 });
+      expect(windowsUpdate).toHaveBeenCalledTimes(2);
+      expect(responseOf("viewport-read").data).toMatchObject({ width: 390, height: 844 });
+    });
+
+    it("视口调整不改变代理窗口之外的个人窗口", async () => {
+      tabsGet.mockResolvedValue({ id: 101, windowId: 8 });
+      await request("viewport-personal", "page.viewport", { tabId: 101, personalTabId: 101, width: 390 });
+      expect(responseOf("viewport-personal").error.code).toBe("VIEWPORT_WINDOW_DENIED");
+      expect(windowsUpdate).not.toHaveBeenCalled();
     });
 
     it("跳转地址并等待加载完成", async () => {
