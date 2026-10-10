@@ -13,6 +13,7 @@ import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-c
 import { BrowserControlError } from "@App/pkg/browser-control/errors";
 import { runPageContent } from "@App/pkg/browser-control/page-content";
 import { runPageExec } from "@App/pkg/browser-control/page-exec";
+import { runPageFetch, type PageFetchRequest } from "@App/pkg/browser-control/page-fetch";
 import { runPageAction, type PageActionRequest, type PageWaitState } from "@App/pkg/browser-control/page-actions";
 import {
   navigateTab,
@@ -712,6 +713,33 @@ const handlers: Record<string, Handler> = {
   async "page.press"(args) {
     if (typeof args.key !== "string" || !args.key) throw new Error("key is required");
     return nativePageAction(args, { op: "press", key: args.key, ...locatorArgs(args) });
+  },
+
+  async "page.fetch"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    if (typeof args.url !== "string" || !args.url) throw new Error("url is required");
+    const request: PageFetchRequest = {
+      url: args.url,
+      timeoutMs: timeoutArg(args, 30_000),
+      ...(typeof args.method === "string" && args.method ? { method: args.method.toUpperCase() } : {}),
+      ...(args.headers && typeof args.headers === "object" ? { headers: args.headers as Record<string, string> } : {}),
+      ...(typeof args.body === "string" ? { body: args.body } : {}),
+      ...(typeof args.maxChars === "number" && args.maxChars > 0 ? { maxChars: args.maxChars } : {}),
+    };
+    const results = await withNativeTabOperation(tabId, async () => {
+      await assertNativeTab(args, tabId);
+      return chrome.scripting.executeScript({ target: { tabId }, func: runPageFetch, args: [request] });
+    });
+    const injection = results?.[0];
+    if (injection && "error" in injection && injection.error) {
+      const error = injection.error;
+      throw new Error(typeof error === "object" && "message" in error ? String(error.message) : String(error));
+    }
+    const result = injection?.result;
+    if (!result) throw new Error("page fetch produced no result");
+    if (!result.success) throw new BrowserControlError(result.code, result.error);
+    return { data: result.value };
   },
 
   async "page.snapshot"(args) {

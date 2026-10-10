@@ -196,6 +196,13 @@ returns immediately. `tabs create` also waits for load by default. `page wait` c
 then `--selector`/`--text` (`--state visible|attached|gone`), sharing one `--timeout` (default 10s) and failing with
 `WAIT_TIMEOUT`. Tab JSON includes `status` (`loading` or `complete`).
 
+`page fetch <tab> <url>` requests a URL (relative to the page or absolute) with the page's origin and cookies, replacing
+in-page `fetch` via `page exec`. Flags: `--method`, repeatable `--header 'Name: value'`, `--body` / `--body-file`
+(JSON-looking bodies default to `Content-Type: application/json`), `--max-chars`, `--timeout` (30s). Plain output is the
+body; non-2xx statuses still print it and exit non-zero. `--json` returns `{status, ok, url, contentType, body}`.
+Network/CORS failures return `FETCH_FAILED`, timeouts `FETCH_TIMEOUT`. Firefox/Zen use `content.fetch` so requests
+carry the page's identity rather than the extension's.
+
 ## Human-operated tab switchers
 
 For an operator listing or closing tabs directly from the CLI:

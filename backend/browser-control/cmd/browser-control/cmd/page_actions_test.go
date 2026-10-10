@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 func setCommandFlags(t *testing.T, command *cobra.Command, values map[string]string) {
@@ -19,11 +20,21 @@ func setCommandFlags(t *testing.T, command *cobra.Command, values map[string]str
 			t.Fatalf("missing flag --%s on %s", name, command.Name())
 		}
 		previous, changed := flag.Value.String(), flag.Changed
+		slice, isSlice := flag.Value.(pflag.SliceValue)
+		var previousSlice []string
+		if isSlice {
+			previousSlice = slice.GetSlice()
+		}
 		if err := command.Flags().Set(name, value); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() {
-			_ = flag.Value.Set(previous)
+			// Set appends to slice flags, so restore them wholesale
+			if isSlice {
+				_ = slice.Replace(previousSlice)
+			} else {
+				_ = flag.Value.Set(previous)
+			}
 			flag.Changed = changed
 		})
 	}
@@ -102,6 +113,12 @@ func TestPageActionCommands(t *testing.T) {
 			map[string]any{"tabId": 12.0, "selector": "form", "max": 3.0},
 			"Shop\nhttps://a.test/\nh2 \"Pay\"\n@e1 textbox \"Email\" = \"a@b.c\"\n@e2 checkbox \"Remember\" [unchecked]\n" +
 				"@e3 link \"Help\" -> /help [disabled]\n[showing 4 of 9; narrow --selector or raise --max]"},
+		{"页面身份请求发送方法、头与正文", pageFetchCmd, []string{"12", "/api"},
+			map[string]string{"method": "POST", "header": "X-A: 1", "body": `{"a":1}`, "max-chars": "5"},
+			"page.fetch", json.RawMessage(`{"data":{"status":200,"ok":true,"body":"hello","truncated":true,"totalLength":9}}`),
+			map[string]any{"tabId": 12.0, "url": "/api", "method": "POST", "headers": map[string]any{"X-A": "1"},
+				"body": `{"a":1}`, "maxChars": 5.0, "timeoutMs": 30000.0},
+			"hello\n\n[truncated: 5 of 9 characters]"},
 		{"重载默认等待加载", pageReloadCmd, []string{"12"}, nil,
 			"page.reload", json.RawMessage(`{"data":{"tabId":12}}`),
 			map[string]any{"tabId": 12.0, "bypassCache": false, "wait": "load", "timeoutMs": 30000.0}, "reloaded tab 12"},
@@ -123,6 +140,20 @@ func TestPageActionCommands(t *testing.T) {
 				t.Fatalf("output = %q, want %q", stdout.String(), test.output)
 			}
 		})
+	}
+}
+
+func TestPageFetchNonOKStatusFails(t *testing.T) {
+	var stdout bytes.Buffer
+	pageFetchCmd.SetOut(&stdout)
+	t.Cleanup(func() { pageFetchCmd.SetOut(nil) })
+	result := startPageCommandDaemon(t, map[string]json.RawMessage{
+		"page.fetch": json.RawMessage(`{"data":{"status":404,"ok":false,"body":"missing"}}`),
+	})
+	err := pageFetchCmd.RunE(pageFetchCmd, []string{"12", "/x"})
+	waitPageCommandRequests(t, result)
+	if err == nil || err.Error() != "HTTP 404" || strings.TrimSpace(stdout.String()) != "missing" {
+		t.Fatalf("err = %v, output = %q", err, stdout.String())
 	}
 }
 

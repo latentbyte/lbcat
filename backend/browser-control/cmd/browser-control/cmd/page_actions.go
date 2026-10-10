@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -288,6 +289,99 @@ All conditions share one --timeout. Fails with WAIT_TIMEOUT.`,
 	},
 }
 
+var pageFetchCmd = &cobra.Command{
+	Use:   "fetch <tab-id> <url>",
+	Short: "HTTP request from the page's origin with its cookies",
+	Long: `Fetch a URL (absolute or relative to the page) as the page would, with its cookies.
+Prints the response body; non-2xx statuses print the body and exit non-zero.
+--json returns {status, ok, url, contentType, body, truncated?, totalLength?}.
+Fails with FETCH_FAILED (network/CORS) or FETCH_TIMEOUT.`,
+	Example: `  page fetch 12 /api/me
+  page fetch 12 /api/items --method POST --body '{"name":"x"}' --max-chars 4000`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tabID, err := parseTabArg(args[0])
+		if err != nil {
+			return err
+		}
+		request := map[string]any{"tabId": tabID, "url": args[1]}
+		if method, _ := cmd.Flags().GetString("method"); method != "" {
+			request["method"] = method
+		}
+		headerFlags, _ := cmd.Flags().GetStringArray("header")
+		if len(headerFlags) > 0 {
+			headers := map[string]string{}
+			for _, header := range headerFlags {
+				name, value, ok := strings.Cut(header, ":")
+				if !ok || strings.TrimSpace(name) == "" {
+					return fmt.Errorf("--header must be 'Name: value', got %q", header)
+				}
+				headers[strings.TrimSpace(name)] = strings.TrimSpace(value)
+			}
+			request["headers"] = headers
+		}
+		body, _ := cmd.Flags().GetString("body")
+		bodyFile, _ := cmd.Flags().GetString("body-file")
+		switch {
+		case body != "" && bodyFile != "":
+			return fmt.Errorf("use --body or --body-file, not both")
+		case bodyFile != "":
+			data, err := os.ReadFile(bodyFile)
+			if err != nil {
+				return fmt.Errorf("reading body file: %w", err)
+			}
+			request["body"] = string(data)
+		case cmd.Flags().Changed("body"):
+			request["body"] = body
+		}
+		if maxChars, _ := cmd.Flags().GetInt("max-chars"); maxChars > 0 {
+			request["maxChars"] = maxChars
+		}
+		timeout, _ := cmd.Flags().GetDuration("timeout")
+		request["timeoutMs"] = int(timeout / time.Millisecond)
+
+		c, err := connectScoped()
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		target, err := resolveBrowser(c.Peers())
+		if err != nil {
+			return err
+		}
+		resp, err := c.RequestWithTimeout(target, cli.ExtCommand{Cmd: "page.fetch", Args: request}, timeout+pageRequestMargin)
+		if err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		if flagJSON {
+			_, err := fmt.Fprintln(out, string(resp))
+			return err
+		}
+		var result struct {
+			Data struct {
+				Status      int    `json:"status"`
+				OK          bool   `json:"ok"`
+				Body        string `json:"body"`
+				Truncated   bool   `json:"truncated"`
+				TotalLength int    `json:"totalLength"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(resp, &result); err != nil {
+			return fmt.Errorf("decoding page.fetch response: %w", err)
+		}
+		fmt.Fprint(out, result.Data.Body)
+		if result.Data.Truncated {
+			fmt.Fprintf(out, "\n\n[truncated: %d of %d characters]", len([]rune(result.Data.Body)), result.Data.TotalLength)
+		}
+		fmt.Fprintln(out)
+		if !result.Data.OK {
+			return fmt.Errorf("HTTP %d", result.Data.Status)
+		}
+		return nil
+	},
+}
+
 type snapshotElement struct {
 	Ref      string `json:"ref"`
 	Role     string `json:"role"`
@@ -396,6 +490,13 @@ func init() {
 	pageWaitCmd.Flags().Bool("load", false, "wait until the tab finishes loading")
 	pageWaitCmd.Flags().Duration("timeout", 10*time.Second, "max total wait")
 
+	pageFetchCmd.Flags().String("method", "", "HTTP method (default GET, or POST with a body)")
+	pageFetchCmd.Flags().StringArray("header", nil, "request header 'Name: value' (repeatable)")
+	pageFetchCmd.Flags().String("body", "", "request body; JSON-looking bodies default to Content-Type: application/json")
+	pageFetchCmd.Flags().String("body-file", "", "read the request body from a file")
+	pageFetchCmd.Flags().Int("max-chars", 0, "truncate the response body (0 = no limit)")
+	pageFetchCmd.Flags().Duration("timeout", 30*time.Second, "max time to wait for the response")
+
 	pageSnapshotCmd.Flags().String("selector", "", "only include elements inside the first match")
 	pageSnapshotCmd.Flags().Int("max", 150, "max elements to list")
 
@@ -403,5 +504,5 @@ func init() {
 	addWaitFlags(tabsCreateCmd)
 
 	pageCmd.AddCommand(pageClickCmd, pageFillCmd, pageSelectCmd, pagePressCmd, pageWaitCmd,
-		pageGotoCmd, pageBackCmd, pageForwardCmd, pageSnapshotCmd)
+		pageGotoCmd, pageBackCmd, pageForwardCmd, pageSnapshotCmd, pageFetchCmd)
 }

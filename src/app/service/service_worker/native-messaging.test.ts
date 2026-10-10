@@ -534,6 +534,25 @@ describe("原生消息并发控制", () => {
       expect(clicked).toHaveBeenCalledTimes(1);
     });
 
+    it("以页面身份请求并返回状态与正文", async () => {
+      const fetchMock = vi.fn(async () => new Response("[1,2]", { headers: { "content-type": "application/json" } }));
+      vi.stubGlobal("fetch", fetchMock);
+      await request("fetch", "page.fetch", {
+        tabId: 101,
+        url: "https://a.test/api",
+        method: "put",
+        headers: { "X-Test": "1" },
+        body: "x",
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://a.test/api",
+        expect.objectContaining({ method: "PUT", headers: { "X-Test": "1" }, body: "x" })
+      );
+      expect(responseOf("fetch").data).toMatchObject({ status: 200, ok: true, body: "[1,2]" });
+      await request("fetch-missing", "page.fetch", { tabId: 101 });
+      expect(responseOf("fetch-missing").error.message).toBe("url is required");
+    });
+
     it("跳转地址并等待加载完成", async () => {
       const tab = { id: 101, windowId: 7, url: "https://a.test/", title: "A", status: "complete" };
       tabsGet.mockImplementation(async () => ({ ...tab }));
