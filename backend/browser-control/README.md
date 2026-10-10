@@ -72,6 +72,9 @@ bctl --browser zen-01 session end
 unset BROWSER_CONTROL_SESSION
 ```
 
+`--browser` (or `BROWSER_CONTROL_BROWSER`) accepts an exact connection ID (`zen-01`) or a browser name (`zen`) that
+resolves to the only connected browser of that name; IDs renumber across reconnects, names do not. Several connections
+with the same name fail and list the IDs.
 Use `--session <id>` instead of the environment variable when convenient. The CLI reads the environment directly;
 `env.example` documents it and is not automatically loaded. `session begin --ttl 30m` sets lease duration (default 15m,
 range 1s to 24h). Work tab creation and access claim exclusive ownership; activity renews the lease. `session renew`

@@ -34,7 +34,7 @@ var eventsCmd = &cobra.Command{
 
 		stream, err := client.Subscribe(ctx, browsercontrol.SubscribeOptions{
 			BrowserID:           browserIDFromFlag(),
-			AllBrowsers:         flagBrowser == "",
+			AllBrowsers:         browserSelection() == "",
 			Events:              events,
 			SessionID:           sessionFromFlag(),
 			NotifyMissingWindow: true,

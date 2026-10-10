@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
+	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol"
 	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
 	"github.com/spf13/cobra"
 )
@@ -53,13 +54,21 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagSession, "session", "", "agent task session (defaults to BROWSER_CONTROL_SESSION)")
 	rootCmd.PersistentFlags().IntVar(&flagPersonalTab, "personal-tab", 0, "explicit permission for this exact personal tab ID")
 	rootCmd.PersistentFlags().StringVar(&flagBrowser, "browser", "",
-		"target browser connection (e.g., chrome-01, firefox-01)")
+		"target browser: connection ID (zen-01) or browser name (zen) when only one is connected; defaults to BROWSER_CONTROL_BROWSER")
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false,
 		"output in JSON format")
 }
 
+// browserSelection is --browser or BROWSER_CONTROL_BROWSER: an exact ID or a browser name
+func browserSelection() string {
+	if flagBrowser != "" {
+		return flagBrowser
+	}
+	return os.Getenv("BROWSER_CONTROL_BROWSER")
+}
+
 func browserIDFromFlag() model.BrowserID {
-	return model.BrowserID(flagBrowser)
+	return model.BrowserID(browserSelection())
 }
 
 func isCLIPeer(peer string) bool {
@@ -76,14 +85,12 @@ func browserPeers(peers []string) []string {
 	return browsers
 }
 
-// resolveBrowser picks a browser target. If --browser is set, use it.
-// Otherwise try to auto-select if exactly one browser is connected.
+// resolveBrowser picks a browser target: the requested ID or name, else the only connected browser.
 func resolveBrowser(peers []string) (string, error) {
-	if flagBrowser != "" {
-		return flagBrowser, nil
-	}
-
 	browsers := browserPeers(peers)
+	if requested := browserSelection(); requested != "" {
+		return browsercontrol.ResolveBrowserAlias(requested, browsers)
+	}
 
 	switch len(browsers) {
 	case 0:
@@ -92,6 +99,6 @@ func resolveBrowser(peers []string) (string, error) {
 		return browsers[0], nil
 	default:
 		fmt.Fprintf(os.Stderr, "multiple browsers connected: %v\n", browsers)
-		return "", fmt.Errorf("specify --browser (e.g., --browser %s)", browsers[0])
+		return "", fmt.Errorf("specify --browser or BROWSER_CONTROL_BROWSER (e.g., --browser %s)", browsers[0])
 	}
 }

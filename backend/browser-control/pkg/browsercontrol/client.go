@@ -431,8 +431,16 @@ func (c *daemonClient) browserTargets(ctx context.Context, opts targetOptions) (
 	if opts.BrowserID != "" {
 		status, err := c.Status(ctx)
 		if err == nil {
+			ids := make([]string, 0, len(status.Browsers))
 			for _, browser := range status.Browsers {
-				if browser.ID == opts.BrowserID {
+				ids = append(ids, string(browser.ID))
+			}
+			resolved, err := ResolveBrowserAlias(string(opts.BrowserID), ids)
+			if err != nil {
+				return nil, err
+			}
+			for _, browser := range status.Browsers {
+				if string(browser.ID) == resolved {
 					return []BrowserStatus{browser}, nil
 				}
 			}
