@@ -10,6 +10,7 @@ import {
 } from "@App/pkg/browser-control/identity";
 import { captureNativeTab, withNativeTabOperation, withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-control/agent-window";
+import { BrowserControlError } from "@App/pkg/browser-control/errors";
 import { agentNotesService, type AgentNoteKind, type AgentNoteStatus } from "@App/pkg/browser-control/agent-notes";
 import {
   isNativeTabQuarantined,
@@ -571,9 +572,11 @@ const handlers: Record<string, Handler> = {
         func: (sel: string, fmt: string) => {
           try {
             const el = document.querySelector(sel);
+            if (!el)
+              return { success: false, code: "SELECTOR_NOT_FOUND", error: `no element matches selector: ${sel}` };
             return {
               success: true,
-              value: !el ? null : fmt === "html" ? (el as HTMLElement).innerHTML : (el as HTMLElement).innerText,
+              value: fmt === "html" ? (el as HTMLElement).innerHTML : (el as HTMLElement).innerText,
             };
           } catch (error: unknown) {
             return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -589,8 +592,9 @@ const handlers: Record<string, Handler> = {
     }
     const result = injection?.result;
     if (!result) throw new Error("page content injection produced no result");
-    if (!result.success) throw new Error(result.error);
-    return { data: result.value ?? null };
+    if (!result.success)
+      throw result.code ? new BrowserControlError(result.code, result.error) : new Error(result.error);
+    return { data: result.value };
   },
 
   async "page.reload"(args) {
@@ -871,7 +875,7 @@ async function onMessage(envelope: Envelope) {
         payload: {
           cmd: "error",
           error: {
-            code: err instanceof BrowserControlScopeError ? err.code : "HANDLER_ERROR",
+            code: err instanceof BrowserControlError ? err.code : "HANDLER_ERROR",
             message: err instanceof Error ? err.message : String(err),
           },
         },

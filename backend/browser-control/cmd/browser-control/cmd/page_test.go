@@ -385,3 +385,53 @@ func TestPageCommandsReturnExtensionErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestScreenshotJSONWithOutputSavesFile(t *testing.T) {
+	var source bytes.Buffer
+	if err := png.Encode(&source, image.NewRGBA(image.Rect(0, 0, 20, 10))); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "shot.png")
+	flag := pageScreenshotCmd.Flags().Lookup("output")
+	if err := flag.Value.Set(output); err != nil {
+		t.Fatal(err)
+	}
+	previousJSON := flagJSON
+	flagJSON = true
+	var stdout bytes.Buffer
+	pageScreenshotCmd.SetOut(&stdout)
+	t.Cleanup(func() {
+		_ = flag.Value.Set("")
+		flagJSON = previousJSON
+		pageScreenshotCmd.SetOut(nil)
+	})
+	response, err := json.Marshal(map[string]any{"data": map[string]any{
+		"dataUrl": "data:image/png;base64," + base64.StdEncoding.EncodeToString(source.Bytes()),
+		"width":   20, "height": 10,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := startPageCommandDaemon(t, map[string]json.RawMessage{"page.screenshot": response})
+	if err := pageScreenshotCmd.RunE(pageScreenshotCmd, []string{"123"}); err != nil {
+		t.Fatal(err)
+	}
+	waitPageCommandRequests(t, result)
+	if data, err := os.ReadFile(output); err != nil || !bytes.Equal(data, source.Bytes()) {
+		t.Fatalf("screenshot not saved: %v", err)
+	}
+	var decoded struct {
+		Cmd  string `json:"cmd"`
+		Data struct {
+			Path          string `json:"path"`
+			Width, Height int
+			Bytes         int `json:"bytes"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
+		t.Fatalf("output = %q: %v", stdout.String(), err)
+	}
+	if decoded.Cmd != "page.screenshot" || decoded.Data.Path != output || decoded.Data.Width != 20 || decoded.Data.Bytes != source.Len() || strings.Contains(stdout.String(), "base64") {
+		t.Fatalf("output = %s", stdout.String())
+	}
+}

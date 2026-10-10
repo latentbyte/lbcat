@@ -409,7 +409,7 @@ describe("原生消息并发控制", () => {
     );
   });
 
-  it("内容注入错误应保留原因且不存在元素仍返回空值", async () => {
+  it("内容注入错误应保留原因且不存在元素返回明确错误", async () => {
     executeScript.mockResolvedValueOnce([{ error: { message: "Missing host permission" } }]);
     await request("content-error", "page.content", { tabId: 101 });
     expect(postMessage).toHaveBeenCalledWith(
@@ -424,7 +424,13 @@ describe("原生消息并发控制", () => {
     executeScript.mockImplementationOnce(async ({ func, args }) => [{ result: await func(...args) }]);
     await request("content-absent", "page.content", { tabId: 101, selector: "#absent" });
     expect(postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "content-absent", payload: { cmd: "page.content", data: null } })
+      expect.objectContaining({
+        id: "content-absent",
+        payload: {
+          cmd: "error",
+          error: { code: "SELECTOR_NOT_FOUND", message: "no element matches selector: #absent" },
+        },
+      })
     );
   });
 

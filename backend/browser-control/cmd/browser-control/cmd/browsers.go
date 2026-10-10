@@ -21,20 +21,24 @@ var browsersCmd = &cobra.Command{
 
 		peers := browserPeers(c.Peers())
 
+		out := cmd.OutOrStdout()
 		if flagJSON {
-			data, _ := json.MarshalIndent(peers, "", "  ")
-			fmt.Println(string(data))
-			return nil
+			data, err := json.Marshal(map[string]any{"cmd": "browsers", "data": peers})
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(out, string(data))
+			return err
 		}
 
 		if len(peers) == 0 {
-			fmt.Println("no browsers connected")
-			return nil
+			_, err := fmt.Fprintln(out, "no browsers connected")
+			return err
 		}
 
-		fmt.Println("connected browsers:")
+		fmt.Fprintln(out, "connected browsers:")
 		for _, p := range peers {
-			fmt.Printf("  %s\n", p)
+			fmt.Fprintf(out, "  %s\n", p)
 		}
 		return nil
 	},

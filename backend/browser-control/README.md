@@ -133,6 +133,9 @@ Foreground full-page capture stitches both horizontal and vertical overflow. For
 whole element to fit in the viewport after scrolling; otherwise it fails explicitly. It leaves the target tab active.
 JPEG quality applies to the final cropped or stitched image. Screenshot file output enforces `--max-pixels` against
 decoded bitmap dimensions and reports saved bitmap dimensions; raw screenshot JSON retains CSS region dimensions.
+With `--output`, `--json` prints only `{path, width, height, bytes}`; base64 is printed only for `--json` without
+`--output`. `page content --selector` fails with `SELECTOR_NOT_FOUND` when nothing matches. `browsers --json` returns
+`{cmd: "browsers", data: [ids]}` like other commands.
 
 Tab creation defaults inactive. `tabs focus --foreground` and `tabs create --active=true` explicitly opt into foreground
 activation. Screenshot `--focus-on-error` additionally requires `--foreground` to enable caller capture recovery.

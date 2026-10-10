@@ -256,9 +256,11 @@ var pageScreenshotCmd = &cobra.Command{
 			return err
 		}
 
-		if flagJSON {
-			fmt.Println(string(resp))
-			return nil
+		out := cmd.OutOrStdout()
+		// --json without --output is an explicit request for the raw image data
+		if flagJSON && output == "" {
+			_, err := fmt.Fprintln(out, string(resp))
+			return err
 		}
 
 		var result struct {
@@ -269,42 +271,43 @@ var pageScreenshotCmd = &cobra.Command{
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(resp, &result); err != nil {
-			fmt.Println(string(resp))
-			return nil
+			return fmt.Errorf("decoding screenshot response: %w", err)
 		}
 
-		if output != "" {
-			// decode base64 data URL and write to file
-			data := result.Data.DataURL
-			// strip data:image/...;base64, prefix
-			idx := 0
-			for i := range data {
-				if data[i] == ',' {
-					idx = i + 1
-					break
-				}
-			}
-			if idx > 0 && idx < len(data) {
-				decoded, err := base64Decode(data[idx:])
-				if err != nil {
-					return fmt.Errorf("decoding screenshot data: %w", err)
-				}
-				decoded, outWidth, outHeight, err := resizeImage(decoded, format, quality, maxPixels)
-				if err != nil {
-					return fmt.Errorf("resizing screenshot: %w", err)
-				}
-				if err := os.WriteFile(output, decoded, 0o644); err != nil {
-					return fmt.Errorf("writing screenshot: %w", err)
-				}
-				fmt.Printf("screenshot saved to %s (%dx%d bitmap pixels)\n", output, outWidth, outHeight)
-			} else {
-				return fmt.Errorf("unexpected data URL format")
-			}
-		} else {
-			fmt.Printf("screenshot captured (%dx%d), use --output to save to file\n",
+		if output == "" {
+			_, err := fmt.Fprintf(out, "screenshot captured (%dx%d), use --output to save to file\n",
 				result.Data.Width, result.Data.Height)
+			return err
 		}
-		return nil
+
+		// strip the data:image/...;base64, prefix
+		_, encoded, found := strings.Cut(result.Data.DataURL, ",")
+		if !found || encoded == "" {
+			return fmt.Errorf("unexpected data URL format")
+		}
+		decoded, err := base64Decode(encoded)
+		if err != nil {
+			return fmt.Errorf("decoding screenshot data: %w", err)
+		}
+		decoded, outWidth, outHeight, err := resizeImage(decoded, format, quality, maxPixels)
+		if err != nil {
+			return fmt.Errorf("resizing screenshot: %w", err)
+		}
+		if err := os.WriteFile(output, decoded, 0o644); err != nil {
+			return fmt.Errorf("writing screenshot: %w", err)
+		}
+		if flagJSON {
+			data, err := json.Marshal(map[string]any{"cmd": "page.screenshot", "data": map[string]any{
+				"path": output, "width": outWidth, "height": outHeight, "bytes": len(decoded),
+			}})
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(out, string(data))
+			return err
+		}
+		_, err = fmt.Fprintf(out, "screenshot saved to %s (%dx%d bitmap pixels)\n", output, outWidth, outHeight)
+		return err
 	},
 }
 

@@ -1,3 +1,5 @@
+import { BrowserControlError } from "./errors";
+
 const STATE_KEY = "browserControl.agentWindow";
 // 标签 ID 仅在本次浏览器运行内有效，授权放在会话存储中随浏览器重启清除
 const GRANTS_KEY = "browserControl.tabGrants";
@@ -65,12 +67,9 @@ export interface AgentWindowDependencies {
   createWindow(properties: chrome.windows.CreateData): Promise<chrome.windows.Window | undefined>;
 }
 
-export class BrowserControlScopeError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string
-  ) {
-    super(message);
+export class BrowserControlScopeError extends BrowserControlError {
+  constructor(code: string, message: string) {
+    super(code, message);
     this.name = "BrowserControlScopeError";
   }
 }
