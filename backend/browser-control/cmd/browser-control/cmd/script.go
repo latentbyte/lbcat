@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -364,7 +365,26 @@ var scriptPushCmd = &cobra.Command{
 			return fmt.Errorf("reading file: %w", err)
 		}
 
-		c, err := cli.Connect()
+		reloadTabs, _ := cmd.Flags().GetBool("reload-tabs")
+		pushArgs := map[string]any{
+			"code":    string(code),
+			"enabled": true,
+		}
+		var requestTimeout time.Duration // zero uses the client default
+		connect := cli.Connect
+		if reloadTabs {
+			// reloading needs the session's tab access
+			connect = connectScoped
+			_, timeout, err := waitArgs(cmd, pushArgs)
+			if err != nil {
+				return err
+			}
+			pushArgs["reloadTabs"] = true
+			pushArgs["timeoutMs"] = int(timeout / time.Millisecond)
+			requestTimeout = timeout + pageRequestMargin
+		}
+
+		c, err := connect()
 		if err != nil {
 			return err
 		}
@@ -375,13 +395,7 @@ var scriptPushCmd = &cobra.Command{
 			return err
 		}
 
-		resp, err := c.Request(target, cli.ExtCommand{
-			Cmd: "script.push",
-			Args: map[string]any{
-				"code":    string(code),
-				"enabled": true,
-			},
-		})
+		resp, err := c.RequestWithTimeout(target, cli.ExtCommand{Cmd: "script.push", Args: pushArgs}, requestTimeout)
 		if err != nil {
 			return err
 		}
@@ -404,6 +418,9 @@ var scriptPushCmd = &cobra.Command{
 				printPushStatus(filepath.Base(args[0]), result)
 				stats := collectPushStats([]pushResult{result})
 				fmt.Fprintf(os.Stderr, "Stats: created=%d updated=%d\n", stats.Created, stats.Updated)
+				if reloadTabs {
+					fmt.Fprintf(os.Stderr, "Reloaded tabs: %s\n", formatTabIDs(apiResp.Data.ReloadedTabs))
+				}
 			}
 		}
 
@@ -432,7 +449,20 @@ type pushAPIResponse struct {
 		UUID   string `json:"uuid"`
 		IsNew  bool   `json:"isNew"`
 		Errors []any  `json:"errors"`
+		// set only when the push asked to reload matching tabs
+		ReloadedTabs []int `json:"reloadedTabs"`
 	} `json:"data"`
+}
+
+func formatTabIDs(ids []int) string {
+	if len(ids) == 0 {
+		return "none matched"
+	}
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = strconv.Itoa(id)
+	}
+	return strings.Join(parts, " ")
 }
 
 type pushStats struct {
@@ -905,6 +935,8 @@ func init() {
 	scriptDeleteCmd.Flags().Bool("confirm", false, "confirm deletion (required)")
 
 	scriptPushCmd.Flags().Bool("no-save", false, "skip saving script to archive directory")
+	scriptPushCmd.Flags().Bool("reload-tabs", false, "reload session-accessible tabs whose URL matches the script")
+	addWaitFlags(scriptPushCmd)
 
 	scriptPushAllCmd.Flags().Bool("all-browsers", false, "push to all connected browsers")
 	scriptPushAllCmd.Flags().Bool("parallel", false, "push to browsers in parallel")

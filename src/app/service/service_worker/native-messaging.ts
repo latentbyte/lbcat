@@ -2,7 +2,7 @@
 // connects to com.latentbyte.browser_control via chrome.runtime.connectNative and
 // dispatches incoming commands to LBCat APIs and browser APIs
 
-import { ScriptDAO, ScriptCodeDAO, SCRIPT_STATUS_ENABLE } from "@App/app/repo/scripts";
+import { ScriptDAO, ScriptCodeDAO, SCRIPT_STATUS_ENABLE, type Script } from "@App/app/repo/scripts";
 import {
   browserIdentityFromUserAgent,
   resolveBrowserControlIdentity,
@@ -29,6 +29,8 @@ import {
 } from "@App/pkg/browser-control/tab-operation";
 import { agentTabIndicators } from "./agent-tab-access";
 import { prepareScriptByCode } from "@App/pkg/utils/script";
+import { isUrlIncluded } from "@App/pkg/utils/match";
+import { getCombinedMeta, scriptURLPatternResults } from "./utils";
 import type { ScriptService } from "./script";
 
 export { browserIdentityFromUserAgent } from "@App/pkg/browser-control/identity";
@@ -460,6 +462,22 @@ async function nativeNavigate(args: Record<string, unknown>, trigger: (tabId: nu
       data: { tabId, navigated, url: tab.url || tab.pendingUrl || "", title: tab.title || "", status: tab.status },
     };
   });
+}
+
+// 重新加载会话可访问且匹配脚本规则的标签，让推送的新版本立即生效
+async function reloadScriptTabs(args: Record<string, unknown>, script: Script): Promise<number[]> {
+  const patterns = scriptURLPatternResults({
+    metadata: getCombinedMeta(script.metadata, script.selfMetadata || {}),
+    originalMetadata: script.metadata,
+  })?.scriptUrlPatterns;
+  if (!patterns) return [];
+  const tabIds = (await agentWindowService.listTabs(sessionId(args)))
+    .filter((tab) => tab.id !== undefined && isUrlIncluded(tab.url || tab.pendingUrl || "", patterns))
+    .map((tab) => tab.id!);
+  await Promise.all(
+    tabIds.map((tabId) => nativeNavigate({ ...args, tabId }, (id) => chrome.tabs.reload(id, { bypassCache: false })))
+  );
+  return tabIds;
 }
 
 const handlers: Record<string, Handler> = {
@@ -975,7 +993,8 @@ const handlers: Record<string, Handler> = {
     // prepareScriptByCode resolves uuid via findByNameAndNamespace when uuid is omitted
     const { script, oldScript } = await prepareScriptByCode(code, "browser-control");
     await scriptService.installScript({ script, code, upsertBy: "user" });
-    return { data: { uuid: script.uuid, isNew: !oldScript } };
+    const reloadedTabs = args.reloadTabs ? await reloadScriptTabs(args, script) : undefined;
+    return { data: { uuid: script.uuid, isNew: !oldScript, ...(reloadedTabs ? { reloadedTabs } : {}) } };
   },
 
   // --- utility ---

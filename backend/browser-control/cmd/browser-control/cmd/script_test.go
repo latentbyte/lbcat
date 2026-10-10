@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -285,5 +286,25 @@ func TestCollectPushStatsCountsCreatedAndUpdated(t *testing.T) {
 	}
 	if stats.Failed != 1 {
 		t.Fatalf("expected 1 failed result, got %d", stats.Failed)
+	}
+}
+
+func TestScriptPushReloadTabs(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "x.user.js")
+	if err := os.WriteFile(file, []byte("// ==UserScript==\n// @name x\n// ==/UserScript==\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setCommandFlags(t, scriptPushCmd, map[string]string{"no-save": "true", "reload-tabs": "true", "timeout": "10s"})
+	result := startPageCommandDaemon(t, map[string]json.RawMessage{
+		"script.push": json.RawMessage(`{"cmd":"script.push","data":{"uuid":"u1","isNew":false,"reloadedTabs":[101]}}`),
+	})
+	if err := scriptPushCmd.RunE(scriptPushCmd, []string{file}); err != nil {
+		t.Fatal(err)
+	}
+	args := lastRequestArgs(t, waitPageCommandRequests(t, result), "script.push")
+	delete(args, "code")
+	want := map[string]any{"enabled": true, "reloadTabs": true, "wait": "load", "timeoutMs": 10000.0}
+	if !reflect.DeepEqual(args, want) {
+		t.Fatalf("args = %#v, want %#v", args, want)
 	}
 }

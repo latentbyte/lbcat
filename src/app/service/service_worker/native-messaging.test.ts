@@ -285,8 +285,13 @@ describe("原生消息并发控制", () => {
             },
           };
           return {
-            get: vi.fn(async (key: string, callback?: (value: Record<string, unknown>) => void) => {
-              const result = key in values ? { [key]: structuredClone(values[key]) } : {};
+            get: vi.fn(async (key: unknown, callback?: (value: Record<string, unknown>) => void) => {
+              if (typeof key === "function") {
+                const all = structuredClone(values);
+                key(all);
+                return all;
+              }
+              const result = typeof key === "string" && key in values ? { [key]: structuredClone(values[key]) } : {};
               callback?.(result);
               return result;
             }),
@@ -551,6 +556,31 @@ describe("原生消息并发控制", () => {
       expect(responseOf("fetch").data).toMatchObject({ status: 200, ok: true, body: "[1,2]" });
       await request("fetch-missing", "page.fetch", { tabId: 101 });
       expect(responseOf("fetch-missing").error.message).toBe("url is required");
+    });
+
+    it("推送脚本后只重新加载可访问且匹配的标签", async () => {
+      const installScript = vi.fn(async () => ({ update: false, updatetime: 0 }));
+      initNativeMessaging({ installScript } as unknown as ScriptService);
+      tabsQuery.mockResolvedValue([
+        { id: 101, windowId: 7, url: "https://a.test/page" },
+        { id: 102, windowId: 7, url: "https://b.test/" },
+      ]);
+      tabsGet.mockImplementation(async (id: number) => ({ id, windowId: 7, url: "https://a.test/page" }));
+      const code = `// ==UserScript==
+// @name reload-test
+// @namespace bctl
+// @match https://a.test/*
+// ==/UserScript==
+`;
+      await request("push", "script.push", { code, reloadTabs: true });
+      expect(installScript).toHaveBeenCalledTimes(1);
+      expect(tabsReload).toHaveBeenCalledTimes(1);
+      expect(tabsReload).toHaveBeenCalledWith(101, { bypassCache: false });
+      expect(responseOf("push").data).toMatchObject({ isNew: true, reloadedTabs: [101] });
+
+      await request("push-plain", "script.push", { code });
+      expect(tabsReload).toHaveBeenCalledTimes(1);
+      expect(responseOf("push-plain").data).not.toHaveProperty("reloadedTabs");
     });
 
     it("跳转地址并等待加载完成", async () => {

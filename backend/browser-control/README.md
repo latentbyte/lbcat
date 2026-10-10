@@ -141,7 +141,8 @@ With `--output`, `--json` prints only `{path, width, height, bytes}`; base64 is 
 `--output`. `page content --selector` fails with `SELECTOR_NOT_FOUND` when nothing matches.
 `page content --format markdown` returns visible content as Markdown (headings, lists, links with absolute URLs, tables,
 code); hidden elements, scripts, and styles are dropped. `--max-chars N` truncates any format and appends
-`[truncated: N of M characters; ...]`. `browsers --json` returns
+`[truncated: N of M characters; ...]`. `script push --reload-tabs` reloads session-accessible tabs whose URL matches
+the script's `@match`/`@include` rules (waiting for load unless `--wait none`) and reports their IDs. `browsers --json` returns
 `{cmd: "browsers", data: [ids]}` like other commands.
 
 Tab creation defaults inactive. `tabs focus --foreground` and `tabs create --active=true` explicitly opt into foreground
