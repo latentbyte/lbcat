@@ -226,6 +226,7 @@ describe("原生消息并发控制", () => {
   const tabsCreate = vi.fn();
   const tabsQuery = vi.fn();
   const tabsReload = vi.fn();
+  const tabsRemove = vi.fn();
   const commits = new Set<(info: { tabId: number; frameId: number }) => void>();
   const activations = new Set<(info: { tabId: number; windowId: number }) => void>();
   const windowsUpdate = vi.fn();
@@ -317,6 +318,7 @@ describe("原生消息并发控制", () => {
             : tabsGet(id),
         update: tabsUpdate,
         reload: tabsReload,
+        remove: tabsRemove,
         captureTab,
         captureVisibleTab,
         create: tabsCreate,
@@ -531,6 +533,39 @@ describe("原生消息并发控制", () => {
       expect.objectContaining({
         id: "agent-list",
         payload: expect.objectContaining({ error: expect.objectContaining({ code: "AGENT_WINDOW_MISSING" }) }),
+      })
+    );
+  });
+
+  it("代理关闭工作标签而不能关闭个人或标记标签", async () => {
+    await request("close-work", "tabs.close", { tabId: 101 });
+    expect(tabsRemove).toHaveBeenCalledWith(101);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "close-work", payload: { cmd: "tabs.close", data: { tabId: 101, closed: true } } })
+    );
+    tabsGet.mockResolvedValue({ id: 102, windowId: 8 });
+    await request("close-personal", "tabs.close", { tabId: 102, personalTabId: 102 });
+    await request("close-marker", "tabs.close", { tabId: 900 });
+    expect(tabsRemove).toHaveBeenCalledTimes(1);
+    for (const [id, code] of [
+      ["close-personal", "PERSONAL_TAB_DENIED"],
+      ["close-marker", "AGENT_MARKER_PROTECTED"],
+    ])
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ id, payload: expect.objectContaining({ error: expect.objectContaining({ code }) }) })
+      );
+  });
+
+  it("人工切换器可关闭任意标签但不能关闭代理窗口标记", async () => {
+    tabsGet.mockResolvedValue({ id: 102, windowId: 8 });
+    await request("switcher-close", "switcher.tabs.close", { tabId: 102, sessionId: undefined });
+    await request("switcher-close-marker", "switcher.tabs.close", { tabId: 900, sessionId: undefined });
+    expect(tabsRemove).toHaveBeenCalledTimes(1);
+    expect(tabsRemove).toHaveBeenCalledWith(102);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "switcher-close-marker",
+        payload: expect.objectContaining({ error: expect.objectContaining({ code: "AGENT_MARKER_PROTECTED" }) }),
       })
     );
   });

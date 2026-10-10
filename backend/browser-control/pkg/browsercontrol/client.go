@@ -21,6 +21,7 @@ import (
 type Client interface {
 	ListTabs(ctx context.Context, opts ListTabsOptions) ([]model.Tab, error)
 	FocusTab(ctx context.Context, req FocusTabRequest) (FocusTabResult, error)
+	CloseTab(ctx context.Context, req CloseTabRequest) error
 	Subscribe(ctx context.Context, opts SubscribeOptions) (<-chan model.Event, error)
 	Status(ctx context.Context) (Status, error)
 	Close() error
@@ -88,6 +89,13 @@ type FocusTabResult struct {
 	BrowserID model.BrowserID `json:"browserId"`
 	TabID     int64           `json:"tabId"`
 	WindowID  int             `json:"windowId,omitempty"`
+}
+
+// CloseTabRequest identifies the tab to close; an empty BrowserID selects the only connected browser
+type CloseTabRequest struct {
+	BrowserID model.BrowserID `json:"browserId,omitempty"`
+	TabID     int64           `json:"tabId"`
+	SessionID string          `json:"sessionId,omitempty"`
 }
 
 // SubscribeOptions controls event subscription
@@ -235,6 +243,29 @@ func (c *daemonClient) FocusTab(ctx context.Context, req FocusTabRequest) (Focus
 		decoded.Data.TabID = req.TabID
 	}
 	return decoded.Data, nil
+}
+
+func (c *daemonClient) CloseTab(ctx context.Context, req CloseTabRequest) error {
+	targets, err := c.browserTargets(ctx, targetOptions{BrowserID: req.BrowserID})
+	if err != nil {
+		return err
+	}
+	args := map[string]any{"tabId": req.TabID}
+	if !c.switcher {
+		args["sessionId"] = req.SessionID
+	}
+	resp, err := c.cli.RequestContext(ctx, string(targets[0].ID), internalcli.ExtCommand{Cmd: c.tabCommand("close"), Args: args})
+	if err != nil {
+		return err
+	}
+	var decoded commandResponse[json.RawMessage]
+	if err := decodeCommandResponse(resp, &decoded); err != nil {
+		return err
+	}
+	if decoded.Error != nil {
+		return decoded.Error
+	}
+	return nil
 }
 
 func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-chan model.Event, error) {

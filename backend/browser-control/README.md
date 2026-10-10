@@ -67,6 +67,7 @@ export BROWSER_CONTROL_SESSION
 bctl --browser zen-01 tabs create https://example.com --active=false --json
 bctl --browser zen-01 page content 123 --json
 bctl --browser zen-01 page screenshot 123 --output /tmp/worker-1.png
+bctl --browser zen-01 tabs close 123
 bctl --browser zen-01 session end
 unset BROWSER_CONTROL_SESSION
 ```
@@ -75,6 +76,8 @@ Use `--session <id>` instead of the environment variable when convenient. The CL
 `env.example` documents it and is not automatically loaded. `session begin --ttl 30m` sets lease duration (default 15m,
 range 1s to 24h). Work tab creation and access claim exclusive ownership; activity renews the lease. `session renew`
 renews before long idle periods. `session end` releases ownership and leaves tabs open. Expired sessions must be replaced.
+`tabs close <tab-id>...` closes agent-window work tabs owned by the task or unowned; personal tabs (even when granted),
+other tasks' tabs, and the marker are refused.
 `session list` exposes live task IDs, expiry, pause state, and owned tab IDs so an operator can `session pause <id>` before
 taking over a tab and `session resume <id>` afterward. Already-running page JavaScript is not cancelled by pause.
 
@@ -148,27 +151,30 @@ subscribe again when continuous observation is needed.
 
 ## Human-operated tab switchers
 
-For an operator listing tabs directly from the CLI:
+For an operator listing or closing tabs directly from the CLI:
 
 ```sh
 bctl human tabs list                             # all windows in the sole connected browser
 bctl --browser zen-01 human tabs list --json      # one browser, structured metadata
 bctl human tabs list --all-browsers --json        # all windows in all connected browsers
+bctl human tabs close 123 456                     # close tabs in any window
 ```
 
-`human tabs list` uses the switcher SDK below, without an agent window or task session.
+`human tabs list` and `human tabs close` use the switcher SDK below, without an agent window or task session.
+`human tabs close` refuses only the agent window marker.
 `--browser` takes precedence over `--all-browsers`; with multiple browsers, select one or use
-`--all-browsers`. JSON responses use `cmd: "switcher.tabs.list"`. This CLI entrypoint lists tab
-metadata only; ordinary `tabs` and `page` commands keep their agent restrictions. Session and
-personal-tab flags do not apply to human listing. Agents must not use it to bypass scope restrictions.
+`--all-browsers`. JSON responses use `cmd: "switcher.tabs.list"`. These CLI entrypoints give no page
+access; ordinary `tabs` and `page` commands keep their agent restrictions. Session and
+personal-tab flags do not apply to human commands. Agents must not use them to bypass scope restrictions.
 
 Human-operated applications such as combo-switcher use the explicit Go SDK constructor
 `browsercontrol.NewSwitcher(ctx)`. The existing `browsercontrol.New(ctx)` keeps agent-window restrictions.
-The switcher client uses `switcher.tabs.list`, `switcher.tabs.focus`, and `switcher.tabs.subscribe` to list
-browser-visible tabs across windows, focus the user's chosen tab, and receive tab events without an agent
+The switcher client uses `switcher.tabs.list`, `switcher.tabs.focus`, `switcher.tabs.close`, and
+`switcher.tabs.subscribe` to list browser-visible tabs across windows, focus or close the user's chosen tab
+(`CloseTab`), and receive tab events without an agent
 window or task session. Tab listing includes private tabs only when the browser grants the extension access.
 
-Switcher access provides tab metadata and focus only; there are no switcher page-execution, content,
+Switcher access provides tab metadata, focus, and close only; there are no switcher page-execution, content,
 capture, or userscript commands. `switcher.tabs.event` messages are routed only to connections whose
 switcher subscription succeeded for that browser. Ordinary agent event streams remain scoped to the
 registered window. This is an explicit application API, not authentication of a human or a separate

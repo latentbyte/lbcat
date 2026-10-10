@@ -63,6 +63,9 @@ describe("代理专用窗口与标签租约", () => {
         return { id: 7, focused: false, alwaysOnTop: false, incognito: false, type: "normal", tabs: [tab] };
       }),
       allTabs: async () => [...tabs.values()],
+      removeTab: vi.fn(async (id: number) => {
+        tabs.delete(id);
+      }),
     };
     service = new AgentWindowService(deps);
   });
@@ -578,6 +581,57 @@ describe("代理专用窗口与标签租约", () => {
     await service.forgetTab(tab.id!);
     expect((await service.listSessions())[0].tabIds).toEqual([]);
     expect((await service.tabAccess(tab.id!)).grant).toBeUndefined();
+  });
+
+  it("任务可关闭自己在专用窗口中的工作标签并释放租约", async () => {
+    tabs.set(2, mockTab({ id: 2, windowId: 7 }));
+    const sessionId = await prepare();
+    const tab = await service.createTab(sessionId, "https://example.com");
+    await expect(service.closeTab(tab.id!, sessionId)).resolves.toMatchObject({ id: tab.id });
+    await expect(service.closeTab(2, sessionId)).resolves.toMatchObject({ id: 2 });
+    expect(deps.removeTab).toHaveBeenCalledWith(tab.id);
+    expect(deps.removeTab).toHaveBeenCalledWith(2);
+    expect((await service.listSessions())[0].tabIds).toEqual([]);
+  });
+
+  it("任务不能关闭其他任务占用的标签", async () => {
+    const first = await prepare();
+    const second = (await service.openSession()).sessionId;
+    const tab = await service.createTab(first, "https://example.com");
+    await expect(service.closeTab(tab.id!, second)).rejects.toMatchObject({ code: "TAB_BUSY" });
+    expect(deps.removeTab).not.toHaveBeenCalled();
+  });
+
+  it("个人标签即使授权代理使用也不能被代理关闭", async () => {
+    const sessionId = await prepare();
+    tabs.set(1, mockTab({ id: 1, windowId: 8, url: "https://personal.example" }));
+    await service.setTabGrant(1, { mode: "all" });
+    await expect(service.assertTabAccess(1, sessionId)).resolves.toMatchObject({ id: 1 });
+    await expect(service.closeTab(1, sessionId)).rejects.toMatchObject({ code: "PERSONAL_TAB_DENIED" });
+    expect(deps.removeTab).not.toHaveBeenCalled();
+  });
+
+  it("代理不能关闭标记标签或在暂停后关闭标签", async () => {
+    const sessionId = await prepare();
+    const tab = await service.createTab(sessionId, "https://example.com");
+    const { markerTabId } = await service.status();
+    await expect(service.closeTab(markerTabId, sessionId)).rejects.toMatchObject({ code: "AGENT_MARKER_PROTECTED" });
+    await service.pauseSession(sessionId);
+    await expect(service.closeTab(tab.id!, sessionId)).rejects.toMatchObject({ code: "SESSION_PAUSED" });
+    expect(deps.removeTab).not.toHaveBeenCalled();
+  });
+
+  it("人工可关闭任意窗口标签且无需代理窗口", async () => {
+    tabs.set(1, mockTab({ id: 1, windowId: 8, url: "https://personal.example" }));
+    await expect(service.closeAnyTab(1)).resolves.toMatchObject({ id: 1 });
+    expect(deps.removeTab).toHaveBeenCalledWith(1);
+  });
+
+  it("人工关闭仍保护代理窗口标记", async () => {
+    await service.designate(7);
+    const { markerTabId } = await service.status();
+    await expect(service.closeAnyTab(markerTabId)).rejects.toMatchObject({ code: "AGENT_MARKER_PROTECTED" });
+    expect(deps.removeTab).not.toHaveBeenCalled();
   });
 
   it("状态变化时通知指示器并给出每个标签的标识", async () => {

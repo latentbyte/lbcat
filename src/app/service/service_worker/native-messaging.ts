@@ -514,11 +514,18 @@ const handlers: Record<string, Handler> = {
     };
   },
 
+  async "tabs.close"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    await agentWindowService.closeTab(tabId, sessionId(args));
+    return { data: { tabId, closed: true } };
+  },
+
   "tabs.subscribe"(args) {
     return subscribeNativeTabs(args, false);
   },
 
-  // 人工切换器仅提供标签元数据、聚焦及事件，不授予页面操作权限
+  // 人工切换器仅提供标签元数据、聚焦、关闭及事件，不授予页面操作权限
   async "switcher.tabs.list"() {
     const tabs = await chrome.tabs.query({});
     const identity = await resolveBrowserControlIdentity();
@@ -537,6 +544,13 @@ const handlers: Record<string, Handler> = {
         if (current.windowId !== tab.windowId) throw new Error("windowId does not match target tab");
       }),
     };
+  },
+
+  async "switcher.tabs.close"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number" || !Number.isInteger(tabId) || tabId < 0) throw new Error("tabId is required");
+    await agentWindowService.closeAnyTab(tabId);
+    return { data: { tabId, closed: true } };
   },
 
   "switcher.tabs.subscribe"(args) {

@@ -261,3 +261,43 @@ func TestHumanTabsListErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestHumanTabsClose(t *testing.T) {
+	command, _, err := rootCmd.Find([]string{"human", "tabs", "close"})
+	if err != nil || command.RunE == nil || command.CommandPath() != "browser-control human tabs close" {
+		t.Fatalf("human tabs close command missing: %v", err)
+	}
+	oldSession, oldPersonal := flagSession, flagPersonalTab
+	flagSession, flagPersonalTab = "task-human", 42
+	t.Cleanup(func() {
+		flagSession, flagPersonalTab = oldSession, oldPersonal
+		command.SetOut(nil)
+	})
+	requests := startTabListBrowsers(t, 1, json.RawMessage(`{"cmd":"switcher.tabs.close","data":{"tabId":42,"closed":true}}`))
+	var output bytes.Buffer
+	command.SetOut(&output)
+	if err := command.RunE(command, []string{"42", "43"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("requests = %d", len(requests))
+	}
+	for _, want := range []float64{42, 43} {
+		request := <-requests
+		var args map[string]any
+		if err := json.Unmarshal(request.Args, &args); err != nil {
+			t.Fatal(err)
+		}
+		if request.Cmd != "switcher.tabs.close" || args["tabId"] != want {
+			t.Fatalf("request = %s %#v", request.Cmd, args)
+		}
+		for _, field := range []string{"sessionId", "personalTabId"} {
+			if _, exists := args[field]; exists {
+				t.Fatalf("human request includes %s", field)
+			}
+		}
+	}
+	if output.String() != "closed tab 42\nclosed tab 43\n" {
+		t.Fatalf("output = %q", output.String())
+	}
+}

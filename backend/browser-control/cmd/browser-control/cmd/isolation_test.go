@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"github.com/spf13/cobra"
 	"io"
@@ -124,6 +125,7 @@ func TestTabCommandsReturnExtensionErrors(t *testing.T) {
 		{"创建被拒绝时不报告创建成功", tabsCreateCmd, []string{"about:blank"}, "tabs.create"},
 		{"读取被拒绝时不输出空标签", tabsGetCmd, []string{"42"}, "tabs.get"},
 		{"聚焦被拒绝时不报告聚焦成功", tabsFocusCmd, []string{"42"}, "tabs.focus"},
+		{"关闭被拒绝时不报告关闭成功", tabsCloseCmd, []string{"42"}, "tabs.close"},
 		{"重新加载被拒绝时返回错误", pageReloadCmd, []string{"42"}, "page.reload"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -141,6 +143,47 @@ func TestTabCommandsReturnExtensionErrors(t *testing.T) {
 			waitPageCommandRequests(t, result)
 		})
 	}
+}
+
+func TestTabsClose(t *testing.T) {
+	t.Run("按顺序关闭多个任务标签并发送会话", func(t *testing.T) {
+		oldSession := flagSession
+		flagSession = "task-123"
+		t.Cleanup(func() { flagSession = oldSession })
+		result := startPageCommandDaemon(t, map[string]json.RawMessage{"tabs.close": json.RawMessage(`{"cmd":"tabs.close","data":{"closed":true}}`)})
+		var output bytes.Buffer
+		tabsCloseCmd.SetOut(&output)
+		t.Cleanup(func() { tabsCloseCmd.SetOut(nil) })
+		if err := tabsCloseCmd.RunE(tabsCloseCmd, []string{"42", "43"}); err != nil {
+			t.Fatal(err)
+		}
+		var closes []pageCommandRequest
+		for _, request := range waitPageCommandRequests(t, result) {
+			if request.Cmd == "tabs.close" {
+				closes = append(closes, request)
+			}
+		}
+		if len(closes) != 2 {
+			t.Fatalf("close requests = %#v", closes)
+		}
+		for i, want := range []float64{42, 43} {
+			var args map[string]any
+			if err := json.Unmarshal(closes[i].Args, &args); err != nil {
+				t.Fatal(err)
+			}
+			if args["tabId"] != want || args["sessionId"] != "task-123" {
+				t.Fatalf("args = %#v", args)
+			}
+		}
+		if output.String() != "closed tab 42\nclosed tab 43\n" {
+			t.Fatalf("output = %q", output.String())
+		}
+	})
+	t.Run("无效标签 ID 在连接前拒绝", func(t *testing.T) {
+		if err := tabsCloseCmd.RunE(tabsCloseCmd, []string{"42", "nope"}); err == nil || !strings.Contains(err.Error(), "invalid tab ID") {
+			t.Fatalf("error = %v", err)
+		}
+	})
 }
 
 func TestTabCreateForegroundPermission(t *testing.T) {

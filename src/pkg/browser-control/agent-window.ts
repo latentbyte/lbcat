@@ -59,6 +59,7 @@ export interface AgentWindowDependencies {
   listTabs(windowId: number): Promise<chrome.tabs.Tab[]>;
   allTabs(): Promise<chrome.tabs.Tab[]>;
   createTab(properties: chrome.tabs.CreateProperties): Promise<chrome.tabs.Tab>;
+  removeTab(tabId: number): Promise<void>;
   getWindow(windowId: number): Promise<chrome.windows.Window>;
   listWindows(): Promise<chrome.windows.Window[]>;
   createWindow(properties: chrome.windows.CreateData): Promise<chrome.windows.Window | undefined>;
@@ -419,6 +420,36 @@ export class AgentWindowService implements AgentWindowScope {
     });
   }
 
+  // 代理只能关闭专用窗口中的工作标签；个人标签即使授权使用也不允许关闭
+  async closeTab(tabId: number, sessionId: string | undefined): Promise<chrome.tabs.Tab> {
+    return this.withState(async (state) => {
+      const registration = await this.registration(state);
+      this.session(state, sessionId);
+      const tab = await this.windowTab(state, tabId, undefined, sessionId);
+      if (tab.windowId !== registration.windowId || !registration.eligibleTabIds?.includes(tabId))
+        throw new BrowserControlScopeError("PERSONAL_TAB_DENIED", "Agents can only close agent-window work tabs");
+      const owner = this.owner(state, tabId);
+      if (owner && owner.sessionId !== sessionId)
+        throw new BrowserControlScopeError("TAB_BUSY", "Tab belongs to another browser task");
+      await this.deps.removeTab(tabId);
+      this.release(state, tabId);
+      registration.eligibleTabIds = registration.eligibleTabIds.filter((id) => id !== tabId);
+      return tab;
+    });
+  }
+
+  // 人工关闭任意标签，仅保护代理窗口标记
+  async closeAnyTab(tabId: number): Promise<chrome.tabs.Tab> {
+    return this.withState(async (state) => {
+      const tab = await this.deps.getTab(tabId);
+      if (tabId === state.registration?.markerTabId || this.isMarker(tab))
+        throw new BrowserControlScopeError("AGENT_MARKER_PROTECTED", "Agent window marker cannot be closed this way");
+      await this.deps.removeTab(tabId);
+      this.release(state, tabId);
+      return tab;
+    });
+  }
+
   async allowsTabEvent(tabId: number, windowId: number, url?: string): Promise<boolean> {
     return this.withState(async (state) => {
       const registration = await this.registration(state);
@@ -552,6 +583,7 @@ export const agentWindowService = new AgentWindowService({
   listTabs: (windowId) => chrome.tabs.query({ windowId }),
   allTabs: () => chrome.tabs.query({}),
   createTab: (properties) => chrome.tabs.create(properties),
+  removeTab: (tabId) => chrome.tabs.remove(tabId),
   getWindow: (windowId) => chrome.windows.get(windowId),
   listWindows: () => chrome.windows.getAll({ windowTypes: ["normal"] }),
   createWindow: (properties) => chrome.windows.create(properties),

@@ -65,6 +65,9 @@ describe("请求浏览器工具共享租约", () => {
       listWindows: async () => [],
       createWindow: async () => undefined,
       allTabs: async () => [...tabs.values()],
+      removeTab: async (id) => {
+        tabs.delete(id);
+      },
     });
     await service.designate(7);
     vi.stubGlobal("chrome", {

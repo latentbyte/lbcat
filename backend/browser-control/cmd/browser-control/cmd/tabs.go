@@ -206,6 +206,59 @@ var tabsFocusCmd = &cobra.Command{
 	},
 }
 
+// parseTabIDs validates every ID before any tab is touched
+func parseTabIDs(args []string) ([]int, error) {
+	tabIDs := make([]int, 0, len(args))
+	for _, arg := range args {
+		tabID, err := strconv.Atoi(arg)
+		if err != nil || tabID < 0 {
+			return nil, fmt.Errorf("invalid tab ID %q", arg)
+		}
+		tabIDs = append(tabIDs, tabID)
+	}
+	return tabIDs, nil
+}
+
+var tabsCloseCmd = &cobra.Command{
+	Use:   "close <tab-id>...",
+	Short: "Close agent-window tabs owned by this task",
+	Long:  "Close agent-window work tabs owned by this task (or unowned). Personal tabs, other tasks' tabs, and the agent window marker are refused; use `human tabs close` for those.",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tabIDs, err := parseTabIDs(args)
+		if err != nil {
+			return err
+		}
+
+		c, err := connectScoped()
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+
+		target, err := resolveBrowser(c.Peers())
+		if err != nil {
+			return err
+		}
+
+		for _, tabID := range tabIDs {
+			resp, err := c.Request(target, cli.ExtCommand{Cmd: "tabs.close", Args: map[string]any{"tabId": tabID}})
+			if err != nil {
+				return fmt.Errorf("closing tab %d: %w", tabID, err)
+			}
+			if flagJSON {
+				_, err = fmt.Fprintln(cmd.OutOrStdout(), string(resp))
+			} else {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "closed tab %d\n", tabID)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	},
+}
+
 var tabsCreateCmd = &cobra.Command{
 	Use:   "create <url>",
 	Short: "Open a new tab",
@@ -309,6 +362,6 @@ func init() {
 	tabsCreateCmd.Flags().Bool("active", false, "activate new tab within agent window")
 	tabsFocusCmd.Flags().Bool("foreground", false, "allow focusing the agent browser window")
 
-	tabsCmd.AddCommand(tabsListCmd, tabsGetCmd, tabsFocusCmd, tabsCreateCmd, tabsWatchCmd)
+	tabsCmd.AddCommand(tabsListCmd, tabsGetCmd, tabsFocusCmd, tabsCreateCmd, tabsCloseCmd, tabsWatchCmd)
 	rootCmd.AddCommand(tabsCmd)
 }
