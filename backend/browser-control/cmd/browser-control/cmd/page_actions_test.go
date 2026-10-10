@@ -95,6 +95,13 @@ func TestPageActionCommands(t *testing.T) {
 		{"内容以 Markdown 输出并限制长度", pageContentCmd, []string{"12"}, map[string]string{"format": "markdown", "max-chars": "100"},
 			"page.content", json.RawMessage(`{"data":"# Title"}`),
 			map[string]any{"tabId": 12.0, "selector": "body", "format": "markdown", "maxChars": 100.0}, "# Title"},
+		{"快照逐行列出元素引用", pageSnapshotCmd, []string{"12"}, map[string]string{"selector": "form", "max": "3"},
+			"page.snapshot", json.RawMessage(`{"data":{"url":"https://a.test/","title":"Shop","total":9,"truncated":true,"elements":[` +
+				`{"role":"heading","name":"Pay","level":2},{"ref":"e1","role":"textbox","name":"Email","value":"a@b.c"},` +
+				`{"ref":"e2","role":"checkbox","name":"Remember","checked":false},{"ref":"e3","role":"link","name":"Help","href":"/help","disabled":true}]}}`),
+			map[string]any{"tabId": 12.0, "selector": "form", "max": 3.0},
+			"Shop\nhttps://a.test/\nh2 \"Pay\"\n@e1 textbox \"Email\" = \"a@b.c\"\n@e2 checkbox \"Remember\" [unchecked]\n" +
+				"@e3 link \"Help\" -> /help [disabled]\n[showing 4 of 9; narrow --selector or raise --max]"},
 		{"重载默认等待加载", pageReloadCmd, []string{"12"}, nil,
 			"page.reload", json.RawMessage(`{"data":{"tabId":12}}`),
 			map[string]any{"tabId": 12.0, "bypassCache": false, "wait": "load", "timeoutMs": 30000.0}, "reloaded tab 12"},

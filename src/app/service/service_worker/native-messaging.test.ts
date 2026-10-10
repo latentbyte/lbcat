@@ -520,6 +520,20 @@ describe("原生消息并发控制", () => {
       expect(executeScript).not.toHaveBeenCalled();
     });
 
+    it("快照返回可交互元素引用且引用可用于点击", async () => {
+      document.body.innerHTML = `<button id="go">Go</button>`;
+      const clicked = vi.fn();
+      document.getElementById("go")!.addEventListener("click", clicked);
+      await request("snapshot", "page.snapshot", { tabId: 101 });
+      expect(responseOf("snapshot").data).toMatchObject({
+        total: 1,
+        elements: [{ ref: expect.stringMatching(/^e\d+$/), role: "button", name: "Go" }],
+      });
+      const ref = responseOf("snapshot").data.elements[0].ref;
+      await request("ref-click", "page.click", { tabId: 101, ref });
+      expect(clicked).toHaveBeenCalledTimes(1);
+    });
+
     it("跳转地址并等待加载完成", async () => {
       const tab = { id: 101, windowId: 7, url: "https://a.test/", title: "A", status: "complete" };
       tabsGet.mockImplementation(async () => ({ ...tab }));

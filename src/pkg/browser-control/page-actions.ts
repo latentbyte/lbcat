@@ -7,10 +7,28 @@ export type PageActionRequest =
   | ({ op: "fill"; value: string } & PageLocator)
   | ({ op: "select"; value: string } & PageLocator)
   | ({ op: "press"; key: string } & PageLocator)
-  | { op: "wait"; selector?: string; text?: string; state: PageWaitState; timeoutMs: number };
+  | { op: "wait"; selector?: string; text?: string; state: PageWaitState; timeoutMs: number }
+  | { op: "snapshot"; selector?: string; max: number };
 export type PageElementSummary = { tag: string; id?: string; text?: string };
+export type PageSnapshotElement = {
+  ref?: string;
+  role: string;
+  name: string;
+  value?: string;
+  checked?: boolean;
+  disabled?: boolean;
+  href?: string;
+  level?: number;
+};
+export type PageSnapshot = {
+  url: string;
+  title: string;
+  elements: PageSnapshotElement[];
+  total: number;
+  truncated?: boolean;
+};
 export type PageActionResult =
-  | { success: true; value: { matched?: PageElementSummary; selected?: string } }
+  | { success: true; value: { matched?: PageElementSummary; selected?: string; snapshot?: PageSnapshot } }
   | { success: false; code: string; error: string };
 
 export async function runPageAction(request: PageActionRequest): Promise<PageActionResult> {
@@ -113,6 +131,120 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
     };
     const exact = pick((label) => label === wanted);
     return exact.length ? exact : pick((label) => label.includes(wanted));
+  };
+
+  // 引用保存在隔离世界全局，同一元素多次快照保持同一引用，导航后随文档失效
+  const refStore = globalThis as {
+    __bctlRefs?: Map<string, WeakRef<Element>>;
+    __bctlRefIds?: WeakMap<Element, string>;
+    __bctlRefSeq?: number;
+  };
+  const refFor = (el: Element): string => {
+    const refs = (refStore.__bctlRefs ??= new Map());
+    const ids = (refStore.__bctlRefIds ??= new WeakMap());
+    let id = ids.get(el);
+    if (!id) {
+      refStore.__bctlRefSeq = (refStore.__bctlRefSeq ?? 0) + 1;
+      id = `e${refStore.__bctlRefSeq}`;
+      ids.set(el, id);
+    }
+    refs.set(id, new WeakRef(el));
+    return id;
+  };
+
+  const roleOf = (el: Element): string => {
+    const explicit = el.getAttribute("role")?.trim().split(/\s+/)[0];
+    if (explicit) return explicit;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "a") return "link";
+    if (tag === "button" || tag === "summary") return "button";
+    if (tag === "select") return "combobox";
+    if (tag === "textarea") return "textbox";
+    if (tag === "input") {
+      const type = (el as HTMLInputElement).type;
+      if (["button", "submit", "reset", "image"].includes(type)) return "button";
+      if (type === "checkbox" || type === "radio") return type;
+      if (type === "range") return "slider";
+      return type === "search" ? "searchbox" : "textbox";
+    }
+    if ((el as HTMLElement).isContentEditable || el.matches(CONTENT_EDITABLE)) return "textbox";
+    return /^h[1-6]$/.test(tag) ? "heading" : tag;
+  };
+  const clean = (text: string | null | undefined) => (text ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const nameOf = (el: Element): string => {
+    const labelledBy = (el.getAttribute("aria-labelledby") ?? "")
+      .split(/\s+/)
+      .map((id) => (id ? document.getElementById(id) : null))
+      .filter((item): item is HTMLElement => Boolean(item))
+      .map(textOf)
+      .join(" ");
+    const labels = Array.from((el as HTMLInputElement).labels ?? [])
+      .map(textOf)
+      .join(" ");
+    const editable = el.matches(EDITABLE);
+    return clean(
+      el.getAttribute("aria-label") ||
+        labelledBy ||
+        labels ||
+        (editable ? "" : textOf(el)) ||
+        el.getAttribute("alt") ||
+        el.getAttribute("title") ||
+        el.getAttribute("placeholder") ||
+        el.getAttribute("name") ||
+        (editable ? "" : (el as HTMLInputElement).value)
+    );
+  };
+  const inside = (scope: Element, el: Element) => {
+    for (let node: Node | null = el; node; node = node.parentNode ?? (node as ShadowRoot).host ?? null) {
+      if (node === scope) return true;
+    }
+    return false;
+  };
+
+  const snapshot = (selector: string | undefined, max: number): PageSnapshot => {
+    const scope = selector ? queryAll(selector)[0] : undefined;
+    if (selector && !scope) throw new ActionError("SELECTOR_NOT_FOUND", `no element matches selector: ${selector}`);
+    for (const [id, ref] of refStore.__bctlRefs ?? []) {
+      if (!ref.deref()?.isConnected) refStore.__bctlRefs!.delete(id);
+    }
+    const candidates = roots()
+      .flatMap((root) => Array.from(root.querySelectorAll(`${CLICKABLE},${EDITABLE},h1,h2,h3,h4,h5,h6`)))
+      .filter((el) => {
+        if (scope && !inside(scope, el)) return false;
+        if (el.tagName === "LABEL" && (el as HTMLLabelElement).control) return false;
+        if (el.tagName === "OPTION") return false;
+        if (el.getAttribute("tabindex") === "-1" && !el.matches(EDITABLE) && roleOf(el) === el.tagName.toLowerCase())
+          return false;
+        return visible(el);
+      });
+    const elements = candidates.slice(0, max).map((el): PageSnapshotElement => {
+      const role = roleOf(el);
+      const entry: PageSnapshotElement = { role, name: nameOf(el) };
+      if (role === "heading") {
+        entry.level = Number(el.tagName[1]) || Number(el.getAttribute("aria-level")) || 2;
+        return entry;
+      }
+      entry.ref = refFor(el);
+      if (el instanceof HTMLSelectElement) entry.value = clean(el.selectedOptions[0]?.text ?? el.value);
+      else if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio"))
+        entry.checked = el.checked;
+      else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+        if (el.value) entry.value = el instanceof HTMLInputElement && el.type === "password" ? "***" : clean(el.value);
+      }
+      const ariaChecked = el.getAttribute("aria-checked");
+      if (ariaChecked) entry.checked = ariaChecked === "true";
+      if ((el as HTMLButtonElement).disabled || el.getAttribute("aria-disabled") === "true") entry.disabled = true;
+      const href = el.tagName === "A" ? el.getAttribute("href") : null;
+      if (href && !href.startsWith("javascript:")) entry.href = href;
+      return entry;
+    });
+    return {
+      url: location.href,
+      title: document.title,
+      elements,
+      total: candidates.length,
+      ...(candidates.length > max ? { truncated: true } : {}),
+    };
   };
 
   const locate = (locator: PageLocator, kind: "click" | "edit"): Element => {
@@ -292,6 +424,8 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
         const matched = await waitFor(request.selector, request.text, request.state, request.timeoutMs);
         return { success: true, value: matched ? { matched } : {} };
       }
+      case "snapshot":
+        return { success: true, value: { snapshot: snapshot(request.selector, request.max) } };
     }
   } catch (error) {
     if (error instanceof ActionError) return { success: false, code: error.code, error: error.message };

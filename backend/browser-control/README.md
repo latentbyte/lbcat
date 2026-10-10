@@ -178,7 +178,12 @@ bctl page wait 123 --selector .spinner --state gone
 bctl page goto 123 https://example.com/next   # also page back|forward
 ```
 
-Locators: a CSS selector (open shadow roots included), `--text` (visible text or field label, case-insensitive, exact
+`page snapshot <tab> [--selector S] [--max N]` lists visible links, buttons, fields, and headings one per line
+(`@e3 textbox "Email" = "a@b.c"`, password values masked); pass a ref to any action (`page click 123 @e3`). Refs stay
+stable for the same element across snapshots and fail with `REF_NOT_FOUND` once the element is gone or the page
+navigates. `--json` returns `{url, title, elements, total, truncated}`.
+
+Locators: a ref, a CSS selector (open shadow roots included), `--text` (visible text or field label, case-insensitive, exact
 match before substring), or both. Only visible elements count. Several matches fail with `AMBIGUOUS_MATCH` listing up to
 five candidates; pick one with `--nth N`. No match fails with `SELECTOR_NOT_FOUND`. Text clicks target the closest
 clickable ancestor. `fill` uses the native value setter and fires `input`/`change`, so React/Vue inputs update.

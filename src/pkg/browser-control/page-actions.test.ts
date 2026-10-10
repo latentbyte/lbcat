@@ -159,6 +159,70 @@ describe("页面动作", () => {
     });
   });
 
+  describe("快照", () => {
+    afterEach(() => {
+      const store = globalThis as { __bctlRefs?: unknown; __bctlRefIds?: unknown; __bctlRefSeq?: unknown };
+      delete store.__bctlRefs;
+      delete store.__bctlRefIds;
+      delete store.__bctlRefSeq;
+    });
+
+    it("列出可见的可交互元素与标题并分配引用", async () => {
+      document.title = "Shop";
+      document.body.innerHTML = `
+        <h2>Checkout</h2>
+        <a href="/cart">Cart</a>
+        <label for="e">Email</label><input id="e" value="a@b.c">
+        <label><input type="checkbox" checked> Remember</label>
+        <input type="password" placeholder="Password" value="secret">
+        <select aria-label="Country"><option>Canada</option><option selected>Japan</option></select>
+        <button disabled>Pay</button>
+        <button hidden>Hidden</button>
+        <div tabindex="-1">Dialog</div>`;
+      const result = await runPageAction({ op: "snapshot", max: 50 });
+      expect(result).toMatchObject({ success: true });
+      const snapshot = (result as { value: { snapshot: { elements: unknown[]; total: number } } }).value.snapshot;
+      expect(snapshot).toMatchObject({ title: "Shop", total: 7 });
+      expect(snapshot.elements).toEqual([
+        { role: "heading", name: "Checkout", level: 2 },
+        { ref: "e1", role: "link", name: "Cart", href: "/cart" },
+        { ref: "e2", role: "textbox", name: "Email", value: "a@b.c" },
+        { ref: "e3", role: "checkbox", name: "Remember", checked: true },
+        { ref: "e4", role: "textbox", name: "Password", value: "***" },
+        { ref: "e5", role: "combobox", name: "Country", value: "Japan" },
+        { ref: "e6", role: "button", name: "Pay", disabled: true },
+      ]);
+    });
+
+    it("引用在多次快照间保持稳定并可用于动作，元素移除后失效", async () => {
+      document.body.innerHTML = `<button id="a">A</button><button id="b">B</button>`;
+      await runPageAction({ op: "snapshot", max: 50 });
+      document.body.insertAdjacentHTML("afterbegin", `<button id="c">C</button>`);
+      const again = await runPageAction({ op: "snapshot", max: 50 });
+      const refs = (again as { value: { snapshot: { elements: Array<{ ref: string; name: string }> } } }).value.snapshot
+        .elements;
+      expect(refs.map(({ ref, name }) => `${ref}:${name}`)).toEqual(["e3:C", "e1:A", "e2:B"]);
+      const clicked = vi.fn();
+      document.getElementById("b")!.addEventListener("click", clicked);
+      await expect(runPageAction({ op: "click", ref: "e2" })).resolves.toMatchObject({ success: true });
+      expect(clicked).toHaveBeenCalledTimes(1);
+      document.getElementById("b")!.remove();
+      await expect(runPageAction({ op: "click", ref: "e2" })).resolves.toMatchObject({ code: "REF_NOT_FOUND" });
+    });
+
+    it("限定范围并按上限截断", async () => {
+      document.body.innerHTML = `<nav><a href="/x">X</a></nav><form><button>1</button><button>2</button><button>3</button></form>`;
+      const result = await runPageAction({ op: "snapshot", selector: "form", max: 2 });
+      expect(result).toMatchObject({
+        success: true,
+        value: { snapshot: { total: 3, truncated: true, elements: [{ name: "1" }, { name: "2" }] } },
+      });
+      await expect(runPageAction({ op: "snapshot", selector: "#none", max: 2 })).resolves.toMatchObject({
+        code: "SELECTOR_NOT_FOUND",
+      });
+    });
+  });
+
   describe("等待", () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());

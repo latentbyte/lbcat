@@ -714,6 +714,18 @@ const handlers: Record<string, Handler> = {
     return nativePageAction(args, { op: "press", key: args.key, ...locatorArgs(args) });
   },
 
+  async "page.snapshot"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    const selector = typeof args.selector === "string" && args.selector ? args.selector : undefined;
+    const max = typeof args.max === "number" && args.max > 0 ? args.max : 150;
+    const value = await withNativeTabOperation(tabId, async () => {
+      await assertNativeTab(args, tabId);
+      return injectPageAction(tabId, { op: "snapshot", selector, max });
+    });
+    return { data: value.snapshot };
+  },
+
   // 依次等待加载、地址、元素或文本，共享同一超时
   async "page.wait"(args) {
     const tabId = args.tabId;
