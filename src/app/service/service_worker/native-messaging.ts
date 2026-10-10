@@ -11,6 +11,7 @@ import {
 import { captureNativeTab, withNativeTabOperation, withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-control/agent-window";
 import { BrowserControlError } from "@App/pkg/browser-control/errors";
+import { runPageExec } from "@App/pkg/browser-control/page-exec";
 import { runPageAction, type PageActionRequest, type PageWaitState } from "@App/pkg/browser-control/page-actions";
 import {
   navigateTab,
@@ -238,8 +239,6 @@ async function assertNativeTab(args: Record<string, unknown>, tabId: number): Pr
     typeof args.personalTabId === "number" ? args.personalTabId : undefined
   );
 }
-type NativeExecutionResult = { success: true; value: unknown } | { success: false; error: string };
-
 type TabRemoveInfo = {
   windowId?: number;
 };
@@ -799,15 +798,8 @@ const handlers: Record<string, Handler> = {
         return chrome.scripting.executeScript({
           target: { tabId },
           world: "MAIN",
-          // eval runs in page context, not extension SW
-          func: async (c: string): Promise<NativeExecutionResult> => {
-            try {
-              return { success: true, value: await eval(c) };
-            } catch (error: unknown) {
-              return { success: false, error: error instanceof Error ? error.message : String(error) };
-            }
-          },
-          args: [code],
+          func: runPageExec,
+          args: [code, typeof args.maxChars === "number" ? args.maxChars : 0],
         });
       }),
       timeoutMs,
@@ -822,8 +814,13 @@ const handlers: Record<string, Handler> = {
     }
     const result = injection?.result;
     if (!result) throw new Error("page execution produced no result");
-    if (!result.success) throw new Error(result.error);
-    return { data: { result: result.value ?? null } };
+    if (!result.success) throw new BrowserControlError(result.code, result.error);
+    return {
+      data: {
+        result: result.value ?? null,
+        ...(result.truncated ? { truncated: true, totalLength: result.totalLength } : {}),
+      },
+    };
   },
 
   async "page.screenshot"(args) {

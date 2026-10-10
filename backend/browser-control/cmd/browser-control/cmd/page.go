@@ -83,7 +83,15 @@ var pageExecCmd = &cobra.Command{
 	Use:   "exec <tab-id> [code]",
 	Short: "Execute JavaScript in a tab",
 	Long: `Execute JavaScript in the page's MAIN world.
-Provide code inline or use -f to read from a file.`,
+Provide code inline or use -f to read from a file.
+
+A single expression returns its value and may use await ({a: 1} is an object,
+not a block). Statements return the last expression's value; top-level return
+and await also work. Promises inside a returned object or array are awaited.
+undefined becomes null. DOM nodes, functions, and circular values fail with
+RESULT_NOT_SERIALIZABLE; exceptions fail with SCRIPT_ERROR and page CSP that
+forbids eval with CSP_BLOCKED. --max-chars truncates long results and reports
+truncated/totalLength.`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tabID, err := strconv.Atoi(args[0])
@@ -94,6 +102,7 @@ Provide code inline or use -f to read from a file.`,
 		var code string
 		file, _ := cmd.Flags().GetString("file")
 		world, _ := cmd.Flags().GetString("world")
+		maxChars, _ := cmd.Flags().GetInt("max-chars")
 
 		if file != "" {
 			data, err := os.ReadFile(file)
@@ -125,29 +134,31 @@ Provide code inline or use -f to read from a file.`,
 				"code":      code,
 				"world":     world,
 				"timeoutMs": int(pageExecTimeout / time.Millisecond),
+				"maxChars":  maxChars,
 			},
 		}, pageExecTimeout+2*time.Second)
 		if err != nil {
 			return err
 		}
 
+		out := cmd.OutOrStdout()
 		if flagJSON {
-			fmt.Println(string(resp))
-			return nil
+			_, err := fmt.Fprintln(out, string(resp))
+			return err
 		}
 
 		var result struct {
 			Data any `json:"data"`
 		}
 		if err := json.Unmarshal(resp, &result); err != nil {
-			fmt.Println(string(resp))
-			return nil
+			_, err := fmt.Fprintln(out, string(resp))
+			return err
 		}
 
 		// pretty-print the result
-		out, _ := json.MarshalIndent(result.Data, "", "  ")
-		fmt.Println(string(out))
-		return nil
+		pretty, _ := json.MarshalIndent(result.Data, "", "  ")
+		_, err = fmt.Fprintln(out, string(pretty))
+		return err
 	},
 }
 
@@ -465,6 +476,7 @@ func init() {
 
 	pageExecCmd.Flags().StringP("file", "f", "", "read JavaScript from file")
 	pageExecCmd.Flags().String("world", "MAIN", "execution world: MAIN (dynamic code requires page context)")
+	pageExecCmd.Flags().Int("max-chars", 0, "truncate the result to this many characters (0 = no limit)")
 	pageExecCmd.Flags().DurationVar(&pageExecTimeout, "timeout", 45*time.Second,
 		"max time to wait for script execution response")
 

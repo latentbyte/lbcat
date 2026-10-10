@@ -140,8 +140,13 @@ With `--output`, `--json` prints only `{path, width, height, bytes}`; base64 is 
 Tab creation defaults inactive. `tabs focus --foreground` and `tabs create --active=true` explicitly opt into foreground
 activation. Screenshot `--focus-on-error` additionally requires `--foreground` to enable caller capture recovery.
 Screenshot `--timeout` defaults to `2m`. Dynamic `page exec` uses `MAIN`; `ISOLATED`
-dynamic evaluation is unavailable under Manifest V3 CSP and returns an error. Script exceptions, rejected promises, and
-page CSP failures return command errors, including in JSON mode; a legitimate `null` result remains successful.
+dynamic evaluation is unavailable under Manifest V3 CSP and returns an error. Script exceptions and rejected promises fail
+with `SCRIPT_ERROR`, page CSP that forbids eval with `CSP_BLOCKED`, including in JSON mode; a legitimate `null` result
+remains successful. A single expression returns its value and may use `await` (`{a: 1}` is an object, not a block);
+statements return the last expression's value, and top-level `return`/`await` work too. Promises inside a returned
+object or array are awaited; `undefined` becomes `null`; Map/Set become objects/arrays. DOM nodes, functions, and
+circular values fail with `RESULT_NOT_SERIALIZABLE` naming the offending key. `--max-chars N` truncates the result
+(strings by characters, other values as JSON text) and adds `truncated`/`totalLength`.
 
 Load/reload the matching extension build before using these commands. Agent CLI and SDK page/tab requests first validate
 `agentWindow.status`; an older extension or malformed registration fails before the original operation is sent.

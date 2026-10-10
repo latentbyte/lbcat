@@ -1172,8 +1172,23 @@ describe("原生消息并发控制", () => {
         id: "exec-error",
         payload: expect.objectContaining({
           cmd: "error",
-          error: expect.objectContaining({ message: "script failed" }),
+          error: { code: "SCRIPT_ERROR", message: "script failed" },
         }),
+      })
+    );
+  });
+
+  it("脚本结果超过字符上限时截断并报告总长度", async () => {
+    executeScript.mockImplementationOnce(
+      async ({ func, args }: { func: (code: string, maxChars: number) => unknown; args: [string, number] }) => [
+        { frameId: 0, result: await func(...args) },
+      ]
+    );
+    await request("exec-long", "page.exec", { tabId: 101, code: "'x'.repeat(50)", maxChars: 10 });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "exec-long",
+        payload: { cmd: "page.exec", data: { result: "x".repeat(10), truncated: true, totalLength: 50 } },
       })
     );
   });
