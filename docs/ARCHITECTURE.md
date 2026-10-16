@@ -526,6 +526,9 @@ the Chrome variant strips the Firefox `scripts`/CSP bits, while the Firefox vari
 `sandbox`, adds `browser_specific_settings` (Gecko ID, min Firefox 136), and filters Chrome-only permissions.
 By default it writes the Chrome zip and a `.crx` signed with `dist/scriptcat.pem` (which you must supply
 locally); the Firefox zip is gated behind the `PACK_FIREFOX` flag (`false` by default — testers flip it locally).
+It then writes the source zip via [`scripts/mozilla-source.mjs`](../scripts/mozilla-source.mjs) and prunes
+`dist/<name>-<version>-*` artifacts more than two versions behind the current one
+([`scripts/prune-dist.js`](../scripts/prune-dist.js)).
 
 ---
 

@@ -113,8 +113,8 @@ Renaming an XPI changes its download path, not its signed internal version.
 Prepare packages:
 
 ```bash
-pnpm run pack                 # dist/lbcat-<version>-firefox.zip and Chrome zip
-just mozilla-source           # dist/lbcat-<version>-source.zip for Mozilla review
+pnpm run pack                 # dist/lbcat-<version>-{chrome,firefox,source}.zip; prunes artifacts older than 2 versions back
+just mozilla-source           # only dist/lbcat-<version>-source.zip for Mozilla review
 pnpm run build:firefox        # alternative unpacked Firefox build in dist/ext
 ```
 

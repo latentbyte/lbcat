@@ -117,7 +117,7 @@ alias bctl-dev := browser-control-dev
 alias bctl-clean := browser-control-clean
 alias bctl-smoke := browser-control-smoke
 
-# pack the extension into distributable archives
+# pack extension + source archives, pruning dist artifacts older than 2 versions
 pack:
     pnpm run pack
 

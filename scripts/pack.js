@@ -2,11 +2,12 @@
 import { promises as fs } from "fs";
 import { ZipWriter } from "web-jszipp";
 import ChromeExtension from "crx";
-import { execSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import manifest from "../src/manifest.json" with { type: "json" };
 import packageInfo from "../package.json" with { type: "json" };
 import semver from "semver";
 import { resolveAgentEnabled, applyAgentManifest, firefoxRelease } from "./build-config.js";
+import { pruneDist } from "./prune-dist.js";
 
 // ============================================================================
 
@@ -176,4 +177,12 @@ try {
     .then((crxBuffer) => fs.writeFile(`./dist/${packageInfo.name}-${packageInfo.version}-chrome.crx`, crxBuffer));
 } catch (err) {
   console.warn(`skipping crx build: ${err.message}`);
+}
+
+// 源码包（Mozilla 审核用）
+execFileSync(process.execPath, ["./scripts/mozilla-source.mjs"], { stdio: "inherit" });
+
+// 只保留当前及之前两个版本的产物
+for (const file of pruneDist({ name: packageInfo.name, currentVersion: packageInfo.version })) {
+  console.log(`removed dist/${file}`);
 }
