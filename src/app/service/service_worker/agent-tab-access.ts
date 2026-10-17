@@ -2,7 +2,12 @@
 
 import { agentNotesService, noteUrl } from "@App/pkg/browser-control/agent-notes";
 import { agentWindowService } from "@App/pkg/browser-control/agent-window";
-import { renderAgentOverlay, TabIndicatorController } from "@App/pkg/browser-control/tab-indicator";
+import {
+  AGENT_OVERLAY_CORNER_KEY,
+  type OverlayCorner,
+  renderAgentOverlay,
+  TabIndicatorController,
+} from "@App/pkg/browser-control/tab-indicator";
 import {
   AGENT_NOTES_MESSAGE,
   AGENT_STOP_TAB_MESSAGE,
@@ -25,10 +30,18 @@ export const agentTabIndicators = new TabIndicatorController(
     setOverlay: async (tabId, overlay) => {
       const tab = await chrome.tabs.get(tabId);
       if (!/^https?:/.test(tab.url ?? "")) return;
+      const stored = await chrome.storage.local.get(AGENT_OVERLAY_CORNER_KEY);
       await chrome.scripting.executeScript({
         target: { tabId },
         func: renderAgentOverlay,
-        args: [overlay, AGENT_STOP_TAB_MESSAGE],
+        args: [
+          overlay,
+          {
+            stopMessage: AGENT_STOP_TAB_MESSAGE,
+            corner: stored[AGENT_OVERLAY_CORNER_KEY] as OverlayCorner | undefined,
+            cornerKey: AGENT_OVERLAY_CORNER_KEY,
+          },
+        ],
       });
     },
   },

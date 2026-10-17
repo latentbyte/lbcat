@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TabIndicator } from "./agent-window";
-import { presentIndicator, TabIndicatorController, type TabIndicatorDependencies } from "./tab-indicator";
+import {
+  type OverlayCorner,
+  presentIndicator,
+  renderAgentOverlay,
+  TabIndicatorController,
+  type TabIndicatorDependencies,
+} from "./tab-indicator";
 
 function owned(sessionId: string, label?: string, paused = false): TabIndicator {
   return { kind: "owned", sessionId, label, paused, expiresAt: 5000 };
@@ -148,5 +154,88 @@ describe("页面便签徽标", () => {
     instance.refresh(4);
     expect(deps.setBadge).toHaveBeenCalledWith(4, expect.objectContaining({ text: "1" }));
     expect(deps.setOverlay).not.toHaveBeenCalled();
+  });
+});
+
+describe("代理覆盖层拖动", () => {
+  const CORNER_KEY = "test.overlayCorner";
+  const view = { label: "claude", color: "#E53935", paused: false };
+
+  function render(corner?: OverlayCorner) {
+    let root: ShadowRoot | undefined;
+    const attach = Element.prototype.attachShadow;
+    const spy = vi.spyOn(Element.prototype, "attachShadow").mockImplementation(function (this: Element, init) {
+      root = attach.call(this, init);
+      return root;
+    });
+    renderAgentOverlay(view, { stopMessage: "stop", corner, cornerKey: CORNER_KEY });
+    spy.mockRestore();
+    const pill = root!.querySelector<HTMLElement>("[data-pill]")!;
+    return { pill };
+  }
+
+  // jsdom 不做布局，按当前锚定的角落与平移推算标签位置
+  function layout(pill: HTMLElement) {
+    pill.setPointerCapture = () => {};
+    pill.getBoundingClientRect = () => {
+      const [dx, dy] = (pill.style.transform.match(/-?[\d.]+/g) ?? ["0", "0"]).map(Number);
+      const left = pill.style.left === "auto" ? window.innerWidth - 10 - 100 : 10;
+      const top = pill.style.top === "auto" ? window.innerHeight - 10 - 24 : 10;
+      return new DOMRect(left + dx, top + dy, 100, 24);
+    };
+  }
+
+  function pointer(target: Element, type: string, x: number, y: number) {
+    target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }));
+  }
+
+  function anchors(pill: HTMLElement) {
+    const { top, right, bottom, left } = pill.style;
+    return { top, right, bottom, left };
+  }
+
+  it("默认停靠在右下角并按保存的角落渲染", () => {
+    expect(anchors(render().pill)).toEqual({ top: "auto", right: "10px", bottom: "10px", left: "auto" });
+    expect(anchors(render("top-left").pill)).toEqual({ top: "10px", right: "auto", bottom: "auto", left: "10px" });
+  });
+
+  it("拖过屏幕中线后吸附到最近的角落并保存", async () => {
+    const { pill } = render();
+    layout(pill);
+    const now = vi.spyOn(performance, "now");
+    now.mockReturnValue(0);
+    pointer(pill, "pointerdown", 900, 740);
+    now.mockReturnValue(1000);
+    pointer(pill, "pointermove", 100, 100);
+    now.mockReturnValue(2000);
+    pointer(pill, "pointerup", 100, 100);
+    now.mockRestore();
+    expect(anchors(pill)).toEqual({ top: "10px", right: "auto", bottom: "auto", left: "10px" });
+    expect((await chrome.storage.local.get(CORNER_KEY))[CORNER_KEY]).toBe("top-left");
+  });
+
+  it("快速甩动时按速度方向选择角落", () => {
+    const { pill } = render();
+    layout(pill);
+    const now = vi.spyOn(performance, "now");
+    now.mockReturnValue(0);
+    pointer(pill, "pointerdown", 900, 740);
+    now.mockReturnValue(40);
+    pointer(pill, "pointermove", 900, 600);
+    now.mockReturnValue(50);
+    pointer(pill, "pointerup", 900, 600);
+    now.mockRestore();
+    expect(anchors(pill)).toEqual({ top: "10px", right: "10px", bottom: "auto", left: "auto" });
+  });
+
+  it("从按钮开始的指针操作不会拖动标签", () => {
+    const { pill } = render();
+    layout(pill);
+    const stop = pill.querySelector("button")!;
+    pointer(stop, "pointerdown", 900, 740);
+    pointer(pill, "pointermove", 100, 100);
+    pointer(pill, "pointerup", 100, 100);
+    expect(pill.style.transform).toBe("");
+    expect(anchors(pill)).toEqual({ top: "auto", right: "10px", bottom: "10px", left: "auto" });
   });
 });
