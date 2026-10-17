@@ -3,7 +3,7 @@
 @unocss;
 
 * {
-  scrollbar-color: inherit;
+    scrollbar-color: inherit;
 }
 
 html {
@@ -16,45 +16,43 @@ html.dark {
   --body-text-color: #ffffffe6;
 }
 
-html,
-body {
-  /* lowest priority */
+html, body { /* lowest priority */
   background-color: var(--color-bg-2, var(--body-background-color));
   color: var(--color-text-1, var(--body-text-color));
 }
 
 body {
-  scrollbar-color: var(--color-scrollbar-thumb) var(--color-scrollbar-track);
+    scrollbar-color: var(--color-scrollbar-thumb) var(--color-scrollbar-track);
 }
 
-body[arco-theme="dark"] {
-  --un-default-border-color: var(--color-border-2);
-  --color-scrollbar-thumb: #6b6b6b;
-  --color-scrollbar-track: #2d2d2d;
+body[arco-theme='dark'] {
+    --un-default-border-color: var(--color-border-2);
+    --color-scrollbar-thumb: #6b6b6b;
+    --color-scrollbar-track: #2d2d2d;
 }
 
-body[arco-theme="light"] {
-  --color-scrollbar-thumb: #6b6b6b;
-  --color-scrollbar-track: #f0f0f0;
+body[arco-theme='light'] {
+    --color-scrollbar-thumb: #6b6b6b;
+    --color-scrollbar-track: #f0f0f0;
 }
 
 #root {
-  overscroll-behavior: none;
-  contain: content;
-  overflow: auto;
+    overscroll-behavior: none;
+    contain: content;
+    overflow: auto;
 }
 
 :root {
-  --sc-zero-1: 0;
-  --sc-zero-2: 0;
-  --sc-zero-3: 0;
-  --sc-zero-4: 0;
+	--sc-zero-1: 0;
+	--sc-zero-2: 0;
+	--sc-zero-3: 0;
+	--sc-zero-4: 0;
 }
 
 /* 自定义 .sc-inset-0 避免打包成 inset: 0 使旧浏览器布局错位 */
 .sc-inset-0 {
-  top: var(--sc-zero-1);
-  left: var(--sc-zero-2);
-  right: var(--sc-zero-3);
-  bottom: var(--sc-zero-4);
+	top: var(--sc-zero-1);
+	left: var(--sc-zero-2);
+	right: var(--sc-zero-3);
+	bottom: var(--sc-zero-4);
 }

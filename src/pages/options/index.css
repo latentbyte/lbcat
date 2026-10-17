@@ -79,6 +79,7 @@ h6.arco-typography {
   .arco-table-border .arco-table-th:first-child,
   .arco-table-border .arco-table-td:first-child {
     border-left: none !important;
+
   }
 
   /* 卡片视图样式 */
@@ -94,4 +95,5 @@ h6.arco-typography {
   .script-card-grid {
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   }
+
 }
