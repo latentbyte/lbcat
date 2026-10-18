@@ -63,6 +63,11 @@ func TestPageViewportWindowManager(t *testing.T) {
 			json.RawMessage(`{"data":{"tabId":12,"windowId":7,"width":1312,"height":900,"scope":"window","titleMarker":"[bctl 7] "}}`),
 			"1012|floating|[bctl 7] Example Domain\n", false,
 			[][]string{listArgs, {"layout", "--window-id", "1012", "tiling"}}, 1, "viewport 1312x900"},
+		{"窗口隐藏时页面尚未重新布局", map[string]string{"width": "390", "height": "844"},
+			json.RawMessage(`{"data":{"tabId":12,"windowId":7,"width":1512,"height":950,"exact":false,"deferred":true,` +
+				`"scope":"window","titleMarker":"[bctl 7] "}}`),
+			"1012|floating|[bctl 7] Example Domain\n", false, [][]string{listArgs}, 1,
+			"viewport 1512x950" + viewportDeferredNote},
 		{"Chrome 按标签模拟时不调用窗口管理器", map[string]string{"width": "390", "height": "844"},
 			json.RawMessage(`{"data":{"tabId":12,"windowId":7,"width":390,"height":844,"exact":true,"scope":"tab"}}`),
 			listing, false, nil, 1, "viewport 390x844"},

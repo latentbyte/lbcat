@@ -611,7 +611,14 @@ describe("原生消息并发控制", () => {
       windowsGet.mockImplementation(async () => ({ ...win }));
       windowsUpdate.mockImplementation(async (_id: number, update: Partial<typeof win>) => Object.assign(win, update));
       executeScript.mockImplementation(async () => [
-        { result: { width: win.width - chromeSize.width, height: win.height - chromeSize.height } },
+        {
+          result: {
+            width: win.width - chromeSize.width,
+            height: win.height - chromeSize.height,
+            outerWidth: win.width,
+            outerHeight: win.height,
+          },
+        },
       ]);
       await request("viewport", "page.viewport", { tabId: 101, width: 390, height: 844 });
       expect(windowsUpdate).toHaveBeenNthCalledWith(1, 7, { state: "normal", titlePreface: "[bctl 7] " });
@@ -634,6 +641,24 @@ describe("原生消息并发控制", () => {
       await request("viewport-reset", "page.viewport", { tabId: 101, reset: true });
       expect(windowsUpdate).toHaveBeenLastCalledWith(7, { state: "maximized" });
       expect(responseOf("viewport-reset").data).toMatchObject({ scope: "window", titleMarker: "[bctl 7] " });
+    });
+
+    it("窗口在隐藏的工作区时 Firefox 暂停布局：按页面自身尺寸换算外框并标记 deferred", async () => {
+      const win = { id: 7, state: "normal", left: 1511, top: 950, width: 600, height: 700 };
+      windowsGet.mockImplementation(async () => ({ ...win }));
+      windowsUpdate.mockImplementation(async (_id: number, update: Partial<typeof win>) => Object.assign(win, update));
+      // 页面仍停留在隐藏前的布局
+      executeScript.mockResolvedValue([{ result: { width: 1512, height: 950, outerWidth: 1512, outerHeight: 950 } }]);
+      const done = request("viewport-hidden", "page.viewport", { tabId: 101, width: 390, height: 844 });
+      await vi.runAllTimersAsync();
+      await done;
+      expect(windowsUpdate).toHaveBeenLastCalledWith(7, { width: 390, height: 844 });
+      expect(responseOf("viewport-hidden").data).toMatchObject({
+        width: 1512,
+        height: 950,
+        exact: false,
+        deferred: true,
+      });
     });
 
     // 模拟 Chrome 调试器：视口按 CSS 像素测量，即设备无关像素除以页面缩放

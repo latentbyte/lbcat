@@ -11,6 +11,10 @@ import (
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
 )
 
+// viewportDeferredNote follows the size when the window was resized but the browser has not laid the page out yet,
+// as Firefox does while the window is on a hidden workspace; the reported size is the old one
+const viewportDeferredNote = " (window resized while hidden; the page lays out at the new size once the agent window is shown)"
+
 // aerospaceCommand runs the AeroSpace CLI; tests replace it
 var aerospaceCommand = func(args ...string) ([]byte, error) {
 	path, err := exec.LookPath("aerospace")

@@ -537,16 +537,19 @@ reached size is reported.`,
 		}
 		var result struct {
 			Data struct {
-				Width  int   `json:"width"`
-				Height int   `json:"height"`
-				Exact  *bool `json:"exact"`
+				Width    int   `json:"width"`
+				Height   int   `json:"height"`
+				Exact    *bool `json:"exact"`
+				Deferred bool  `json:"deferred"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(resp, &result); err != nil {
 			return fmt.Errorf("decoding page.viewport response: %w", err)
 		}
 		line := fmt.Sprintf("viewport %dx%d", result.Data.Width, result.Data.Height)
-		if result.Data.Exact != nil && !*result.Data.Exact {
+		if result.Data.Deferred {
+			line += viewportDeferredNote
+		} else if result.Data.Exact != nil && !*result.Data.Exact {
 			requested := func(size, actual int) int {
 				if size > 0 {
 					return size

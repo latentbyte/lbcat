@@ -5,7 +5,13 @@ import { withNativeWindowOperation } from "./capture";
 
 export type ViewportSize = { width: number; height: number };
 export type ViewportTarget = { width?: number; height?: number };
-export type ViewportResult = ViewportSize & { scope: "tab" | "window"; exact?: boolean; titleMarker?: string };
+export type ViewportResult = ViewportSize & {
+  scope: "tab" | "window";
+  exact?: boolean;
+  // 窗口已改尺寸但页面未重新布局（Firefox 在隐藏的窗口中暂停布局），窗口显示后生效
+  deferred?: boolean;
+  titleMarker?: string;
+};
 
 type WindowBounds = Pick<chrome.windows.Window, "state" | "left" | "top" | "width" | "height">;
 
@@ -16,14 +22,42 @@ const SAVED_BOUNDS_KEY = "browserControl.viewportBounds";
 const emulatedTabs = new Map<number, () => Promise<void>>();
 let watchingDetach = false;
 
-export async function measureViewport(tabId: number): Promise<ViewportSize> {
+type PageSize = ViewportSize & { outerWidth: number; outerHeight: number };
+
+async function measurePage(tabId: number): Promise<PageSize> {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
-    func: () => ({ width: window.innerWidth, height: window.innerHeight }),
+    func: () => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      outerWidth: window.outerWidth,
+      outerHeight: window.outerHeight,
+    }),
   });
   const size = results?.[0]?.result;
   if (!size) throw new Error("viewport measurement produced no result");
   return size;
+}
+
+export async function measureViewport(tabId: number): Promise<ViewportSize> {
+  const { width, height } = await measurePage(tabId);
+  return { width, height };
+}
+
+// 页面看到的窗口外框（CSS 像素）与浏览器报告的不符，说明页面还停留在旧布局
+async function layoutDeferred(tabId: number, windowId: number): Promise<boolean> {
+  const [win, page, zoom] = await Promise.all([
+    chrome.windows.get(windowId),
+    measurePage(tabId),
+    chrome.tabs.getZoom(tabId),
+  ]);
+  const off = (actual: number | undefined, css: number) =>
+    actual !== undefined && Math.abs(actual - Math.round(css * zoom)) > 1;
+  return off(win.width, page.outerWidth) || off(win.height, page.outerHeight);
+}
+
+function withDeferred<T extends object>(result: T, deferred: boolean): T & { deferred?: true } {
+  return deferred ? { ...result, deferred: true } : result;
 }
 
 export function agentWindowTitleMarker(windowId: number): string {
@@ -81,7 +115,10 @@ export async function resetViewport(tabId: number, windowId: number): Promise<Vi
     delete saved[windowId];
     await chrome.storage.session.set({ [SAVED_BOUNDS_KEY]: saved });
   });
-  return { ...(await measureViewport(tabId)), scope: "window", titleMarker: agentWindowTitleMarker(windowId) };
+  return withDeferred(
+    { ...(await measureViewport(tabId)), scope: "window" as const, titleMarker: agentWindowTitleMarker(windowId) },
+    await layoutDeferred(tabId, windowId)
+  );
 }
 
 // 只改视口尺寸：保留设备像素比，不开启移动端视口、触摸或 UA，与窗口方式的效果一致
@@ -135,16 +172,20 @@ async function resizeAgentWindow(tabId: number, windowId: number, target: Viewpo
     const prepare: chrome.windows.UpdateInfo & { titlePreface: string } = { titlePreface: titleMarker };
     if (original.state !== "normal") prepare.state = "normal";
     await chrome.windows.update(windowId, prepare);
-    const win = await chrome.windows.get(windowId);
-    const before = await measureViewport(tabId);
+    // 外框按页面自身的 outer/inner 差值换算：隐藏的窗口里页面布局可能落后于 windows.get 报告的尺寸。
     // 窗口尺寸以屏幕像素计，视口以 CSS 像素计，二者相差页面缩放
+    const page = await measurePage(tabId);
     const zoom = await chrome.tabs.getZoom(tabId);
-    const outer = (current: number | undefined, size: number | undefined, inner: number) =>
-      size === undefined ? current : Math.round((current ?? 0) + (size - inner) * zoom);
+    const outer = (size: number | undefined, frame: number) =>
+      size === undefined ? undefined : Math.round((size + frame) * zoom);
     await chrome.windows.update(windowId, {
-      width: outer(win.width, target.width, before.width),
-      height: outer(win.height, target.height, before.height),
+      width: outer(target.width, page.outerWidth - page.width),
+      height: outer(target.height, page.outerHeight - page.height),
     });
-    return { ...(await settledViewport(tabId, target)), scope: "window" as const, titleMarker };
+    const settled = await settledViewport(tabId, target);
+    return withDeferred(
+      { ...settled, scope: "window" as const, titleMarker },
+      !settled.exact && (await layoutDeferred(tabId, windowId))
+    );
   });
 }

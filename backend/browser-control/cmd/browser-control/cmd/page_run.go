@@ -126,9 +126,16 @@ func summarizeStep(action string, data json.RawMessage) (string, error) {
 		}
 		return "\n" + strings.TrimRight(response.Body, "\n"), nil
 	case "viewport":
-		var size struct{ Width, Height int }
+		var size struct {
+			Width, Height int
+			Deferred      bool
+		}
 		err := json.Unmarshal(data, &size)
-		return fmt.Sprintf(" %dx%d", size.Width, size.Height), err
+		line := fmt.Sprintf(" %dx%d", size.Width, size.Height)
+		if size.Deferred {
+			line += viewportDeferredNote
+		}
+		return line, err
 	}
 	var result pageResult
 	if err := json.Unmarshal(data, &result); err != nil {

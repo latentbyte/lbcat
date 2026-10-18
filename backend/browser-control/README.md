@@ -241,7 +241,9 @@ touch, device pixel ratio, or user agent emulation. Tabs outside the agent windo
   floats that window so tiling does not undo the resize, and tiles it again on `--reset`, which also restores the
   window's original size. Firefox windows stop near 500px wide.
 
-The reached size is reported with `exact: false` when it differs.
+The reached size is reported with `exact: false` when it differs. Firefox does not lay out a window on a hidden
+workspace: the window is resized, but the page keeps its old size until the window is shown, reported as
+`deferred: true` with that old size.
 
 ## Human-operated tab switchers
 
