@@ -598,22 +598,103 @@ describe("原生消息并发控制", () => {
       expect(responseOf("push-plain").data).not.toHaveProperty("reloadedTabs");
     });
 
-    it("调整代理窗口使页面视口达到目标尺寸", async () => {
-      const win = { id: 7, state: "maximized", width: 1200, height: 900 };
+    it("无 debugger 时调整代理窗口使页面视口达到目标尺寸，重置后恢复原窗口", async () => {
+      const win = { id: 7, state: "maximized", left: 0, top: 0, width: 1200, height: 900 };
       const chromeSize = { width: 200, height: 160 };
+      const session: Record<string, unknown> = {};
+      Object.assign(chrome.storage, {
+        session: {
+          get: vi.fn(async (key: string) => (key in session ? { [key]: structuredClone(session[key]) } : {})),
+          set: vi.fn(async (value: Record<string, unknown>) => Object.assign(session, structuredClone(value))),
+        },
+      });
       windowsGet.mockImplementation(async () => ({ ...win }));
       windowsUpdate.mockImplementation(async (_id: number, update: Partial<typeof win>) => Object.assign(win, update));
       executeScript.mockImplementation(async () => [
         { result: { width: win.width - chromeSize.width, height: win.height - chromeSize.height } },
       ]);
       await request("viewport", "page.viewport", { tabId: 101, width: 390, height: 844 });
-      expect(windowsUpdate).toHaveBeenNthCalledWith(1, 7, { state: "normal" });
+      expect(windowsUpdate).toHaveBeenNthCalledWith(1, 7, { state: "normal", titlePreface: "[bctl 7] " });
       expect(windowsUpdate).toHaveBeenNthCalledWith(2, 7, { width: 590, height: 1004 });
-      expect(responseOf("viewport").data).toEqual({ tabId: 101, windowId: 7, width: 390, height: 844, exact: true });
+      expect(responseOf("viewport").data).toEqual({
+        tabId: 101,
+        windowId: 7,
+        width: 390,
+        height: 844,
+        exact: true,
+        scope: "window",
+        titleMarker: "[bctl 7] ",
+      });
 
       await request("viewport-read", "page.viewport", { tabId: 101 });
       expect(windowsUpdate).toHaveBeenCalledTimes(2);
-      expect(responseOf("viewport-read").data).toMatchObject({ width: 390, height: 844 });
+      expect(responseOf("viewport-read").data).toMatchObject({ width: 390, height: 844, scope: "window" });
+
+      await request("viewport-again", "page.viewport", { tabId: 101, width: 400 });
+      await request("viewport-reset", "page.viewport", { tabId: 101, reset: true });
+      expect(windowsUpdate).toHaveBeenLastCalledWith(7, { state: "maximized" });
+      expect(responseOf("viewport-reset").data).toMatchObject({ scope: "window", titleMarker: "[bctl 7] " });
+    });
+
+    it("Chrome 以 CDP 按标签模拟视口尺寸，不调整窗口，截图复用调试连接", async () => {
+      let emulated: { width: number; height: number } | undefined;
+      const attach = vi.fn().mockResolvedValue(undefined);
+      const detach = vi.fn().mockResolvedValue(undefined);
+      const sendCommand = vi.fn(async (_target: { tabId: number }, method: string, params?: object) => {
+        if (method === "Emulation.setDeviceMetricsOverride") {
+          const { width, height } = params as { width: number; height: number };
+          emulated = { width, height };
+        }
+        if (method === "Emulation.clearDeviceMetricsOverride") emulated = undefined;
+        return method === "Page.captureScreenshot" ? { data: "shot" } : {};
+      });
+      Object.assign(chrome, {
+        debugger: { attach, detach, sendCommand, onDetach: { addListener: vi.fn() } },
+        permissions: { contains: vi.fn().mockResolvedValue(true) },
+      });
+      Reflect.deleteProperty(chrome.tabs, "captureTab");
+      executeScript.mockImplementation(async () => [{ result: emulated ?? { width: 1280, height: 720 } }]);
+
+      await request("emulate", "page.viewport", { tabId: 101, width: 390, height: 844 });
+      expect(sendCommand).toHaveBeenCalledWith({ tabId: 101 }, "Emulation.setDeviceMetricsOverride", {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 0,
+        mobile: false,
+      });
+      expect(windowsUpdate).not.toHaveBeenCalled();
+      expect(responseOf("emulate").data).toEqual({
+        tabId: 101,
+        windowId: 7,
+        width: 390,
+        height: 844,
+        exact: true,
+        scope: "tab",
+      });
+
+      await request("emulate-width", "page.viewport", { tabId: 101, width: 375 });
+      expect(sendCommand).toHaveBeenLastCalledWith({ tabId: 101 }, "Emulation.setDeviceMetricsOverride", {
+        width: 375,
+        height: 844,
+        deviceScaleFactor: 0,
+        mobile: false,
+      });
+
+      await request("emulated-shot", "page.screenshot", { tabId: 101 });
+      expect(responseOf("emulated-shot").data).toMatchObject({ width: 375, height: 844 });
+      expect(attach).toHaveBeenCalledTimes(1);
+      expect(detach).not.toHaveBeenCalled();
+
+      await request("emulate-reset", "page.viewport", { tabId: 101, reset: true });
+      expect(sendCommand).toHaveBeenLastCalledWith({ tabId: 101 }, "Emulation.clearDeviceMetricsOverride");
+      expect(detach).toHaveBeenCalledTimes(1);
+      expect(responseOf("emulate-reset").data).toEqual({
+        tabId: 101,
+        windowId: 7,
+        width: 1280,
+        height: 720,
+        scope: "tab",
+      });
     });
 
     it("视口调整不改变代理窗口之外的个人窗口", async () => {
@@ -1302,7 +1383,7 @@ describe("原生消息并发控制", () => {
       .fn()
       .mockImplementation(async (target: { tabId: number }) => ({ data: "tab-" + target.tabId }));
     Object.assign(chrome, {
-      debugger: { attach, detach, sendCommand },
+      debugger: { attach, detach, sendCommand, onDetach: { addListener: vi.fn() } },
       permissions: { contains: vi.fn().mockResolvedValue(true) },
     });
     const done = Promise.all([

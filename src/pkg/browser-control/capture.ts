@@ -1,4 +1,4 @@
-import { withDebugger } from "@App/app/service/agent/service_worker/dom_cdp";
+import { debuggerAvailable, withDebugger } from "@App/app/service/agent/service_worker/dom_cdp";
 import { BrowserControlScopeError } from "./agent-window";
 import { withNativeTabOperation } from "./tab-operation";
 
@@ -126,10 +126,7 @@ export function captureNativeTab(
         return { dataUrl, width: area.width, height: area.height };
       }
       // Chrome 有 debugger 权限时直接按标签捕获，不抢焦点也不滚动页面
-      if (
-        typeof chrome.debugger?.attach === "function" &&
-        (await chrome.permissions.contains({ permissions: ["debugger"] }))
-      ) {
+      if (await debuggerAvailable()) {
         const area = await captureArea(tabId, options);
         const target = { tabId };
         return withDebugger(tabId, async () => {

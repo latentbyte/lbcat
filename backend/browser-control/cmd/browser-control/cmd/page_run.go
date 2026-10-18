@@ -200,7 +200,13 @@ Navigating actions wait for load unless "wait": "none". "timeout" takes a durati
 		var failure error
 		failedStep := 0
 		for i, step := range steps {
-			resp, err := c.RequestWithTimeout(target, cli.ExtCommand{Cmd: step.cmd, Args: step.args}, step.timeout+pageRequestMargin)
+			var resp json.RawMessage
+			var err error
+			if step.action == "viewport" {
+				resp, err = requestViewport(c, target, step.args, cmd.ErrOrStderr())
+			} else {
+				resp, err = c.RequestWithTimeout(target, cli.ExtCommand{Cmd: step.cmd, Args: step.args}, step.timeout+pageRequestMargin)
+			}
 			var line string
 			if err == nil {
 				var envelope struct {

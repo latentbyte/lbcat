@@ -229,10 +229,19 @@ accept|dismiss` answers alert/confirm/prompt without showing them (default `pass
 later commands). Buffers hold 500 entries per tab; monitors end when the extension background restarts
 (`MONITOR_NOT_STARTED`). No debugger is attached, so Chrome shows no debugging banner.
 
-`page viewport <tab> [--width W] [--height H]` resizes the agent window so the page viewport is W x H CSS pixels (page
-zoom accounted for), un-maximizing it first; with neither flag it prints the current viewport. It affects every tab in
-the agent window and refuses tabs elsewhere (`VIEWPORT_WINDOW_DENIED`). Browsers and screens clamp window sizes, so the
-reached size is reported with `exact: false` when it differs.
+`page viewport <tab> [--width W] [--height H] [--reset]` sets the page viewport to W x H CSS pixels (one flag keeps
+the other dimension); `--reset` undoes it; with no flags it prints the current viewport. Only the size changes: no
+touch, device pixel ratio, or user agent emulation. Tabs outside the agent window are refused
+(`VIEWPORT_WINDOW_DENIED`). The response's `scope` says what changed:
+
+- `tab` (Chrome): CDP `Emulation.setDeviceMetricsOverride` on that tab only, at any width. The debugger stays
+  attached, so Chrome shows its debugging banner, until `--reset`, the tab closes, or the user cancels the banner.
+- `window` (Firefox, which has no emulation API): the agent window is un-maximized and resized, affecting all its
+  tabs, and its title gets the `titleMarker` prefix (`[bctl <windowId>] `). When `aerospace` is on `PATH`, the CLI
+  floats that window so tiling does not undo the resize, and tiles it again on `--reset`, which also restores the
+  window's original size. Firefox windows stop near 500px wide.
+
+The reached size is reported with `exact: false` when it differs.
 
 ## Human-operated tab switchers
 

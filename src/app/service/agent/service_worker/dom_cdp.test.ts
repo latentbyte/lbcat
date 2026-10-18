@@ -5,6 +5,7 @@ const mockSendCommand = vi.fn();
 const mockAttach = vi.fn().mockResolvedValue(undefined);
 const mockDetach = vi.fn().mockResolvedValue(undefined);
 const mockTabsGet = vi.fn();
+let onDetach: (source: { tabId?: number }) => void = () => {};
 
 const savedChrome = globalThis.chrome;
 vi.stubGlobal("chrome", {
@@ -13,11 +14,21 @@ vi.stubGlobal("chrome", {
     detach: mockDetach,
     sendCommand: mockSendCommand,
     onEvent: { addListener: vi.fn(), removeListener: vi.fn() },
+    onDetach: { addListener: (listener: typeof onDetach) => (onDetach = listener) },
   },
   tabs: { get: mockTabsGet },
 });
 
-import { cdpClick, withDebugger, cdpFill, cdpScreenshot } from "./dom_cdp";
+import {
+  acquireDebugger,
+  cdpClick,
+  cdpFill,
+  cdpScreenshot,
+  cdpStartMonitor,
+  cdpStopMonitor,
+  releaseDebugger,
+  withDebugger,
+} from "./dom_cdp";
 
 afterAll(() => {
   vi.stubGlobal("chrome", savedChrome);
@@ -92,5 +103,34 @@ describe("agent_dom_cdp", () => {
       return Promise.resolve({});
     });
     await expect(cdpClick(999, "#nonexistent")).rejects.toThrow(/Element not found/);
+  });
+
+  it("同一标签的多个持有者共享一次 attach，最后一个释放时才 detach", async () => {
+    await acquireDebugger(31);
+    await withDebugger(31, async () => "shot");
+    await cdpStartMonitor(31);
+    await cdpStopMonitor(31);
+    expect(mockAttach).toHaveBeenCalledTimes(1);
+    expect(mockDetach).not.toHaveBeenCalled();
+    await releaseDebugger(31);
+    expect(mockDetach).toHaveBeenCalledTimes(1);
+  });
+
+  it("并发获取只 attach 一次，attach 失败后可重新获取", async () => {
+    mockAttach.mockRejectedValueOnce(new Error("Cannot access a chrome:// URL"));
+    await expect(Promise.all([acquireDebugger(32), acquireDebugger(32)])).rejects.toThrow(/chrome:/);
+    expect(mockAttach).toHaveBeenCalledTimes(1);
+    await acquireDebugger(32);
+    expect(mockAttach).toHaveBeenCalledTimes(2);
+    await releaseDebugger(32);
+    expect(mockDetach).toHaveBeenCalledTimes(1);
+  });
+
+  it("浏览器终止调试会话后重新 attach", async () => {
+    await acquireDebugger(33);
+    onDetach({ tabId: 33 });
+    await withDebugger(33, async () => "shot");
+    expect(mockAttach).toHaveBeenCalledTimes(2);
+    expect(mockDetach).toHaveBeenCalledTimes(1);
   });
 });

@@ -4,7 +4,7 @@
 
 import type { ActionResult, MonitorResult, ScreenshotOptions } from "@App/app/service/agent/core/types";
 
-// 活跃的 monitor 会话，key 为 tabId（提前声明，withDebugger 需要检查）
+// 活跃的 monitor 会话，key 为 tabId
 type MonitorEventListener = (source: chrome.debugger.Debuggee, method: string, params?: any) => void;
 
 type CapturedNode = {
@@ -23,24 +23,58 @@ type MonitorSession = {
 
 const activeMonitors = new Map<number, MonitorSession>();
 
-// 生命周期管理：attach → 执行 → detach
-// 如果该 tabId 已有活跃的 monitor（已 attach），则复用连接，不做 attach/detach
-export async function withDebugger<T>(tabId: number, fn: (tabId: number) => Promise<T>): Promise<T> {
-  const hasMonitor = activeMonitors.has(tabId);
-  if (!hasMonitor) {
-    await chrome.debugger.attach({ tabId }, "1.3");
+// 同一标签可能同时被截图、monitor 与视口模拟使用：按持有者计数共享一次 attach，最后一个释放时 detach
+const attachments = new Map<number, { holders: number; attached: Promise<void> }>();
+let watchingDetach = false;
+
+export async function acquireDebugger(tabId: number): Promise<void> {
+  if (!watchingDetach) {
+    watchingDetach = true;
+    // 标签关闭或用户取消调试横幅时浏览器会终止会话，下次需要重新 attach
+    chrome.debugger.onDetach.addListener((source) => {
+      if (source.tabId !== undefined) attachments.delete(source.tabId);
+    });
   }
+  let entry = attachments.get(tabId);
+  if (!entry) {
+    entry = { holders: 0, attached: chrome.debugger.attach({ tabId }, "1.3") };
+    attachments.set(tabId, entry);
+  }
+  entry.holders++;
+  try {
+    await entry.attached;
+  } catch (error) {
+    if (attachments.get(tabId) === entry) attachments.delete(tabId);
+    throw error;
+  }
+}
+
+export async function releaseDebugger(tabId: number): Promise<void> {
+  const entry = attachments.get(tabId);
+  if (!entry || --entry.holders > 0) return;
+  attachments.delete(tabId);
+  try {
+    await chrome.debugger.detach({ tabId });
+  } catch {
+    // tab 可能已经关闭
+  }
+}
+
+// 生命周期管理：attach → 执行 → detach；已有其他持有者时复用连接
+export async function withDebugger<T>(tabId: number, fn: (tabId: number) => Promise<T>): Promise<T> {
+  await acquireDebugger(tabId);
   try {
     return await fn(tabId);
   } finally {
-    if (!hasMonitor) {
-      try {
-        await chrome.debugger.detach({ tabId });
-      } catch {
-        // tab 可能已经关闭
-      }
-    }
+    await releaseDebugger(tabId);
   }
+}
+
+// 扩展可在当前浏览器使用 chrome.debugger（Chrome 系浏览器）
+export async function debuggerAvailable(): Promise<boolean> {
+  return (
+    typeof chrome.debugger?.attach === "function" && (await chrome.permissions.contains({ permissions: ["debugger"] }))
+  );
 }
 
 // 发送 CDP 命令的封装
@@ -248,8 +282,7 @@ export async function cdpStartMonitor(tabId: number): Promise<void> {
   const dialogs: Array<{ type: string; message: string }> = [];
   const capturedNodes: CapturedNode[] = [];
 
-  // attach debugger
-  await chrome.debugger.attach({ tabId }, "1.3");
+  await acquireDebugger(tabId);
   await sendCommand(tabId, "Page.enable");
   await sendCommand(tabId, "DOM.enable");
 
@@ -373,11 +406,7 @@ export async function cdpStopMonitor(tabId: number): Promise<MonitorResult> {
   } catch {
     /* 忽略 */
   }
-  try {
-    await chrome.debugger.detach({ tabId });
-  } catch {
-    /* 忽略 */
-  }
+  if (monitor) await releaseDebugger(tabId);
 
   return result;
 }

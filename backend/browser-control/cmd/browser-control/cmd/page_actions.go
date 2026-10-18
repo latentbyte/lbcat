@@ -486,11 +486,15 @@ Refs stay stable for the same element across snapshots and expire when the page 
 
 var pageViewportCmd = &cobra.Command{
 	Use:   "viewport <tab-id>",
-	Short: "Resize the agent window so the tab's viewport has the given CSS size",
-	Long: `Resize the agent window so the page viewport is --width x --height CSS pixels; with neither flag, print the
-current viewport. Resizing affects every tab in the agent window and un-maximizes it. Tabs outside the agent window
-are refused. Browsers enforce a minimum window size, so narrow mobile widths may not be reachable; the actual size is
-reported.`,
+	Short: "Set the tab's viewport to a CSS size, or --reset it",
+	Long: `Set the page viewport to --width x --height CSS pixels (one flag keeps the other dimension); --reset undoes it;
+with no flags, print the current viewport. Only the size changes: no touch, device pixel ratio, or user agent
+emulation. Tabs outside the agent window are refused.
+
+Chrome emulates the size on that tab alone (any width; Chrome shows its debugging banner until --reset). Firefox has
+no emulation API, so the agent window is resized instead, affecting all its tabs; under AeroSpace the window is
+floated so tiling does not undo the resize, and tiled again on --reset. Firefox windows stop near 500px wide; the
+reached size is reported.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tabID, err := parseTabArg(args[0])
@@ -500,11 +504,18 @@ reported.`,
 		request := map[string]any{"tabId": tabID}
 		width, _ := cmd.Flags().GetInt("width")
 		height, _ := cmd.Flags().GetInt("height")
+		reset, _ := cmd.Flags().GetBool("reset")
+		if reset && (width > 0 || height > 0) {
+			return fmt.Errorf("--reset cannot be combined with --width or --height")
+		}
 		if width > 0 {
 			request["width"] = width
 		}
 		if height > 0 {
 			request["height"] = height
+		}
+		if reset {
+			request["reset"] = true
 		}
 		c, err := connectScoped()
 		if err != nil {
@@ -515,7 +526,7 @@ reported.`,
 		if err != nil {
 			return err
 		}
-		resp, err := c.Request(target, cli.ExtCommand{Cmd: "page.viewport", Args: request})
+		resp, err := requestViewport(c, target, request, cmd.ErrOrStderr())
 		if err != nil {
 			return err
 		}
@@ -573,6 +584,7 @@ func init() {
 
 	pageViewportCmd.Flags().Int("width", 0, "target viewport width in CSS pixels")
 	pageViewportCmd.Flags().Int("height", 0, "target viewport height in CSS pixels")
+	pageViewportCmd.Flags().Bool("reset", false, "undo a previous size (Chrome: end emulation; Firefox: restore the window)")
 
 	addWaitFlags(pageReloadCmd)
 	addWaitFlags(tabsCreateCmd)
