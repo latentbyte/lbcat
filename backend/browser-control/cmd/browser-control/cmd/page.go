@@ -254,6 +254,12 @@ var pageScreenshotCmd = &cobra.Command{
 			"fullPage":        fullPage,
 			"allowForeground": foreground,
 		}
+		// 扩展先于 CLI 放弃，确保其超时错误在 CLI 截止前送达
+		extensionTimeout := timeout
+		if timeout > 2*pageRequestMargin {
+			extensionTimeout = timeout - pageRequestMargin
+		}
+		cmdArgs["timeoutMs"] = int(extensionTimeout / time.Millisecond)
 		if selector != "" {
 			cmdArgs["selector"] = selector
 		}

@@ -119,12 +119,13 @@ For an explicitly authorized personal tab, pass `--personal-tab <tab-id>` on eac
 This does not authorize other tabs, change window registration, or bypass another task's lease. Agents must not use
 setup, resume, or override commands to defeat a restriction without the user's instruction.
 
-Different tabs run concurrently. Native page operations on the same tab run in order. A queued `page exec` that expires before
-execution does not run later; already-running JavaScript cannot be cancelled by its timeout. Tabs still share their
-browser profile's cookies and website state.
-An active timeout quarantines the tab: further page execution, content, and capture return `TAB_EXECUTION_PENDING`
-until the original execution settles or a new top-level document commits. Authorized `page reload` remains available
-for recovery. Subframe, hash, and history-state navigation do not clear quarantine. Queued work is rejected rather than
+Different tabs run concurrently. Native page operations on the same tab run in order, and each one (exec, content,
+snapshot, fetch, wait, actions, navigation, screenshot) carries an extension-side timeout that fires before the CLI gives
+up. A queued operation that expires before it starts does not run later; already-running work cannot be cancelled by
+its timeout. Tabs still share their browser profile's cookies and website state.
+An active timeout quarantines the tab: further page operations return `TAB_EXECUTION_PENDING` until the original
+operation settles or a new top-level document commits. Authorized `page reload` bypasses the quarantined queue for
+recovery. A hung in-page read (exec, content, snapshot, fetch, wait) is also released by any top-level reload. Subframe, hash, and history-state navigation do not clear quarantine. Queued work is rejected rather than
 carried into the new document; retry it explicitly. Internal task scopes recover expired sessions without bypassing pause
 or another task's ownership.
 

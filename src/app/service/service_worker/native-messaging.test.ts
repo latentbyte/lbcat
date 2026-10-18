@@ -748,6 +748,18 @@ describe("原生消息并发控制", () => {
       expect(responseOf("wait-empty").error.code).toBe("INVALID_ARGUMENT");
     });
 
+    it("等待期间主文档导航应在新文档上继续等待", async () => {
+      tabsGet.mockResolvedValue({ id: 101, windowId: 7, url: "https://a.test/next", status: "complete" });
+      executeScript.mockImplementationOnce(() => new Promise(() => {}));
+      const waiting = request("wait-across", "page.wait", { tabId: 101, selector: ".welcome", timeoutMs: 2000 });
+      await vi.advanceTimersByTimeAsync(10);
+      for (const listener of commits) listener({ tabId: 101, frameId: 0 });
+      document.body.insertAdjacentHTML("beforeend", `<p class="welcome">Welcome</p>`);
+      await vi.advanceTimersByTimeAsync(300);
+      await waiting;
+      expect(responseOf("wait-across").data).toMatchObject({ matched: { tag: "p" } });
+    });
+
     it("新建标签可等待加载完成并返回状态", async () => {
       let status = "loading";
       tabsGet.mockImplementation(async (id: number) => ({ id, windowId: 7, status }));
@@ -845,6 +857,58 @@ describe("原生消息并发控制", () => {
     );
     release();
     await vi.advanceTimersByTimeAsync(0);
+  });
+
+  function errorOf(id: string) {
+    const call = postMessage.mock.calls.find(([message]) => message.id === id);
+    return call?.[0].payload.error as { code?: string; message: string } | undefined;
+  }
+
+  it("内容读取挂起时应在期限内报错、隔离标签并可经重载恢复", async () => {
+    executeScript.mockImplementationOnce(() => new Promise(() => {}));
+    const content = request("hung-content", "page.content", { tabId: 101, timeoutMs: 5 });
+    await vi.advanceTimersByTimeAsync(6);
+    await content;
+    expect(errorOf("hung-content")?.message).toContain("page.content timed out after 5ms");
+    await request("blocked", "page.exec", { tabId: 101, code: "1" });
+    expect(errorOf("blocked")?.code).toBe("TAB_EXECUTION_PENDING");
+    await request("recovery-reload", "page.reload", { tabId: 101 });
+    expect(tabsReload).toHaveBeenCalledWith(101, { bypassCache: false });
+    for (const listener of commits) listener({ tabId: 101, frameId: 0 });
+    executeScript.mockResolvedValueOnce([{ result: { success: true, value: 2 } }]);
+    await request("after-reload", "page.exec", { tabId: 101, code: "2" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "after-reload", payload: { cmd: "page.exec", data: { result: 2 } } })
+    );
+  });
+
+  it("挂起的快照在用户重载主文档后应释放标签队列", async () => {
+    executeScript.mockImplementationOnce(() => new Promise(() => {}));
+    const snapshot = request("hung-snapshot", "page.snapshot", { tabId: 101 });
+    await vi.advanceTimersByTimeAsync(0);
+    for (const listener of commits) listener({ tabId: 101, frameId: 0 });
+    await snapshot;
+    expect(errorOf("hung-snapshot")?.code).toBe("TAB_DOCUMENT_CHANGED");
+    executeScript.mockResolvedValueOnce([{ result: { success: true, value: 2 } }]);
+    await request("fresh-document", "page.exec", { tabId: 101, code: "2" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "fresh-document", payload: { cmd: "page.exec", data: { result: 2 } } })
+    );
+  });
+
+  it("挂起的页面动作与截图应在调用方期限内报错而非无限占用标签", async () => {
+    executeScript.mockImplementationOnce(() => new Promise(() => {}));
+    const click = request("hung-click", "page.click", { tabId: 101, selector: "button", timeoutMs: 5 });
+    captureTab.mockImplementationOnce(() => new Promise(() => {}));
+    const shot = request("hung-shot", "page.screenshot", { tabId: 102, timeoutMs: 5 });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await Promise.all([click, shot]);
+    expect(errorOf("hung-click")?.message).toContain("page.click timed out");
+    expect(errorOf("hung-shot")?.message).toContain("page.screenshot timed out after 5ms");
+    for (const listener of commits) {
+      listener({ tabId: 101, frameId: 0 });
+      listener({ tabId: 102, frameId: 0 });
+    }
   });
 
   it("人工切换器无需登记代理窗口即可列出普通窗口标签", async () => {

@@ -416,7 +416,13 @@ func TestScreenshotJSONWithOutputSavesFile(t *testing.T) {
 	if err := pageScreenshotCmd.RunE(pageScreenshotCmd, []string{"123"}); err != nil {
 		t.Fatal(err)
 	}
-	waitPageCommandRequests(t, result)
+	requests := waitPageCommandRequests(t, result)
+	var args struct {
+		TimeoutMs int `json:"timeoutMs"`
+	}
+	if err := json.Unmarshal(requests[len(requests)-1].Args, &args); err != nil || args.TimeoutMs != 115_000 {
+		t.Fatalf("screenshot should send its timeout so the extension gives up first: %+v %v", args, err)
+	}
 	if data, err := os.ReadFile(output); err != nil || !bytes.Equal(data, source.Bytes()) {
 		t.Fatalf("screenshot not saved: %v", err)
 	}

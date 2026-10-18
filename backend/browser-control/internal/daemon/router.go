@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
@@ -28,6 +29,9 @@ type pendingRequest struct {
 	originID          string
 	targetID          string
 	switcherSubscribe bool
+	cmd               string
+	tabID             int
+	sentAt            time.Time
 }
 
 // Route handles a single envelope from the given source connection.
@@ -63,7 +67,10 @@ func (rt *Router) routeRequest(src *Conn, env *protocol.Envelope) error {
 	}
 
 	var command struct {
-		Cmd string `json:"cmd"`
+		Cmd  string `json:"cmd"`
+		Args struct {
+			TabID int `json:"tabId"`
+		} `json:"args"`
 	}
 	_ = json.Unmarshal(env.Payload, &command)
 	// remember where to send the response
@@ -71,6 +78,9 @@ func (rt *Router) routeRequest(src *Conn, env *protocol.Envelope) error {
 		originID:          src.ID,
 		targetID:          env.Target,
 		switcherSubscribe: src.Role == protocol.RoleCLI && dst.Role == protocol.RoleBrowser && command.Cmd == "switcher.tabs.subscribe",
+		cmd:               command.Cmd,
+		tabID:             command.Args.TabID,
+		sentAt:            time.Now(),
 	})
 
 	if err := dst.WriteEnvelope(env); err != nil {
@@ -275,6 +285,9 @@ func (rt *Router) ClearPending(connID string) {
 		}
 		if req.originID == connID {
 			rt.pending.Delete(msgID)
+			// 客户端超时放弃的请求：记录命令与标签，便于和之后的迟到响应对应
+			log.Printf("router: %s gave up on id=%s cmd=%s tab=%d target=%s after %s",
+				connID, msgID, req.cmd, req.tabID, req.targetID, time.Since(req.sentAt).Round(time.Millisecond))
 		} else if req.targetID == connID {
 			rt.pending.Delete(msgID)
 			if dst, ok := rt.reg.Get(req.originID); ok {

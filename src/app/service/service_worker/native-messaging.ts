@@ -216,20 +216,6 @@ function subscribeNativeTabs(args: Record<string, unknown>, switcher: boolean): 
   };
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string, onTimeout?: () => void): Promise<T> {
-  if (!timeoutMs || timeoutMs <= 0) return promise;
-  let timer: ReturnType<typeof setTimeout>;
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      timer = setTimeout(() => {
-        onTimeout?.();
-        reject(new Error(`${label} timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-    }),
-  ]).finally(() => clearTimeout(timer));
-}
-
 type HandlerResult = { data: unknown };
 type Handler = (args: Record<string, unknown>) => HandlerResult | Promise<HandlerResult>;
 
@@ -394,6 +380,12 @@ export async function focusNativeTab(tabId: number, requestedWindowId?: number, 
 }
 
 const DEFAULT_LOAD_TIMEOUT_MS = 30_000;
+// 导航类操作在加载超时之外还需注入与静置时间；须小于 CLI 的 5 秒请求余量
+const NAVIGATION_MARGIN_MS = 4_000;
+// 内容与快照的 CLI 默认请求超时为 30 秒，扩展先于其报错
+const DEFAULT_READ_TIMEOUT_MS = 25_000;
+// CLI 截图默认请求超时为 2 分钟
+const DEFAULT_SCREENSHOT_TIMEOUT_MS = 115_000;
 const DEFAULT_ACTION_SETTLE_MS = 300;
 // 注入失败多因导航中文档被替换，等待期间短暂重试
 const WAIT_RETRY_MS = 100;
@@ -496,37 +488,48 @@ async function measureViewport(tabId: number): Promise<{ width: number; height: 
 async function nativePageAction(args: Record<string, unknown>, request: PageActionRequest) {
   const tabId = args.tabId;
   if (typeof tabId !== "number") throw new Error("tabId is required");
-  return withNativeTabOperation(tabId, async () => {
-    await assertNativeTab(args, tabId);
-    let value: Awaited<ReturnType<typeof injectPageAction>> | undefined;
-    const { navigated, tab } = await navigateTab(
-      tabId,
-      async () => {
-        value = await injectPageAction(tabId, request);
-      },
-      {
-        wait: waitMode(args),
-        timeoutMs: timeoutArg(args, DEFAULT_LOAD_TIMEOUT_MS),
-        settleMs: typeof args.settleMs === "number" ? args.settleMs : DEFAULT_ACTION_SETTLE_MS,
-      }
-    );
-    return { data: { ...value, navigated, url: tab.url || tab.pendingUrl || "", title: tab.title || "" } };
-  });
+  const timeoutMs = timeoutArg(args, DEFAULT_LOAD_TIMEOUT_MS);
+  return withNativeTabOperation(
+    tabId,
+    async () => {
+      await assertNativeTab(args, tabId);
+      let value: Awaited<ReturnType<typeof injectPageAction>> | undefined;
+      const { navigated, tab } = await navigateTab(
+        tabId,
+        async () => {
+          value = await injectPageAction(tabId, request);
+        },
+        {
+          wait: waitMode(args),
+          timeoutMs,
+          settleMs: typeof args.settleMs === "number" ? args.settleMs : DEFAULT_ACTION_SETTLE_MS,
+        }
+      );
+      return { data: { ...value, navigated, url: tab.url || tab.pendingUrl || "", title: tab.title || "" } };
+    },
+    { timeoutMs: timeoutMs + NAVIGATION_MARGIN_MS, label: `page.${request.op}` }
+  );
 }
 
-async function nativeNavigate(args: Record<string, unknown>, trigger: (tabId: number) => Promise<unknown>) {
+async function nativeNavigate(
+  args: Record<string, unknown>,
+  label: string,
+  trigger: (tabId: number) => Promise<unknown>
+) {
   const tabId = args.tabId;
   if (typeof tabId !== "number") throw new Error("tabId is required");
-  return withNativeTabOperation(tabId, async () => {
-    await assertNativeTab(args, tabId);
-    const { navigated, tab } = await navigateTab(tabId, () => trigger(tabId), {
-      wait: waitMode(args),
-      timeoutMs: timeoutArg(args, DEFAULT_LOAD_TIMEOUT_MS),
-    });
-    return {
-      data: { tabId, navigated, url: tab.url || tab.pendingUrl || "", title: tab.title || "", status: tab.status },
-    };
-  });
+  const timeoutMs = timeoutArg(args, DEFAULT_LOAD_TIMEOUT_MS);
+  return withNativeTabOperation(
+    tabId,
+    async () => {
+      await assertNativeTab(args, tabId);
+      const { navigated, tab } = await navigateTab(tabId, () => trigger(tabId), { wait: waitMode(args), timeoutMs });
+      return {
+        data: { tabId, navigated, url: tab.url || tab.pendingUrl || "", title: tab.title || "", status: tab.status },
+      };
+    },
+    { timeoutMs: timeoutMs + NAVIGATION_MARGIN_MS, label }
+  );
 }
 
 // 重新加载会话可访问且匹配脚本规则的标签，让推送的新版本立即生效
@@ -540,7 +543,9 @@ async function reloadScriptTabs(args: Record<string, unknown>, script: Script): 
     .filter((tab) => tab.id !== undefined && isUrlIncluded(tab.url || tab.pendingUrl || "", patterns))
     .map((tab) => tab.id!);
   await Promise.all(
-    tabIds.map((tabId) => nativeNavigate({ ...args, tabId }, (id) => chrome.tabs.reload(id, { bypassCache: false })))
+    tabIds.map((tabId) =>
+      nativeNavigate({ ...args, tabId }, "page.reload", (id) => chrome.tabs.reload(id, { bypassCache: false }))
+    )
   );
   return tabIds;
 }
@@ -733,14 +738,19 @@ const handlers: Record<string, Handler> = {
     const format = args.format === "html" || args.format === "markdown" ? args.format : "text";
     const maxChars = typeof args.maxChars === "number" ? args.maxChars : 0;
     if (!tabId) throw new Error("tabId is required");
-    const results = await withNativeTabOperation(tabId, async () => {
-      await assertNativeTab(args, tabId);
-      return chrome.scripting.executeScript({
-        target: { tabId },
-        func: runPageContent,
-        args: [{ selector, format, maxChars }],
-      });
-    });
+    const results = await withNativeTabOperation(
+      tabId,
+      async (operation) => {
+        await assertNativeTab(args, tabId);
+        operation.bindToDocument();
+        return chrome.scripting.executeScript({
+          target: { tabId },
+          func: runPageContent,
+          args: [{ selector, format, maxChars }],
+        });
+      },
+      { timeoutMs: timeoutArg(args, DEFAULT_READ_TIMEOUT_MS), label: "page.content" }
+    );
     const injection = results?.[0];
     if (injection && "error" in injection && injection.error) {
       const error = injection.error;
@@ -757,26 +767,30 @@ const handlers: Record<string, Handler> = {
     const bypassCache = Boolean(args["bypassCache"]);
     if (!tabId) throw new Error("tabId is required");
     await assertNativeTab(args, tabId);
-    // 超时执行仍在运行时队列被隔离，重新加载是恢复手段，不等待加载
-    if (isNativeTabQuarantined(tabId)) {
-      await chrome.tabs.reload(tabId, { bypassCache });
-      return { data: { tabId } };
+    // 超时操作仍在运行时队列被隔离（含排队期间才被隔离），重新加载是恢复手段，不等待加载
+    if (!isNativeTabQuarantined(tabId)) {
+      try {
+        return await nativeNavigate(args, "page.reload", (id) => chrome.tabs.reload(id, { bypassCache }));
+      } catch (error) {
+        if (!(error instanceof BrowserControlScopeError && error.code === "TAB_EXECUTION_PENDING")) throw error;
+      }
     }
-    return nativeNavigate(args, (id) => chrome.tabs.reload(id, { bypassCache }));
+    await chrome.tabs.reload(tabId, { bypassCache });
+    return { data: { tabId } };
   },
 
   async "page.goto"(args) {
     const url = args.url;
     if (typeof url !== "string" || !url) throw new Error("url is required");
-    return nativeNavigate(args, (id) => chrome.tabs.update(id, { url }));
+    return nativeNavigate(args, "page.goto", (id) => chrome.tabs.update(id, { url }));
   },
 
   async "page.back"(args) {
-    return nativeNavigate(args, (id) => chrome.tabs.goBack(id));
+    return nativeNavigate(args, "page.back", (id) => chrome.tabs.goBack(id));
   },
 
   async "page.forward"(args) {
-    return nativeNavigate(args, (id) => chrome.tabs.goForward(id));
+    return nativeNavigate(args, "page.forward", (id) => chrome.tabs.goForward(id));
   },
 
   // 原生消息单帧上限 1 MB，文件内容以 base64 分块先行送达，按 uploadId 拼接
@@ -839,10 +853,15 @@ const handlers: Record<string, Handler> = {
       ...(typeof args.body === "string" ? { body: args.body } : {}),
       ...(typeof args.maxChars === "number" && args.maxChars > 0 ? { maxChars: args.maxChars } : {}),
     };
-    const results = await withNativeTabOperation(tabId, async () => {
-      await assertNativeTab(args, tabId);
-      return chrome.scripting.executeScript({ target: { tabId }, func: runPageFetch, args: [request] });
-    });
+    const results = await withNativeTabOperation(
+      tabId,
+      async (operation) => {
+        await assertNativeTab(args, tabId);
+        operation.bindToDocument();
+        return chrome.scripting.executeScript({ target: { tabId }, func: runPageFetch, args: [request] });
+      },
+      { timeoutMs: request.timeoutMs + 2_000, label: "page.fetch" }
+    );
     const injection = results?.[0];
     if (injection && "error" in injection && injection.error) {
       const error = injection.error;
@@ -859,10 +878,15 @@ const handlers: Record<string, Handler> = {
     if (typeof tabId !== "number") throw new Error("tabId is required");
     const selector = typeof args.selector === "string" && args.selector ? args.selector : undefined;
     const max = typeof args.max === "number" && args.max > 0 ? args.max : 150;
-    const value = await withNativeTabOperation(tabId, async () => {
-      await assertNativeTab(args, tabId);
-      return injectPageAction(tabId, { op: "snapshot", selector, max });
-    });
+    const value = await withNativeTabOperation(
+      tabId,
+      async (operation) => {
+        await assertNativeTab(args, tabId);
+        operation.bindToDocument();
+        return injectPageAction(tabId, { op: "snapshot", selector, max });
+      },
+      { timeoutMs: timeoutArg(args, DEFAULT_READ_TIMEOUT_MS), label: "page.snapshot" }
+    );
     return { data: value.snapshot };
   },
 
@@ -960,13 +984,22 @@ const handlers: Record<string, Handler> = {
         try {
           await assertNativeTab(args, tabId);
           matched = (
-            await withNativeTabOperation(tabId, () =>
-              injectPageAction(tabId, { op: "wait", selector, text, state, timeoutMs: remaining() })
+            await withNativeTabOperation(
+              tabId,
+              async (operation) => {
+                operation.bindToDocument();
+                return injectPageAction(tabId, { op: "wait", selector, text, state, timeoutMs: remaining() });
+              },
+              { timeoutMs: remaining() + 1_000, label: "page.wait" }
             )
           ).matched;
           break;
         } catch (error) {
-          if (error instanceof BrowserControlError || remaining() <= WAIT_RETRY_MS) throw error;
+          // 等待期间主文档提交时在新文档上继续等待
+          const retryable =
+            !(error instanceof BrowserControlError) ||
+            (error instanceof BrowserControlScopeError && error.code === "TAB_DOCUMENT_CHANGED");
+          if (!retryable || remaining() <= WAIT_RETRY_MS) throw error;
           await new Promise((resolve) => setTimeout(resolve, WAIT_RETRY_MS));
         }
       }
@@ -993,19 +1026,16 @@ const handlers: Record<string, Handler> = {
       throw new Error("page.exec supports MAIN only; dynamic evaluation in ISOLATED is blocked by Manifest V3 CSP");
     }
     const expiresAt = Date.now() + timeoutMs;
-    let quarantine: (() => void) | undefined;
-    const result = await withTimeout(
-      withNativeTabOperation(tabId, async (operation) => {
-        if (Date.now() >= expiresAt) throw new Error(`page.exec timed out after ${timeoutMs}ms`);
+    const result = await withNativeTabOperation(
+      tabId,
+      async (operation) => {
         await assertNativeTab(args, tabId);
+        // 校验期间可能已到期，到期后不得再开始执行代码
         if (Date.now() >= expiresAt) throw new Error(`page.exec timed out after ${timeoutMs}ms`);
-        quarantine = operation.quarantine;
         operation.bindToDocument();
         return execInPage(tabId, code, typeof args.maxChars === "number" ? args.maxChars : 0);
-      }),
-      timeoutMs,
-      "page.exec",
-      () => quarantine?.()
+      },
+      { timeoutMs, label: "page.exec" }
     );
     if (!result.success) throw new BrowserControlError(result.code, result.error);
     return {
@@ -1028,6 +1058,7 @@ const handlers: Record<string, Handler> = {
           quality: args["quality"] as number | undefined,
           fullPage: Boolean(args["fullPage"]),
           allowForeground: Boolean(args.allowForeground),
+          timeoutMs: timeoutArg(args, DEFAULT_SCREENSHOT_TIMEOUT_MS),
         },
         async () => {
           await assertNativeTab(args, tabId);

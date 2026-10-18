@@ -10,6 +10,7 @@ export type NativeScreenshotOptions = {
   quality?: number;
   fullPage?: boolean;
   allowForeground?: boolean;
+  timeoutMs?: number;
 };
 
 export type NativeScreenshot = {
@@ -108,49 +109,53 @@ export function captureNativeTab(
   options: NativeScreenshotOptions,
   validateAccess?: () => Promise<void>
 ): Promise<NativeScreenshot> {
-  return withNativeTabOperation(tabId, async () => {
-    await validateAccess?.();
-    const tabs = chrome.tabs as CaptureTabs;
-    const format = options.format ?? "png";
-    const quality = options.quality ?? 80;
-    const captureOpts: chrome.extensionTypes.ImageDetails = { format, ...(format === "jpeg" ? { quality } : {}) };
-    if (typeof tabs.captureTab === "function") {
-      const area = await captureArea(tabId, options);
-      const dataUrl = await tabs.captureTab(tabId, {
-        ...captureOpts,
-        ...(options.selector || options.fullPage ? { rect: area } : {}),
-      });
-      return { dataUrl, width: area.width, height: area.height };
-    }
-    // Chrome 有 debugger 权限时直接按标签捕获，不抢焦点也不滚动页面
-    if (
-      typeof chrome.debugger?.attach === "function" &&
-      (await chrome.permissions.contains({ permissions: ["debugger"] }))
-    ) {
-      const area = await captureArea(tabId, options);
-      const target = { tabId };
-      return withDebugger(tabId, async () => {
-        const result = (await chrome.debugger.sendCommand(target, "Page.captureScreenshot", {
-          ...captureOpts,
-          fromSurface: true,
-          captureBeyondViewport: Boolean(options.selector || options.fullPage),
-          ...(options.selector || options.fullPage ? { clip: { ...area, scale: 1 } } : {}),
-        })) as { data: string };
-        return { dataUrl: "data:image/" + format + ";base64," + result.data, width: area.width, height: area.height };
-      });
-    }
-    if (!options.allowForeground) {
-      throw new BrowserControlScopeError(
-        "BACKGROUND_CAPTURE_UNAVAILABLE",
-        "Background screenshot unavailable; foreground capture requires explicit permission"
-      );
-    }
-    const tab = await chrome.tabs.get(tabId);
-    return withNativeWindowOperation(tab.windowId, async () => {
+  return withNativeTabOperation(
+    tabId,
+    async () => {
       await validateAccess?.();
-      return captureVisibleScreenshot(tabId, options);
-    });
-  });
+      const tabs = chrome.tabs as CaptureTabs;
+      const format = options.format ?? "png";
+      const quality = options.quality ?? 80;
+      const captureOpts: chrome.extensionTypes.ImageDetails = { format, ...(format === "jpeg" ? { quality } : {}) };
+      if (typeof tabs.captureTab === "function") {
+        const area = await captureArea(tabId, options);
+        const dataUrl = await tabs.captureTab(tabId, {
+          ...captureOpts,
+          ...(options.selector || options.fullPage ? { rect: area } : {}),
+        });
+        return { dataUrl, width: area.width, height: area.height };
+      }
+      // Chrome 有 debugger 权限时直接按标签捕获，不抢焦点也不滚动页面
+      if (
+        typeof chrome.debugger?.attach === "function" &&
+        (await chrome.permissions.contains({ permissions: ["debugger"] }))
+      ) {
+        const area = await captureArea(tabId, options);
+        const target = { tabId };
+        return withDebugger(tabId, async () => {
+          const result = (await chrome.debugger.sendCommand(target, "Page.captureScreenshot", {
+            ...captureOpts,
+            fromSurface: true,
+            captureBeyondViewport: Boolean(options.selector || options.fullPage),
+            ...(options.selector || options.fullPage ? { clip: { ...area, scale: 1 } } : {}),
+          })) as { data: string };
+          return { dataUrl: "data:image/" + format + ";base64," + result.data, width: area.width, height: area.height };
+        });
+      }
+      if (!options.allowForeground) {
+        throw new BrowserControlScopeError(
+          "BACKGROUND_CAPTURE_UNAVAILABLE",
+          "Background screenshot unavailable; foreground capture requires explicit permission"
+        );
+      }
+      const tab = await chrome.tabs.get(tabId);
+      return withNativeWindowOperation(tab.windowId, async () => {
+        await validateAccess?.();
+        return captureVisibleScreenshot(tabId, options);
+      });
+    },
+    { timeoutMs: options.timeoutMs, label: "page.screenshot" }
+  );
 }
 
 async function captureVisible(

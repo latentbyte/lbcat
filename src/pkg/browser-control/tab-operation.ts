@@ -56,7 +56,37 @@ export function isNativeTabQuarantined(tabId: number): boolean {
   return queues.get(tabId)?.quarantined ?? false;
 }
 
-export async function withNativeTabOperation<T>(
+// timeoutMs 从调用起计时：排队中到期则放弃且不再执行；运行中到期则隔离队列直到操作真正结束，
+// 隔离后主文档提交即可恢复（页面重载是恢复手段）
+export function withNativeTabOperation<T>(
+  tabId: number,
+  action: (operation: NativeTabOperation) => Promise<T>,
+  options: { timeoutMs?: number; label?: string } = {}
+): Promise<T> {
+  const { timeoutMs, label = "tab operation" } = options;
+  if (!timeoutMs || timeoutMs <= 0) return runNativeTabOperation(tabId, action);
+  const timeoutError = () => new Error(`${label} timed out after ${timeoutMs}ms`);
+  let expired = false;
+  let quarantine: (() => void) | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const run = runNativeTabOperation(tabId, async (operation) => {
+    if (expired) throw timeoutError();
+    quarantine = operation.quarantine;
+    return action(operation);
+  });
+  return Promise.race([
+    run,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        expired = true;
+        quarantine?.();
+        reject(timeoutError());
+      }, timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function runNativeTabOperation<T>(
   tabId: number,
   action: (operation: NativeTabOperation) => Promise<T>
 ): Promise<T> {
@@ -97,9 +127,11 @@ export async function withNativeTabOperation<T>(
         bindToDocument: () => {
           current.documentBound = true;
         },
+        // 超时后旧执行仍可能运行；主文档提交会结束其执行世界，因此隔离后总是由提交恢复
         quarantine: () => {
           if (queues.get(tabId) === current && current.active === pending.promise) {
             current.quarantined = true;
+            current.documentBound = true;
             current.blocked.resolve();
           }
         },

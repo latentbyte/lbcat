@@ -2,7 +2,10 @@ package daemon
 
 import (
 	"encoding/json"
+	"log"
 	"net"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -574,5 +577,45 @@ func TestRouterSwitcherSubscription(t *testing.T) {
 			case <-time.After(40 * time.Millisecond):
 			}
 		})
+	}
+}
+
+func TestRouterLogsRequestsAbandonedByClient(t *testing.T) {
+	var logs strings.Builder
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	reg := NewRegistry()
+	router := NewRouter(reg)
+	cliLocal, _ := pipePair(t)
+	cliConn := reg.Add(cliLocal, &protocol.Handshake{
+		ID: "h1", Type: protocol.MsgHandshake, Role: protocol.RoleCLI, PID: 1,
+	})
+	browserLocal, browserRemote := pipePair(t)
+	browserConn := reg.Add(browserLocal, &protocol.Handshake{
+		ID: "h2", Type: protocol.MsgHandshake, Role: protocol.RoleBrowser, Browser: "firefox",
+	})
+	browserCh := readEnvelopeAsync(browserRemote)
+	req := &protocol.Envelope{
+		ID:      "msg-abandoned",
+		Type:    protocol.MsgRequest,
+		Target:  browserConn.ID,
+		Payload: json.RawMessage(`{"cmd":"page.exec","args":{"tabId":484,"code":"secret()"}}`),
+	}
+	if err := router.Route(cliConn, req); err != nil {
+		t.Fatalf("Route request: %v", err)
+	}
+	_ = waitEnvelope(t, browserCh)
+
+	router.ClearPending(cliConn.ID)
+
+	got := logs.String()
+	for _, want := range []string{"msg-abandoned", "cmd=page.exec", "tab=484", browserConn.ID} {
+		if !strings.Contains(got, want) {
+			t.Errorf("log %q missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "secret") {
+		t.Errorf("log leaked request arguments: %q", got)
 	}
 }
