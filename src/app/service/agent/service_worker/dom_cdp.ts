@@ -16,6 +16,7 @@ type CapturedNode = {
 };
 
 type MonitorSession = {
+  release: () => Promise<void>;
   dialogs: Array<{ type: string; message: string }>;
   capturedNodes: CapturedNode[]; // 从事件中直接提取的节点信息
   listener: MonitorEventListener;
@@ -24,10 +25,12 @@ type MonitorSession = {
 const activeMonitors = new Map<number, MonitorSession>();
 
 // 同一标签可能同时被截图、monitor 与视口模拟使用：按持有者计数共享一次 attach，最后一个释放时 detach
-const attachments = new Map<number, { holders: number; attached: Promise<void> }>();
+type Attachment = { holders: number; attached: Promise<void> };
+const attachments = new Map<number, Attachment>();
 let watchingDetach = false;
 
-export async function acquireDebugger(tabId: number): Promise<void> {
+// 返回的释放函数只作用于本次获取的连接：浏览器终止会话后，旧持有者释放不会影响重新建立的连接
+export async function acquireDebugger(tabId: number): Promise<() => Promise<void>> {
   if (!watchingDetach) {
     watchingDetach = true;
     // 标签关闭或用户取消调试横幅时浏览器会终止会话，下次需要重新 attach
@@ -40,33 +43,35 @@ export async function acquireDebugger(tabId: number): Promise<void> {
     entry = { holders: 0, attached: chrome.debugger.attach({ tabId }, "1.3") };
     attachments.set(tabId, entry);
   }
-  entry.holders++;
+  const held = entry;
+  held.holders++;
   try {
-    await entry.attached;
+    await held.attached;
   } catch (error) {
-    if (attachments.get(tabId) === entry) attachments.delete(tabId);
+    if (attachments.get(tabId) === held) attachments.delete(tabId);
     throw error;
   }
-}
-
-export async function releaseDebugger(tabId: number): Promise<void> {
-  const entry = attachments.get(tabId);
-  if (!entry || --entry.holders > 0) return;
-  attachments.delete(tabId);
-  try {
-    await chrome.debugger.detach({ tabId });
-  } catch {
-    // tab 可能已经关闭
-  }
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    if (attachments.get(tabId) !== held || --held.holders > 0) return;
+    attachments.delete(tabId);
+    try {
+      await chrome.debugger.detach({ tabId });
+    } catch {
+      // tab 可能已经关闭
+    }
+  };
 }
 
 // 生命周期管理：attach → 执行 → detach；已有其他持有者时复用连接
 export async function withDebugger<T>(tabId: number, fn: (tabId: number) => Promise<T>): Promise<T> {
-  await acquireDebugger(tabId);
+  const release = await acquireDebugger(tabId);
   try {
     return await fn(tabId);
   } finally {
-    await releaseDebugger(tabId);
+    await release();
   }
 }
 
@@ -282,12 +287,16 @@ export async function cdpStartMonitor(tabId: number): Promise<void> {
   const dialogs: Array<{ type: string; message: string }> = [];
   const capturedNodes: CapturedNode[] = [];
 
-  await acquireDebugger(tabId);
-  await sendCommand(tabId, "Page.enable");
-  await sendCommand(tabId, "DOM.enable");
-
-  // 获取 document root，触发 DOM 树追踪
-  await sendCommand(tabId, "DOM.getDocument", { depth: 0 });
+  const release = await acquireDebugger(tabId);
+  try {
+    await sendCommand(tabId, "Page.enable");
+    await sendCommand(tabId, "DOM.enable");
+    // 获取 document root，触发 DOM 树追踪
+    await sendCommand(tabId, "DOM.getDocument", { depth: 0 });
+  } catch (error) {
+    await release();
+    throw error;
+  }
 
   // 监听 CDP 事件
   const listener: MonitorEventListener = (source, method, params) => {
@@ -325,7 +334,7 @@ export async function cdpStartMonitor(tabId: number): Promise<void> {
   };
   chrome.debugger.onEvent.addListener(listener);
 
-  activeMonitors.set(tabId, { dialogs, capturedNodes, listener });
+  activeMonitors.set(tabId, { release, dialogs, capturedNodes, listener });
 }
 
 // 轻量查询当前 monitor 状态（不停止监控）
@@ -406,7 +415,7 @@ export async function cdpStopMonitor(tabId: number): Promise<MonitorResult> {
   } catch {
     /* 忽略 */
   }
-  if (monitor) await releaseDebugger(tabId);
+  await monitor?.release();
 
   return result;
 }

@@ -636,7 +636,8 @@ describe("原生消息并发控制", () => {
       expect(responseOf("viewport-reset").data).toMatchObject({ scope: "window", titleMarker: "[bctl 7] " });
     });
 
-    it("Chrome 以 CDP 按标签模拟视口尺寸，不调整窗口，截图复用调试连接", async () => {
+    // 模拟 Chrome 调试器：视口按 CSS 像素测量，即设备无关像素除以页面缩放
+    function stubEmulatingDebugger(zoom = 1) {
       let emulated: { width: number; height: number } | undefined;
       const attach = vi.fn().mockResolvedValue(undefined);
       const detach = vi.fn().mockResolvedValue(undefined);
@@ -652,8 +653,17 @@ describe("原生消息并发控制", () => {
         debugger: { attach, detach, sendCommand, onDetach: { addListener: vi.fn() } },
         permissions: { contains: vi.fn().mockResolvedValue(true) },
       });
+      Object.assign(chrome.tabs, { getZoom: vi.fn(async () => zoom) });
       Reflect.deleteProperty(chrome.tabs, "captureTab");
-      executeScript.mockImplementation(async () => [{ result: emulated ?? { width: 1280, height: 720 } }]);
+      executeScript.mockImplementation(async () => {
+        const size = emulated ?? { width: 1280, height: 720 };
+        return [{ result: { width: Math.round(size.width / zoom), height: Math.round(size.height / zoom) } }];
+      });
+      return { attach, detach, sendCommand };
+    }
+
+    it("Chrome 以 CDP 按标签模拟视口尺寸，不调整窗口，截图复用调试连接", async () => {
+      const { attach, detach, sendCommand } = stubEmulatingDebugger();
 
       await request("emulate", "page.viewport", { tabId: 101, width: 390, height: 844 });
       expect(sendCommand).toHaveBeenCalledWith({ tabId: 101 }, "Emulation.setDeviceMetricsOverride", {
@@ -695,6 +705,46 @@ describe("原生消息并发控制", () => {
         height: 720,
         scope: "tab",
       });
+    });
+
+    it("Chrome 模拟尺寸按页面缩放换算为设备无关像素", async () => {
+      const { sendCommand } = stubEmulatingDebugger(1.25);
+      await request("emulate-zoomed", "page.viewport", { tabId: 101, width: 390, height: 844 });
+      expect(sendCommand).toHaveBeenCalledWith({ tabId: 101 }, "Emulation.setDeviceMetricsOverride", {
+        width: 488,
+        height: 1055,
+        deviceScaleFactor: 0,
+        mobile: false,
+      });
+      expect(responseOf("emulate-zoomed").data).toMatchObject({ width: 390, height: 844, exact: true });
+      await request("emulate-zoomed-reset", "page.viewport", { tabId: 101, reset: true });
+    });
+
+    it("标签移出代理窗口后仍可重置；清除失败也释放调试连接", async () => {
+      const { detach, sendCommand } = stubEmulatingDebugger();
+      await request("emulate-moved", "page.viewport", { tabId: 101, width: 390 });
+      tabsGet.mockResolvedValue({ id: 101, windowId: 8 });
+      sendCommand.mockRejectedValueOnce(new Error("Inspected target navigated or closed"));
+      await request("reset-moved", "page.viewport", { tabId: 101, personalTabId: 101, reset: true });
+      expect(responseOf("reset-moved").error.message).toMatch(/Inspected target/);
+      expect(detach).toHaveBeenCalledTimes(1);
+    });
+
+    it("视口测量卡住时按超时失败而不永久占用标签队列", async () => {
+      stubEmulatingDebugger();
+      let finish = () => {};
+      executeScript.mockImplementationOnce(
+        () => new Promise((resolve) => (finish = () => resolve([{ result: { width: 1280, height: 720 } }])))
+      );
+      const pending = request("viewport-hung", "page.viewport", { tabId: 101, width: 390, timeoutMs: 50 });
+      await vi.advanceTimersByTimeAsync(60);
+      await pending;
+      expect(responseOf("viewport-hung").error.message).toMatch(/timed out/);
+      finish();
+      await vi.runAllTimersAsync();
+      await request("viewport-hung-reset", "page.viewport", { tabId: 101, reset: true });
+      expect(responseOf("viewport-hung-reset").data).toMatchObject({ scope: "tab" });
+      await vi.runAllTimersAsync();
     });
 
     it("视口调整不改变代理窗口之外的个人窗口", async () => {

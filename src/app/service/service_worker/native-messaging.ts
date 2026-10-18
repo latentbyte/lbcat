@@ -917,13 +917,16 @@ const handlers: Record<string, Handler> = {
     const result = { tabId, windowId };
     if (!args.reset && width === undefined && height === undefined)
       return { data: { ...result, ...(await readViewport(tabId)) } };
-    if (tab.windowId !== windowId)
+    // 重置不限窗口：已模拟尺寸的标签移出代理窗口后仍可撤销
+    if (!args.reset && tab.windowId !== windowId)
       throw new BrowserControlError(
         "VIEWPORT_WINDOW_DENIED",
         "only tabs in the agent window can be resized; move the tab into the agent window first"
       );
-    const viewport = await withNativeTabOperation(tabId, () =>
-      args.reset ? resetViewport(tabId, windowId) : setViewport(tabId, windowId, { width, height })
+    const viewport = await withNativeTabOperation(
+      tabId,
+      () => (args.reset ? resetViewport(tabId, windowId) : setViewport(tabId, windowId, { width, height })),
+      { timeoutMs: timeoutArg(args, DEFAULT_READ_TIMEOUT_MS), label: "page.viewport" }
     );
     return { data: { ...result, ...viewport } };
   },

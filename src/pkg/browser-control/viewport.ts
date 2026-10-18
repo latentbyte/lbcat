@@ -1,6 +1,6 @@
 // 页面视口尺寸：Chrome 以 CDP 按标签模拟视口（不受最小窗口尺寸限制）；
 // Firefox 没有 debugger API，改为调整代理窗口外框，并加标题前缀供 bctl 在窗口管理器中找到该窗口
-import { acquireDebugger, debuggerAvailable, releaseDebugger } from "@App/app/service/agent/service_worker/dom_cdp";
+import { acquireDebugger, debuggerAvailable } from "@App/app/service/agent/service_worker/dom_cdp";
 import { withNativeWindowOperation } from "./capture";
 
 export type ViewportSize = { width: number; height: number };
@@ -12,7 +12,8 @@ type WindowBounds = Pick<chrome.windows.Window, "state" | "left" | "top" | "widt
 // 首次调整前的窗口外框，重置时恢复；Firefox 事件页会被卸载，所以存在 session 存储
 const SAVED_BOUNDS_KEY = "browserControl.viewportBounds";
 
-const emulatedTabs = new Set<number>();
+// 正在模拟尺寸的标签及其调试连接的释放函数
+const emulatedTabs = new Map<number, () => Promise<void>>();
 let watchingDetach = false;
 
 export async function measureViewport(tabId: number): Promise<ViewportSize> {
@@ -56,9 +57,14 @@ export async function setViewport(tabId: number, windowId: number, target: Viewp
 
 export async function resetViewport(tabId: number, windowId: number): Promise<ViewportResult> {
   if (await debuggerAvailable()) {
-    if (emulatedTabs.delete(tabId)) {
-      await chrome.debugger.sendCommand({ tabId }, "Emulation.clearDeviceMetricsOverride");
-      await releaseDebugger(tabId);
+    const release = emulatedTabs.get(tabId);
+    if (release) {
+      emulatedTabs.delete(tabId);
+      try {
+        await chrome.debugger.sendCommand({ tabId }, "Emulation.clearDeviceMetricsOverride");
+      } finally {
+        await release();
+      }
     }
     return { ...(await measureViewport(tabId)), scope: "tab" };
   }
@@ -81,7 +87,12 @@ export async function resetViewport(tabId: number, windowId: number): Promise<Vi
 // 只改视口尺寸：保留设备像素比，不开启移动端视口、触摸或 UA，与窗口方式的效果一致
 async function emulateViewport(tabId: number, target: ViewportTarget): Promise<ViewportResult> {
   const current = await measureViewport(tabId);
-  const size = { width: target.width ?? current.width, height: target.height ?? current.height };
+  // 模拟尺寸以设备无关像素计，页面缩放后的 CSS 视口要乘回缩放比例
+  const zoom = await chrome.tabs.getZoom(tabId);
+  const size = {
+    width: Math.round((target.width ?? current.width) * zoom),
+    height: Math.round((target.height ?? current.height) * zoom),
+  };
   if (!watchingDetach) {
     watchingDetach = true;
     // 用户取消调试横幅或标签关闭时模拟随会话结束
@@ -89,8 +100,8 @@ async function emulateViewport(tabId: number, target: ViewportTarget): Promise<V
       if (source.tabId !== undefined) emulatedTabs.delete(source.tabId);
     });
   }
-  const held = emulatedTabs.has(tabId);
-  if (!held) await acquireDebugger(tabId);
+  const held = emulatedTabs.get(tabId);
+  const release = held ?? (await acquireDebugger(tabId));
   try {
     await chrome.debugger.sendCommand({ tabId }, "Emulation.setDeviceMetricsOverride", {
       ...size,
@@ -98,10 +109,10 @@ async function emulateViewport(tabId: number, target: ViewportTarget): Promise<V
       mobile: false,
     });
   } catch (error) {
-    if (!held) await releaseDebugger(tabId);
+    if (!held) await release();
     throw error;
   }
-  emulatedTabs.add(tabId);
+  emulatedTabs.set(tabId, release);
   return { ...(await settledViewport(tabId, target)), scope: "tab" };
 }
 

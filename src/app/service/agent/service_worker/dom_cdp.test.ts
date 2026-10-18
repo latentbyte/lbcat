@@ -26,7 +26,6 @@ import {
   cdpScreenshot,
   cdpStartMonitor,
   cdpStopMonitor,
-  releaseDebugger,
   withDebugger,
 } from "./dom_cdp";
 
@@ -106,13 +105,14 @@ describe("agent_dom_cdp", () => {
   });
 
   it("同一标签的多个持有者共享一次 attach，最后一个释放时才 detach", async () => {
-    await acquireDebugger(31);
+    const release = await acquireDebugger(31);
     await withDebugger(31, async () => "shot");
     await cdpStartMonitor(31);
     await cdpStopMonitor(31);
     expect(mockAttach).toHaveBeenCalledTimes(1);
     expect(mockDetach).not.toHaveBeenCalled();
-    await releaseDebugger(31);
+    await release();
+    await release();
     expect(mockDetach).toHaveBeenCalledTimes(1);
   });
 
@@ -120,17 +120,26 @@ describe("agent_dom_cdp", () => {
     mockAttach.mockRejectedValueOnce(new Error("Cannot access a chrome:// URL"));
     await expect(Promise.all([acquireDebugger(32), acquireDebugger(32)])).rejects.toThrow(/chrome:/);
     expect(mockAttach).toHaveBeenCalledTimes(1);
-    await acquireDebugger(32);
+    const release = await acquireDebugger(32);
     expect(mockAttach).toHaveBeenCalledTimes(2);
-    await releaseDebugger(32);
+    await release();
     expect(mockDetach).toHaveBeenCalledTimes(1);
   });
 
-  it("浏览器终止调试会话后重新 attach", async () => {
-    await acquireDebugger(33);
+  it("浏览器终止调试会话后重新 attach，旧持有者释放不影响新连接", async () => {
+    const releaseOld = await acquireDebugger(33);
     onDetach({ tabId: 33 });
-    await withDebugger(33, async () => "shot");
+    const releaseNew = await acquireDebugger(33);
     expect(mockAttach).toHaveBeenCalledTimes(2);
+    await releaseOld();
+    expect(mockDetach).not.toHaveBeenCalled();
+    await releaseNew();
+    expect(mockDetach).toHaveBeenCalledTimes(1);
+  });
+
+  it("monitor 启动失败时释放调试连接", async () => {
+    mockSendCommand.mockRejectedValueOnce(new Error("Page.enable failed"));
+    await expect(cdpStartMonitor(34)).rejects.toThrow(/Page.enable/);
     expect(mockDetach).toHaveBeenCalledTimes(1);
   });
 });
