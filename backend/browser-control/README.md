@@ -272,14 +272,15 @@ so page scripts cannot press its buttons.
 | `next` | the human did the step; `reply` carries an optional note |
 | `reply` | the human sent a message; the card stays, so revise it with another `guide step` |
 | `talk` | the human wants to discuss; stop calling tools and end the turn |
-| `navigated` | the main frame navigated (`url`); the card shows "preparing the next step" on the new page |
-| `closed` | the tab closed or the guide was cleared |
+| `navigated` | the main frame navigated (`url`); returns once the new page loads (up to 10s), and the card shows "preparing the next step" there |
+| `closed` | the tab closed, the guide was cleared, or agent access ended |
 | `timeout` | no response within `--timeout` (default 9m, under agent shell limits); the card stays up |
 
-`interactions` lists trusted clicks and inputs on marked elements since the last result (`{ref, label, event}`).
-Responses that arrive between waits are queued, so nothing is lost after a timeout. Guides work on tabs the session
-can access (the agent window, or a personal tab with `--personal-tab`) and end when the tab closes or the extension
-background restarts; `session end` does not clear them.
+`interactions` lists trusted clicks and inputs on marked elements since the last result (`{ref, label, event}`,
+`event` is `click` or `input`; toggling a checkbox or radio is one `click`). Responses that arrive between waits are
+queued, so nothing is lost after a timeout. Guides work on tabs the session can access (the agent window, or a
+personal tab with `--personal-tab`). They end when the tab closes, the session that drew them ends (`session end` or
+the popup), the human turns off agent access to the tab (Stop or the popup), or the extension background restarts.
 
 ## Human-operated tab switchers
 
