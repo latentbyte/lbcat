@@ -26,7 +26,8 @@ func (e *CommandError) Error() string {
 }
 
 func scoped(cmd string) bool {
-	return strings.HasPrefix(cmd, "tabs.") || strings.HasPrefix(cmd, "page.") || strings.HasPrefix(cmd, "notes.")
+	return strings.HasPrefix(cmd, "tabs.") || strings.HasPrefix(cmd, "page.") || strings.HasPrefix(cmd, "notes.") ||
+		strings.HasPrefix(cmd, "guide.")
 }
 
 func (c *Client) scopedCommand(command ExtCommand) (ExtCommand, error) {

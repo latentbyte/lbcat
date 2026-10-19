@@ -55,6 +55,10 @@ func TestScopedCommand(t *testing.T) {
 		if err != nil || note.Args.(map[string]any)["sessionId"] != "task-123" {
 			t.Fatalf("note args = %#v, error = %v", note.Args, err)
 		}
+		guide, err := client.scopedCommand(ExtCommand{Cmd: "guide.step", Args: map[string]any{"tabId": 42}})
+		if err != nil || guide.Args.(map[string]any)["sessionId"] != "task-123" {
+			t.Fatalf("guide args = %#v, error = %v", guide.Args, err)
+		}
 		administrative, err := client.scopedCommand(ExtCommand{Cmd: "agentWindow.status"})
 		if err != nil {
 			t.Fatal(err)
