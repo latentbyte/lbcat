@@ -23,6 +23,7 @@ import { cacheInstance } from "@App/app/cache";
 import { InfoNotification } from "./utils";
 import { initNativeMessaging } from "./native-messaging";
 import { initAgentTabAccess } from "./agent-tab-access";
+import { initAgentGuide } from "./agent-guide";
 import { AgentService } from "@App/app/service/agent/service_worker/agent";
 import { extensionEnv, getExtensionUserAgentData } from "../extension/extension_env";
 import { cleanupStaleTempStorageEntries } from "./temp";
@@ -124,6 +125,7 @@ export default class ServiceWorkerManager {
     );
     system.init();
     initAgentTabAccess();
+    initAgentGuide();
     initNativeMessaging(script);
     const agent = new AgentService(this.api.group("agent"), this.offscreenSend, resource);
     agent.init();

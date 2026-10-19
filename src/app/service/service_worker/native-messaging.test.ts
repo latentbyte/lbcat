@@ -11,6 +11,7 @@ import {
 import type { ScriptService } from "./script";
 import { withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 import { agentNotesService } from "@App/pkg/browser-control/agent-notes";
+import { guideService } from "@App/pkg/browser-control/guide";
 
 describe("原生消息大小限制", () => {
   it.each([1n, { nested: 1n }])("JSON 不兼容结果应返回结构化错误", (data) => {
@@ -552,6 +553,82 @@ describe("原生消息并发控制", () => {
       const ref = responseOf("snapshot").data.elements[0].ref;
       await request("ref-click", "page.click", { tabId: 101, ref });
       expect(clicked).toHaveBeenCalledTimes(1);
+    });
+
+    describe("引导模式", () => {
+      beforeEach(() => {
+        // jsdom 未实现 ResizeObserver
+        Object.assign(globalThis, {
+          ResizeObserver: class {
+            observe() {}
+            disconnect() {}
+          },
+        });
+        tabsGet.mockImplementation(async (id: number) => ({ id, windowId: 7, url: "https://a.test/", title: "A" }));
+      });
+      afterEach(async () => {
+        await request("guide-cleanup", "guide.clear", { tabId: 101 });
+        delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+      });
+
+      it("解析标注后绘制步骤，等待在人工点击下一步时返回", async () => {
+        document.body.innerHTML = `<button id="save">Save</button>`;
+        await request("guide-step", "guide.step", {
+          tabId: 101,
+          text: "Click Save",
+          marks: [{ text: "Save", label: "here" }, { selector: "#save" }],
+        });
+        const { step, marks } = responseOf("guide-step").data;
+        expect(marks).toEqual([
+          { ref: expect.stringMatching(/^e\d+$/), label: "here" },
+          { ref: marks[0].ref, label: "2" },
+        ]);
+        expect(document.querySelector("lbcat-agent-guide")).not.toBeNull();
+        const waiting = request("guide-wait", "guide.wait", { tabId: 101 });
+        guideService.record(101, step, { kind: "next", reply: "done" });
+        await waiting;
+        expect(responseOf("guide-wait")).toEqual({
+          cmd: "guide.wait",
+          data: {
+            tabId: 101,
+            step,
+            action: "next",
+            reply: "done",
+            interactions: [],
+            url: "https://a.test/",
+            title: "A",
+          },
+        });
+      });
+
+      it("标注找不到时不开始步骤", async () => {
+        await request("guide-missing", "guide.step", { tabId: 101, text: "Click", marks: [{ selector: "#none" }] });
+        expect(responseOf("guide-missing").error.code).toBe("SELECTOR_NOT_FOUND");
+        expect(document.querySelector("lbcat-agent-guide")).toBeNull();
+        await request("guide-wait-none", "guide.wait", { tabId: 101 });
+        expect(responseOf("guide-wait-none").error.code).toBe("GUIDE_NOT_STARTED");
+      });
+
+      it("等待超时后界面保留，清除时移除界面", async () => {
+        await request("guide-plain", "guide.step", { tabId: 101, text: "Read this" });
+        const waiting = request("guide-timeout", "guide.wait", { tabId: 101, timeoutMs: 1_000 });
+        await vi.advanceTimersByTimeAsync(1_000);
+        await waiting;
+        expect(responseOf("guide-timeout").data).toMatchObject({ action: "timeout" });
+        expect(document.querySelector("lbcat-agent-guide")).not.toBeNull();
+        await request("guide-clear", "guide.clear", { tabId: 101 });
+        expect(responseOf("guide-clear").data).toEqual({ tabId: 101, cleared: true });
+        expect(document.querySelector("lbcat-agent-guide")).toBeNull();
+      });
+
+      it("代理不能在个人标签展示引导，缺少说明时报错", async () => {
+        await request("guide-empty", "guide.step", { tabId: 101, text: " " });
+        expect(responseOf("guide-empty").error.code).toBe("INVALID_ARGUMENT");
+        tabsGet.mockResolvedValue({ id: 101, windowId: 8 });
+        await request("guide-denied", "guide.step", { tabId: 101, text: "hi" });
+        expect(responseOf("guide-denied").error.code).toBe("PERSONAL_TAB_DENIED");
+        expect(executeScript).not.toHaveBeenCalled();
+      });
     });
 
     it("以页面身份请求并返回状态与正文", async () => {

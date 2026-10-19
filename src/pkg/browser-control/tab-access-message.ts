@@ -1,9 +1,11 @@
 import type { AgentNote } from "./agent-notes";
 import type { TabAccessView, TabGrant } from "./agent-window";
 
-// 弹出页与后台之间的标签访问控制消息；页面内覆盖层只能发送 STOP_TAB
+// 弹出页与后台之间的标签访问控制消息；页面内覆盖层只能发送 STOP_TAB 与引导事件
 export const AGENT_TAB_ACCESS_MESSAGE = "browserControl.TAB_ACCESS";
 export const AGENT_STOP_TAB_MESSAGE = "browserControl.STOP_TAB";
+// 引导卡片回传人工响应，只影响所在标签当前步骤
+export const AGENT_GUIDE_MESSAGE = "browserControl.GUIDE_EVENT";
 
 export type TabAccessAction =
   | { action: "get"; tabId: number }

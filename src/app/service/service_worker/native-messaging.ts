@@ -29,7 +29,9 @@ import {
   startNativeTabOperations,
   stopNativeTabOperations,
 } from "@App/pkg/browser-control/tab-operation";
+import { guideService } from "@App/pkg/browser-control/guide";
 import { agentTabIndicators } from "./agent-tab-access";
+import { drawGuide } from "./agent-guide";
 import { prepareScriptByCode } from "@App/pkg/utils/script";
 import { isUrlIncluded } from "@App/pkg/utils/match";
 import { getCombinedMeta, scriptURLPatternResults } from "./utils";
@@ -388,6 +390,8 @@ const DEFAULT_READ_TIMEOUT_MS = 25_000;
 // CLI 截图默认请求超时为 2 分钟
 const DEFAULT_SCREENSHOT_TIMEOUT_MS = 115_000;
 const DEFAULT_ACTION_SETTLE_MS = 300;
+// 引导等待默认 9 分钟，低于代理 Bash 工具 10 分钟上限；超时后界面保留，可再次等待
+const DEFAULT_GUIDE_WAIT_MS = 9 * 60_000;
 // 注入失败多因导航中文档被替换，等待期间短暂重试
 const WAIT_RETRY_MS = 100;
 
@@ -879,6 +883,74 @@ const handlers: Record<string, Handler> = {
       { timeoutMs: timeoutArg(args, DEFAULT_READ_TIMEOUT_MS), label: "page.snapshot" }
     );
     return { data: value.snapshot };
+  },
+
+  // --- guide ---
+
+  // 引导模式：解析标注并在页面绘制步骤卡片；人工响应由 guide.wait 取回
+  async "guide.step"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    const text = typeof args.text === "string" ? args.text.trim() : "";
+    if (!text) throw new BrowserControlError("INVALID_ARGUMENT", "guide step needs --text");
+    const title = typeof args.title === "string" && args.title.trim() ? args.title.trim() : undefined;
+    const marks = (Array.isArray(args.marks) ? args.marks : []).map((mark: unknown, index) => {
+      const value = (mark ?? {}) as Record<string, unknown>;
+      const locator = locatorArgs(value);
+      if (!locator.selector && !locator.text && !locator.ref)
+        throw new BrowserControlError("INVALID_ARGUMENT", `mark ${index + 1} needs a selector, text, or ref`);
+      const label = typeof value.label === "string" ? value.label.trim().slice(0, 80) : "";
+      return { locator, label: label || String(index + 1) };
+    });
+    const step = await withNativeTabOperation(
+      tabId,
+      async (operation) => {
+        await assertNativeTab(args, tabId);
+        operation.bindToDocument();
+        const { refs = [] } = marks.length
+          ? await injectPageAction(tabId, { op: "resolve", locators: marks.map((mark) => mark.locator) })
+          : {};
+        const guideMarks = refs.map((ref, index) => ({ ref, label: marks[index].label }));
+        const stepId = guideService.begin(tabId, { text, title, marks: guideMarks });
+        try {
+          await drawGuide(tabId, { stepId, title, text, marks: guideMarks, state: "step" });
+        } catch (error) {
+          guideService.close(tabId);
+          throw error;
+        }
+        return { step: stepId, marks: guideMarks };
+      },
+      { timeoutMs: timeoutArg(args, DEFAULT_READ_TIMEOUT_MS), label: "guide.step" }
+    );
+    return { data: { tabId, ...step } };
+  },
+
+  // 阻塞到人工响应、页面导航、标签关闭或超时；不占用标签操作队列
+  async "guide.wait"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    await assertNativeTab(args, tabId);
+    const outcome = await guideService.wait(tabId, timeoutArg(args, DEFAULT_GUIDE_WAIT_MS));
+    const tab = outcome.action === "closed" ? undefined : await chrome.tabs.get(tabId);
+    return {
+      data: {
+        tabId,
+        ...outcome,
+        ...(tab ? { url: outcome.url ?? tab.url ?? tab.pendingUrl ?? "", title: tab.title ?? "" } : {}),
+      },
+    };
+  },
+
+  async "guide.clear"(args) {
+    const tabId = args.tabId;
+    if (typeof tabId !== "number") throw new Error("tabId is required");
+    await assertNativeTab(args, tabId);
+    guideService.close(tabId);
+    await withNativeTabOperation(tabId, () => drawGuide(tabId, null), {
+      timeoutMs: timeoutArg(args, DEFAULT_READ_TIMEOUT_MS),
+      label: "guide.clear",
+    });
+    return { data: { tabId, cleared: true } };
   },
 
   async "page.monitor.start"(args) {
