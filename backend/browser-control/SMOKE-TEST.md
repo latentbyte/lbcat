@@ -94,6 +94,7 @@ browser-control tabs close 123                      # agent: own agent-window ta
 browser-control human tabs close 123                # operator: any tab except the marker
 browser-control events --json --type tab-focused,tab-removed,browser-connected,browser-disconnected
 browser-control page exec 123 "document.title"      # run JS in a tab
+browser-control guide step 123 --text "Read the heading" --mark "h1|heading"  # card + mark; blocks until you press a card button
 browser-control script list                         # list userscripts
 ```
 

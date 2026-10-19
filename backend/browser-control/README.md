@@ -245,6 +245,42 @@ The reached size is reported with `exact: false` when it differs. Firefox does n
 workspace: the window is resized, but the page keeps its old size until the window is shown, reported as
 `deferred: true` with that old size.
 
+## Walkthrough mode
+
+`guide` lets an agent coach a human through a page instead of acting. Each step draws a card with instructions and
+amber marks around elements, then blocks until the human responds in the browser:
+
+```sh
+bctl page snapshot 123                         # find refs for the step
+bctl guide step 123 --text "Copy the API key, then tick both boxes." \
+  --mark '@e4|copy this' --mark '#webhooks' --mark 'text=Send receipts'
+bctl guide wait 123                            # after a timeout or --no-wait
+bctl guide clear 123                           # remove the card when done
+```
+
+`--mark 'LOCATOR|label'` takes a ref, `text=...`, or a CSS selector; the label follows the last `|` (unlabeled marks
+are numbered), so a selector containing `|` needs a label. Every mark must resolve to exactly one visible element,
+otherwise the step fails (`SELECTOR_NOT_FOUND`, `AMBIGUOUS_MATCH`) before anything is drawn. Marks follow scrolling,
+resizes, and DOM changes; the page scrolls to the first mark when it is off-screen. The card has an optional reply
+box and three buttons: `No, let's talk`, `Send` (reply only), and `Got it, next`. It sits in a closed shadow root,
+so page scripts cannot press its buttons.
+
+`guide step` (unless `--no-wait`) and `guide wait` print `{tabId, step, action, reply?, url, title, interactions}` (no `url`/`title` when `closed`):
+
+| action | meaning |
+| --- | --- |
+| `next` | the human did the step; `reply` carries an optional note |
+| `reply` | the human sent a message; the card stays, so revise it with another `guide step` |
+| `talk` | the human wants to discuss; stop calling tools and end the turn |
+| `navigated` | the main frame navigated (`url`); the card shows "preparing the next step" on the new page |
+| `closed` | the tab closed or the guide was cleared |
+| `timeout` | no response within `--timeout` (default 9m, under agent shell limits); the card stays up |
+
+`interactions` lists trusted clicks and inputs on marked elements since the last result (`{ref, label, event}`).
+Responses that arrive between waits are queued, so nothing is lost after a timeout. Guides work on tabs the session
+can access (the agent window, or a personal tab with `--personal-tab`) and end when the tab closes or the extension
+background restarts; `session end` does not clear them.
+
 ## Human-operated tab switchers
 
 For an operator listing or closing tabs directly from the CLI:
