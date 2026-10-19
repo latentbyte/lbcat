@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { guideService } from "@App/pkg/browser-control/guide";
 import { AGENT_GUIDE_MESSAGE } from "@App/pkg/browser-control/tab-access-message";
-import { endGuide, endSessionGuides, initAgentGuide } from "./agent-guide";
+import { endGuide, endSessionGuides, handOffGuides, initAgentGuide } from "./agent-guide";
 
 type Listener = (...args: never[]) => unknown;
 
 describe("引导模式后台接线", () => {
   const listeners: Record<string, Listener> = {};
   const executeScript = vi.fn();
+  const tabs = { get: vi.fn(), update: vi.fn() };
+  const windows = { update: vi.fn() };
   const on = (name: string) => ({
     addListener: (listener: Listener) => {
       listeners[name] = listener;
@@ -22,10 +24,14 @@ describe("引导模式后台接线", () => {
 
   beforeEach(() => {
     executeScript.mockReset().mockResolvedValue([{ result: undefined }]);
+    tabs.get.mockReset().mockResolvedValue({ id: 9, windowId: 2, title: "Billing" });
+    tabs.update.mockReset().mockResolvedValue({ id: 9, windowId: 2 });
+    windows.update.mockReset().mockResolvedValue({});
     vi.stubGlobal("chrome", {
       runtime: { id: "ext", onMessage: on("message") },
       webNavigation: { onCommitted: on("committed"), onCompleted: on("completed") },
-      tabs: { onRemoved: on("removed") },
+      tabs: { onRemoved: on("removed"), ...tabs },
+      windows,
       scripting: { executeScript },
     });
     initAgentGuide();
@@ -104,5 +110,38 @@ describe("引导模式后台接线", () => {
     endGuide(6);
     expect(guideService.current(6)).toBeUndefined();
     expect(executeScript).toHaveBeenCalledWith(cleared(6));
+  });
+
+  it("同一会话的下一步转到其他标签时结束旧标签的引导并指向新标签", async () => {
+    guideService.begin(5, { text: "Click save", marks: [] }, "s1");
+    guideService.begin(6, { text: "Other agent", marks: [] }, "s2");
+    guideService.begin(9, { text: "Open billing", marks: [] }, "s1");
+    const step = guideService.current(5)!.id;
+    await handOffGuides(9, "s1");
+    expect(guideService.current(5)).toBeUndefined();
+    expect(guideService.current(6)).toBeDefined();
+    expect(guideService.current(9)).toBeDefined();
+    expect(executeScript).toHaveBeenCalledTimes(1);
+    expect(executeScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { tabId: 5 },
+        args: [
+          expect.objectContaining({ stepId: step, state: "moved", target: { tabId: 9, title: "Billing" } }),
+          { message: AGENT_GUIDE_MESSAGE },
+        ],
+      })
+    );
+    guideService.close(6);
+    guideService.close(9);
+  });
+
+  it("人工点击去向按钮时切换到仍在引导的标签并聚焦其窗口", async () => {
+    guideService.begin(9, { text: "Open billing", marks: [] });
+    message({ type: AGENT_GUIDE_MESSAGE, stepId: 1, event: { kind: "goto", tabId: 7 } }, fromPage);
+    message({ type: AGENT_GUIDE_MESSAGE, stepId: 1, event: { kind: "goto", tabId: 9 } }, fromPage);
+    await vi.waitFor(() => expect(windows.update).toHaveBeenCalledWith(2, { focused: true }));
+    expect(tabs.update).toHaveBeenCalledTimes(1);
+    expect(tabs.update).toHaveBeenCalledWith(9, { active: true });
+    guideService.close(9);
   });
 });

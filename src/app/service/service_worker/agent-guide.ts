@@ -3,6 +3,7 @@
 import { guideService, type GuidePageEvent } from "@App/pkg/browser-control/guide";
 import {
   renderGuideOverlay,
+  type GuideGotoEvent,
   type GuideOverlayMessage,
   type GuideOverlayView,
 } from "@App/pkg/browser-control/guide-overlay";
@@ -33,6 +34,37 @@ export function endSessionGuides(sessionId: string): void {
   for (const tabId of guideService.owned(sessionId)) endGuide(tabId);
 }
 
+// 同一会话的下一步转到新标签时结束其他标签的引导，卡片改为指向新标签，避免人工在旧标签空等
+export async function handOffGuides(tabId: number, owner?: string): Promise<void> {
+  const others = guideService.owned(owner).filter((id) => id !== tabId);
+  if (!others.length) return;
+  const tab = await chrome.tabs.get(tabId);
+  for (const id of others) {
+    const step = guideService.current(id)!;
+    guideService.close(id);
+    drawGuide(id, {
+      stepId: step.id,
+      title: step.title,
+      text: "",
+      marks: [],
+      state: "moved",
+      target: { tabId, title: tab.title ?? "" },
+    }).catch(warn);
+  }
+}
+
+// 人工点击触发，切换到仍在引导的标签并聚焦其窗口
+async function goToGuide(tabId: number): Promise<void> {
+  if (!guideService.current(tabId)) return;
+  const tab = await chrome.tabs.update(tabId, { active: true });
+  if (tab) await chrome.windows.update(tab.windowId, { focused: true });
+}
+
+function isGotoEvent(event: unknown): event is GuideGotoEvent {
+  const value = event as Partial<GuideGotoEvent> | null;
+  return value?.kind === "goto" && typeof value.tabId === "number";
+}
+
 function isGuideEvent(event: unknown): event is GuidePageEvent {
   const value = event as Partial<Record<string, unknown>> | null;
   if (!value || typeof value !== "object") return false;
@@ -53,6 +85,10 @@ export function initAgentGuide() {
     if (data?.type !== AGENT_GUIDE_MESSAGE) return undefined;
     const tabId = sender.tab?.id;
     if (sender.id !== chrome.runtime.id || tabId === undefined || sender.frameId !== 0) return undefined;
+    if (isGotoEvent(data.event)) {
+      goToGuide(data.event.tabId).catch(warn);
+      return undefined;
+    }
     if (typeof data.stepId === "number" && isGuideEvent(data.event))
       guideService.record(tabId, data.stepId, data.event);
     return undefined;

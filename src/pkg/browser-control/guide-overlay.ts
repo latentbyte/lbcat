@@ -6,10 +6,14 @@ export type GuideOverlayView = {
   text: string;
   marks: GuideMark[];
   // preparing：人工已响应或页面已跳转，等待代理给出下一步
-  state: "step" | "preparing";
+  // moved：代理在 target 标签给出了下一步，本标签的引导已结束
+  state: "step" | "preparing" | "moved";
+  target?: { tabId: number; title: string };
 };
 export type GuideOverlayOptions = { message: string };
-export type GuideOverlayMessage = { type: string; stepId: number; event: GuidePageEvent };
+// 人工请求切换到下一步所在的标签
+export type GuideGotoEvent = { kind: "goto"; tabId: number };
+export type GuideOverlayMessage = { type: string; stepId: number; event: GuidePageEvent | GuideGotoEvent };
 
 // 在页面隔离世界执行，需保持自包含；与快照共享 __bctlRefs 取回标注元素
 // 卡片在封闭 Shadow Root 中，页面脚本无法触达按钮；标注交互只记录可信事件
@@ -27,7 +31,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   const ACCENT = "#F59E0B";
   const PREPARING = "Got it. The agent is preparing the next step";
   const PAD = 4;
-  const send = (event: GuidePageEvent) => {
+  const send = (event: GuideOverlayMessage["event"]) => {
     const message: GuideOverlayMessage = { type: options.message, stepId: view.stepId, event };
     void chrome.runtime.sendMessage(message);
   };
@@ -297,6 +301,16 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   let textarea: HTMLTextAreaElement | undefined;
   if (view.state === "preparing") {
     settle(PREPARING, true, true);
+  } else if (view.state === "moved") {
+    const target = view.target;
+    settle(`The next step is in another tab: ${target?.title || "untitled"}`, true);
+    if (target)
+      actions.append(
+        button("Go to that tab", true, () => {
+          send({ kind: "goto", tabId: target.tabId });
+          renderGuideOverlay(null, options);
+        })
+      );
   } else {
     text.replaceChildren(...markdown(view.text));
     textarea = create(

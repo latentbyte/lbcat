@@ -601,6 +601,19 @@ describe("原生消息并发控制", () => {
         });
       });
 
+      it("同一会话在新标签给出步骤时，旧标签的卡片改为指向新标签", async () => {
+        guideService.begin(55, { text: "Click save", marks: [] }, "task");
+        await request("guide-moved", "guide.step", { tabId: 101, text: "Open billing" });
+        expect(responseOf("guide-moved").data).toMatchObject({ tabId: 101 });
+        expect(guideService.current(55)).toBeUndefined();
+        expect(executeScript).toHaveBeenCalledWith(
+          expect.objectContaining({
+            target: { tabId: 55 },
+            args: [expect.objectContaining({ state: "moved", target: { tabId: 101, title: "A" } }), expect.anything()],
+          })
+        );
+      });
+
       it("标注找不到时不开始步骤", async () => {
         await request("guide-missing", "guide.step", { tabId: 101, text: "Click", marks: [{ selector: "#none" }] });
         expect(responseOf("guide-missing").error.code).toBe("SELECTOR_NOT_FOUND");

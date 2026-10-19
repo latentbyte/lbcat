@@ -31,7 +31,7 @@ import {
 } from "@App/pkg/browser-control/tab-operation";
 import { guideService } from "@App/pkg/browser-control/guide";
 import { agentTabIndicators } from "./agent-tab-access";
-import { drawGuide, endSessionGuides } from "./agent-guide";
+import { drawGuide, endSessionGuides, handOffGuides } from "./agent-guide";
 import { prepareScriptByCode } from "@App/pkg/utils/script";
 import { isUrlIncluded } from "@App/pkg/utils/match";
 import { getCombinedMeta, scriptURLPatternResults } from "./utils";
@@ -920,6 +920,7 @@ const handlers: Record<string, Handler> = {
           guideService.close(tabId);
           throw error;
         }
+        await handOffGuides(tabId, sessionId(args));
         return { step: stepId, marks: guideMarks };
       },
       { timeoutMs: timeoutArg(args, DEFAULT_READ_TIMEOUT_MS), label: "guide.step" }

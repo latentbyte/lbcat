@@ -45,8 +45,8 @@ export class GuideService {
     return this.guides.get(tabId)?.step;
   }
 
-  owned(sessionId: string): number[] {
-    return [...this.guides].filter(([, guide]) => guide.owner === sessionId).map(([tabId]) => tabId);
+  owned(owner?: string): number[] {
+    return [...this.guides].filter(([, guide]) => guide.owner === owner).map(([tabId]) => tabId);
   }
 
   record(tabId: number, stepId: number, event: GuidePageEvent): void {

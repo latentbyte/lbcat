@@ -157,6 +157,16 @@ describe("引导覆盖层", () => {
     expect(document.querySelector("lbcat-agent-guide")).toBeNull();
   });
 
+  it("下一步转到其他标签时提示去向，点击后请求切换到该标签", () => {
+    const root = render({ stepId: 4, text: "", marks: [], state: "moved", target: { tabId: 9, title: "Billing" } })!;
+    expect(root.querySelector("[data-text]")!.textContent).toContain("another tab: Billing");
+    expect(root.querySelector("[data-busy]")).toBeNull();
+    expect(root.querySelector("textarea")).toBeNull();
+    button(root, "Go to that tab").click();
+    expect(send).toHaveBeenCalledWith({ type: MESSAGE, stepId: 4, event: { kind: "goto", tabId: 9 } });
+    expect(document.querySelector("lbcat-agent-guide")).toBeNull();
+  });
+
   it("折叠按钮隐藏与恢复正文，新步骤重新展开", () => {
     const root = render(view)!;
     const fold = root.querySelector<HTMLElement>("[data-fold]")!;
