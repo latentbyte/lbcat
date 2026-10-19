@@ -31,7 +31,7 @@ import {
 } from "@App/pkg/browser-control/tab-operation";
 import { guideService } from "@App/pkg/browser-control/guide";
 import { agentTabIndicators } from "./agent-tab-access";
-import { drawGuide } from "./agent-guide";
+import { drawGuide, endSessionGuides } from "./agent-guide";
 import { prepareScriptByCode } from "@App/pkg/utils/script";
 import { isUrlIncluded } from "@App/pkg/utils/match";
 import { getCombinedMeta, scriptURLPatternResults } from "./utils";
@@ -392,6 +392,7 @@ const DEFAULT_SCREENSHOT_TIMEOUT_MS = 115_000;
 const DEFAULT_ACTION_SETTLE_MS = 300;
 // 引导等待默认 9 分钟，低于代理 Bash 工具 10 分钟上限；超时后界面保留，可再次等待
 const DEFAULT_GUIDE_WAIT_MS = 9 * 60_000;
+const GUIDE_LOAD_WAIT_MS = 10_000;
 // 注入失败多因导航中文档被替换，等待期间短暂重试
 const WAIT_RETRY_MS = 100;
 
@@ -580,6 +581,7 @@ const handlers: Record<string, Handler> = {
     return { data: await agentWindowService.renewSession(sessionId(args) ?? "") };
   },
   async "sessions.close"(args) {
+    endSessionGuides(sessionId(args) ?? "");
     const tabs = await agentWindowService.closeSession(sessionId(args) ?? "", { closeTabs: Boolean(args.closeTabs) });
     return { data: { closed: true, ...(args.closeTabs ? tabs : {}) } };
   },
@@ -911,7 +913,7 @@ const handlers: Record<string, Handler> = {
           ? await injectPageAction(tabId, { op: "resolve", locators: marks.map((mark) => mark.locator) })
           : {};
         const guideMarks = refs.map((ref, index) => ({ ref, label: marks[index].label }));
-        const stepId = guideService.begin(tabId, { text, title, marks: guideMarks });
+        const stepId = guideService.begin(tabId, { text, title, marks: guideMarks }, sessionId(args));
         try {
           await drawGuide(tabId, { stepId, title, text, marks: guideMarks, state: "step" });
         } catch (error) {
@@ -931,7 +933,13 @@ const handlers: Record<string, Handler> = {
     if (typeof tabId !== "number") throw new Error("tabId is required");
     await assertNativeTab(args, tabId);
     const outcome = await guideService.wait(tabId, timeoutArg(args, DEFAULT_GUIDE_WAIT_MS));
-    const tab = outcome.action === "closed" ? undefined : await chrome.tabs.get(tabId);
+    // 跳转后新页面的标题要等加载完成；页面迟迟不完成时返回当前所知
+    const tab =
+      outcome.action === "closed"
+        ? undefined
+        : outcome.action === "navigated"
+          ? await waitForTabComplete(tabId, GUIDE_LOAD_WAIT_MS).catch(() => chrome.tabs.get(tabId))
+          : await chrome.tabs.get(tabId);
     return {
       data: {
         tabId,

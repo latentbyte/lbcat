@@ -22,6 +22,17 @@ export async function drawGuide(tabId: number, view: GuideOverlayView | null): P
   }
 }
 
+// 代理失去标签访问或会话结束时移除引导，等待中的代理收到 closed
+export function endGuide(tabId: number): void {
+  if (!guideService.current(tabId)) return;
+  guideService.close(tabId);
+  drawGuide(tabId, null).catch(warn);
+}
+
+export function endSessionGuides(sessionId: string): void {
+  for (const tabId of guideService.owned(sessionId)) endGuide(tabId);
+}
+
 function isGuideEvent(event: unknown): event is GuidePageEvent {
   const value = event as Partial<Record<string, unknown>> | null;
   if (!value || typeof value !== "object") return false;

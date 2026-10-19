@@ -621,6 +621,34 @@ describe("原生消息并发控制", () => {
         expect(document.querySelector("lbcat-agent-guide")).toBeNull();
       });
 
+      it("结束会话时移除该会话的引导，等待中的代理收到 closed", async () => {
+        await request("guide-owned", "guide.step", { tabId: 101, text: "Read this" });
+        const waiting = request("guide-owned-wait", "guide.wait", { tabId: 101 });
+        await vi.advanceTimersByTimeAsync(0);
+        await request("guide-session-end", "sessions.close", {});
+        await waiting;
+        expect(responseOf("guide-owned-wait").data).toMatchObject({ action: "closed" });
+        expect(document.querySelector("lbcat-agent-guide")).toBeNull();
+      });
+
+      it("页面跳转后等新页面加载完成再返回标题", async () => {
+        await request("guide-nav", "guide.step", { tabId: 101, text: "Click Continue" });
+        const waiting = request("guide-nav-wait", "guide.wait", { tabId: 101 });
+        const next = { id: 101, windowId: 7, url: "https://a.test/billing", title: "https://a.test/billing" };
+        tabsGet.mockImplementation(async () => ({ ...next, status: "loading" }));
+        guideService.navigated(101, next.url);
+        await vi.advanceTimersByTimeAsync(0);
+        const loaded = { ...next, title: "Billing", status: "complete" } as chrome.tabs.Tab;
+        tabsGet.mockImplementation(async () => loaded);
+        for (const listener of tabUpdates) listener(101, { status: "complete" }, loaded);
+        await waiting;
+        expect(responseOf("guide-nav-wait").data).toMatchObject({
+          action: "navigated",
+          url: "https://a.test/billing",
+          title: "Billing",
+        });
+      });
+
       it("代理不能在个人标签展示引导，缺少说明时报错", async () => {
         await request("guide-empty", "guide.step", { tabId: 101, text: " " });
         expect(responseOf("guide-empty").error.code).toBe("INVALID_ARGUMENT");

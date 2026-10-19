@@ -1,5 +1,6 @@
 // 代理标签可视化与用户访问控制：徽标、页面边框、弹出页授权、页面内停止按钮以及代理便签
 
+import { endGuide, endSessionGuides } from "./agent-guide";
 import { agentNotesService, noteUrl } from "@App/pkg/browser-control/agent-notes";
 import { agentWindowService } from "@App/pkg/browser-control/agent-window";
 import {
@@ -69,6 +70,7 @@ async function handleTabAccess(request: TabAccessRequest): Promise<TabAccessResp
   switch (request.action) {
     case "grant":
       await agentWindowService.setTabGrant(request.tabId, request.grant);
+      if (request.grant?.mode === "off") endGuide(request.tabId);
       break;
     case "release":
       await agentWindowService.releaseTab(request.tabId);
@@ -81,6 +83,7 @@ async function handleTabAccess(request: TabAccessRequest): Promise<TabAccessResp
       break;
     case "end":
       await agentWindowService.closeSession(request.sessionId);
+      endSessionGuides(request.sessionId);
       break;
   }
   return { ok: true, data: await agentWindowService.tabAccess(request.tabId) };
@@ -155,7 +158,10 @@ export function initAgentTabAccess() {
       // 页面覆盖层只能关闭自身所在标签的访问，不能授予权限
       const tabId = sender.tab?.id;
       if (sender.id !== chrome.runtime.id || tabId === undefined) return undefined;
-      agentWindowService.setTabGrant(tabId, { mode: "off" }).catch(warn);
+      agentWindowService
+        .setTabGrant(tabId, { mode: "off" })
+        .then(() => endGuide(tabId))
+        .catch(warn);
       return undefined;
     }
     if (!isExtensionPage(sender)) return undefined;

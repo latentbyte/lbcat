@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { guideService } from "@App/pkg/browser-control/guide";
 import { AGENT_GUIDE_MESSAGE } from "@App/pkg/browser-control/tab-access-message";
-import { initAgentGuide } from "./agent-guide";
+import { endGuide, endSessionGuides, initAgentGuide } from "./agent-guide";
 
 type Listener = (...args: never[]) => unknown;
 
@@ -82,5 +82,20 @@ describe("引导模式后台接线", () => {
     (listeners.removed as Listener)(5 as never);
     await expect(waiting).resolves.toMatchObject({ action: "closed" });
     expect(guideService.current(5)).toBeUndefined();
+  });
+
+  it("会话结束或标签停止代理访问时移除引导，等待中的代理收到 closed", async () => {
+    guideService.begin(5, { text: "Click save", marks: [] }, "s1");
+    guideService.begin(6, { text: "Read this", marks: [] }, "s2");
+    const waiting = guideService.wait(5, 60_000);
+    endSessionGuides("s1");
+    await expect(waiting).resolves.toMatchObject({ action: "closed" });
+    const cleared = (tabId: number) =>
+      expect.objectContaining({ target: { tabId }, args: [null, { message: AGENT_GUIDE_MESSAGE }] });
+    expect(executeScript).toHaveBeenCalledWith(cleared(5));
+    expect(guideService.current(6)).toBeDefined();
+    endGuide(6);
+    expect(guideService.current(6)).toBeUndefined();
+    expect(executeScript).toHaveBeenCalledWith(cleared(6));
   });
 });

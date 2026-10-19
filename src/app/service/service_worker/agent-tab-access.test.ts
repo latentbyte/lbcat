@@ -21,6 +21,9 @@ const notes = vi.hoisted(() => ({
   remove: vi.fn(async () => {}),
 }));
 
+const guide = vi.hoisted(() => ({ endGuide: vi.fn(), endSessionGuides: vi.fn() }));
+
+vi.mock("./agent-guide", () => guide);
 vi.mock("@App/pkg/browser-control/agent-window", () => ({ agentWindowService: service }));
 vi.mock("@App/pkg/browser-control/agent-notes", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -55,11 +58,25 @@ describe("代理标签访问消息", () => {
     initAgentTabAccess();
   });
 
-  it("页面内停止按钮只关闭发送消息的标签", () => {
+  it("页面内停止按钮只关闭发送消息的标签，并移除该标签的引导", async () => {
     listener({ type: "browserControl.STOP_TAB", tabId: 99 }, { id: "ext", tab: { id: 5 } as chrome.tabs.Tab }, vi.fn());
     expect(service.setTabGrant).toHaveBeenCalledWith(5, { mode: "off" });
+    await vi.waitFor(() => expect(guide.endGuide).toHaveBeenCalledWith(5));
     listener({ type: "browserControl.STOP_TAB" }, { id: "other", tab: { id: 6 } as chrome.tabs.Tab }, vi.fn());
     expect(service.setTabGrant).toHaveBeenCalledTimes(1);
+  });
+
+  it("弹出页关闭标签访问或结束会话时移除对应引导", async () => {
+    const popup = { id: "ext", url: "chrome-extension://ext/src/popup.html" };
+    const send = (request: object) =>
+      new Promise((resolve) => listener({ type: "browserControl.TAB_ACCESS", tabId: 3, ...request }, popup, resolve));
+    await send({ action: "grant", grant: { mode: "all" } });
+    expect(guide.endGuide).not.toHaveBeenCalled();
+    await send({ action: "grant", grant: { mode: "off" } });
+    expect(guide.endGuide).toHaveBeenCalledWith(3);
+    await send({ action: "end", sessionId: "s" });
+    expect(service.closeSession).toHaveBeenCalledWith("s");
+    expect(guide.endSessionGuides).toHaveBeenCalledWith("s");
   });
 
   it("授权请求只接受扩展页面并返回最新访问视图", async () => {

@@ -20,6 +20,8 @@ export type GuideOutcome = {
 type Settled = Pick<GuideOutcome, "action" | "reply" | "url">;
 type TabGuide = {
   step: GuideStep & { id: number };
+  // 展示当前步骤的任务会话，会话结束时一并移除引导
+  owner?: string;
   // 已发生但尚未交给代理的人工操作；等待开始前的点击也不会丢失
   queue: Settled[];
   interactions: GuideInteraction[];
@@ -32,10 +34,10 @@ const MAX_REPLY = 2000;
 export class GuideService {
   private readonly guides = new Map<number, TabGuide>();
 
-  begin(tabId: number, step: GuideStep): number {
+  begin(tabId: number, step: GuideStep, owner?: string): number {
     const previous = this.guides.get(tabId);
     const id = (previous?.step.id ?? 0) + 1;
-    this.guides.set(tabId, { step: { ...step, id }, queue: [], interactions: [], waiter: previous?.waiter });
+    this.guides.set(tabId, { step: { ...step, id }, owner, queue: [], interactions: [], waiter: previous?.waiter });
     return id;
   }
 
@@ -43,8 +45,8 @@ export class GuideService {
     return this.guides.get(tabId)?.step;
   }
 
-  active(): number[] {
-    return [...this.guides.keys()];
+  owned(sessionId: string): number[] {
+    return [...this.guides].filter(([, guide]) => guide.owner === sessionId).map(([tabId]) => tabId);
   }
 
   record(tabId: number, stepId: number, event: GuidePageEvent): void {

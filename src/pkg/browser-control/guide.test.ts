@@ -93,9 +93,20 @@ describe("引导模式", () => {
     await expect(stale).resolves.toMatchObject({ action: "timeout" });
     guide.record(1, 1, { kind: "next" });
     await expect(fresh).resolves.toMatchObject({ action: "next" });
-    expect(guide.active()).toEqual([1]);
     guide.close(1);
-    expect(guide.active()).toEqual([]);
     await expect(guide.wait(1, 1_000)).rejects.toMatchObject({ code: "GUIDE_NOT_STARTED" });
+  });
+
+  it("按会话列出引导所在标签，新步骤归属最新的会话", () => {
+    const guide = new GuideService();
+    guide.begin(1, step, "s1");
+    guide.begin(2, step, "s2");
+    guide.begin(3, step, "s1");
+    guide.begin(4, step);
+    expect(guide.owned("s1")).toEqual([1, 3]);
+    guide.begin(3, step, "s2");
+    expect(guide.owned("s1")).toEqual([1]);
+    guide.close(1);
+    expect(guide.owned("s1")).toEqual([]);
   });
 });
