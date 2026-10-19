@@ -45,6 +45,7 @@ describe("引导覆盖层", () => {
     vi.restoreAllMocks();
     delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
     delete (globalThis as { __bctlRefs?: unknown }).__bctlRefs;
+    delete (globalThis as { __lbcatGuidePosition?: unknown }).__lbcatGuidePosition;
   });
 
   const view: GuideOverlayView = {
@@ -98,7 +99,9 @@ describe("引导覆盖层", () => {
     expect(send).toHaveBeenCalledWith({ type: MESSAGE, stepId: 3, event: { kind: "next", reply: "copied it" } });
     expect(root.querySelector("[data-text]")!.textContent).toContain("preparing the next step");
     expect(root.querySelectorAll("[data-mark]")).toHaveLength(0);
-    expect(Array.from(root.querySelectorAll("button")).map((item) => item.textContent)).toEqual(["Close"]);
+    expect(Array.from(root.querySelectorAll("[data-actions] button")).map((item) => item.textContent)).toEqual([
+      "Close",
+    ]);
   });
 
   it("发送按钮仅在有内容时可用，发送回复后保留标注等待代理调整", () => {
@@ -134,6 +137,54 @@ describe("引导覆盖层", () => {
     expect(root.querySelector("textarea")).toBeNull();
     button(root, "Close").click();
     expect(document.querySelector("lbcat-agent-guide")).toBeNull();
+  });
+
+  it("折叠按钮隐藏与恢复正文，新步骤重新展开", () => {
+    const root = render(view)!;
+    const fold = root.querySelector<HTMLElement>("[data-fold]")!;
+    const body = root.querySelector<HTMLElement>("[data-text]")!.parentElement!;
+    fold.click();
+    expect(body.style.display).toBe("none");
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    fold.click();
+    expect(body.style.display).toBe("block");
+    fold.click();
+    const next = render({ ...view, stepId: 4 })!;
+    expect(next.querySelector<HTMLElement>("[data-text]")!.parentElement!.style.display).toBe("block");
+  });
+
+  it("拖动标题栏移动卡片，位置限制在视口内并沿用到下一步", () => {
+    const capture = vi.fn();
+    Object.assign(Element.prototype, { setPointerCapture: capture });
+    const root = render(view)!;
+    const handle = root.querySelector<HTMLElement>("[data-handle]")!;
+    const card = root.querySelector<HTMLElement>("[data-card]")!;
+    const pointer = (type: string, x: number, y: number) =>
+      handle.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y }));
+    pointer("pointerdown", 10, 10);
+    pointer("pointermove", 210, 110);
+    pointer("pointerup", 210, 110);
+    expect(capture).toHaveBeenCalled();
+    expect([card.style.left, card.style.top, card.style.bottom]).toEqual(["200px", "100px", "auto"]);
+    pointer("pointermove", 500, 500);
+    expect(card.style.left).toBe("200px");
+
+    pointer("pointerdown", 0, 0);
+    pointer("pointermove", -50, 99999);
+    pointer("pointerup", 0, 0);
+    expect([card.style.left, card.style.top]).toEqual(["0px", `${window.innerHeight}px`]);
+
+    const next = render({ ...view, stepId: 4 })!.querySelector<HTMLElement>("[data-card]")!;
+    expect([next.style.left, next.style.top]).toEqual(["0px", `${window.innerHeight}px`]);
+    delete (Element.prototype as { setPointerCapture?: unknown }).setPointerCapture;
+  });
+
+  it("点击折叠按钮不触发拖动", () => {
+    const root = render(view)!;
+    const fold = root.querySelector<HTMLElement>("[data-fold]")!;
+    fold.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, composed: true, button: 0 }));
+    fold.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, composed: true, clientX: 300, clientY: 300 }));
+    expect((globalThis as { __lbcatGuidePosition?: unknown }).__lbcatGuidePosition).toBeUndefined();
   });
 
   it("重绘替换旧的覆盖层，传入 null 时移除，页面合成的交互不上报", () => {

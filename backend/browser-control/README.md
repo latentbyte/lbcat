@@ -267,7 +267,8 @@ are numbered), so a selector containing `|` needs a label. Every mark must resol
 otherwise the step fails (`SELECTOR_NOT_FOUND`, `AMBIGUOUS_MATCH`) before anything is drawn. Marks follow scrolling,
 resizes, and DOM changes; the page scrolls to the first mark when it is off-screen. The card has an optional reply
 box and three buttons: `No, let's talk`, `Send` (reply only), and `Got it, next`. It sits in a closed shadow root,
-so page scripts cannot press its buttons.
+so page scripts cannot press its buttons. The human can drag the card by its title bar (the spot sticks for later steps on that
+page) and fold it to the title bar with `-` / `+`; each new step opens unfolded.
 
 `--text` renders a Markdown subset: paragraphs, `#` headings, `-` / `1.` lists, `**bold**`, `*italic*`, and
 `` `code` ``. HTML and `_` emphasis stay literal, so `snake_case` names are safe. Long text scrolls inside the card.
