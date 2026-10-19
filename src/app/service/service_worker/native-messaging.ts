@@ -382,6 +382,18 @@ export async function focusNativeTab(tabId: number, requestedWindowId?: number, 
   });
 }
 
+// 窗口当前显示本会话的标签时，把引导所在标签切到前台；个人或其他任务的标签不让位，也不聚焦窗口
+async function bringGuideForward(tab: chrome.tabs.Tab, owner?: string): Promise<void> {
+  if (tab.active || tab.id === undefined || !owner) return;
+  const tabId = tab.id;
+  await withNativeWindowOperation(tab.windowId, async () => {
+    const [active] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+    if (active?.id === undefined || active.id === tabId) return;
+    const { owner: holder } = await agentWindowService.tabAccess(active.id);
+    if (holder?.sessionId === owner) await chrome.tabs.update(tabId, { active: true });
+  });
+}
+
 const DEFAULT_LOAD_TIMEOUT_MS = 30_000;
 // 导航类操作在加载超时之外还需注入与静置时间；须小于 CLI 的 5 秒请求余量
 const NAVIGATION_MARGIN_MS = 4_000;
@@ -907,7 +919,7 @@ const handlers: Record<string, Handler> = {
     const step = await withNativeTabOperation(
       tabId,
       async (operation) => {
-        await assertNativeTab(args, tabId);
+        const tab = await assertNativeTab(args, tabId);
         operation.bindToDocument();
         const { refs = [] } = marks.length
           ? await injectPageAction(tabId, { op: "resolve", locators: marks.map((mark) => mark.locator) })
@@ -921,6 +933,7 @@ const handlers: Record<string, Handler> = {
           throw error;
         }
         await handOffGuides(tabId, sessionId(args));
+        await bringGuideForward(tab, sessionId(args));
         return { step: stepId, marks: guideMarks };
       },
       { timeoutMs: timeoutArg(args, DEFAULT_READ_TIMEOUT_MS), label: "guide.step" }

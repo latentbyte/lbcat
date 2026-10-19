@@ -291,7 +291,9 @@ queued, so nothing is lost after a timeout. Guides work on tabs the session can 
 personal tab with `--personal-tab`). They end when the tab closes, the session that drew them ends (`session end` or
 the popup), the human turns off agent access to the tab (Stop or the popup), or the extension background restarts. A
 session shows one guide at a time: a `guide step` on another tab ends the session's guide on its earlier tabs, and
-their cards point to the new tab with a "Go to that tab" button.
+their cards point to the new tab with a "Go to that tab" button. When the step's window is showing one of the session's own tabs,
+`guide step` also switches that window to the step's tab; it never takes over a personal or other task's tab and never
+focuses the window.
 
 ## Human-operated tab switchers
 

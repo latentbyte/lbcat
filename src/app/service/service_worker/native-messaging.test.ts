@@ -614,6 +614,23 @@ describe("原生消息并发控制", () => {
         );
       });
 
+      it("当前窗口正显示本会话的标签时，把引导所在标签切到前台但不聚焦窗口", async () => {
+        await request("guide-claim", "sessions.claim", { tabId: 102 });
+        tabsQuery.mockResolvedValue([{ id: 102, windowId: 7, active: true }]);
+        await request("guide-front", "guide.step", { tabId: 101, text: "Open billing" });
+        expect(responseOf("guide-front").data).toMatchObject({ tabId: 101 });
+        expect(tabsQuery).toHaveBeenCalledWith({ active: true, windowId: 7 });
+        expect(tabsUpdate).toHaveBeenCalledWith(101, { active: true });
+        expect(windowsUpdate).not.toHaveBeenCalled();
+      });
+
+      it("当前窗口正显示其他标签时不切换", async () => {
+        tabsQuery.mockResolvedValue([{ id: 102, windowId: 7, active: true }]);
+        await request("guide-back", "guide.step", { tabId: 101, text: "Open billing" });
+        expect(responseOf("guide-back").data).toMatchObject({ tabId: 101 });
+        expect(tabsUpdate).not.toHaveBeenCalled();
+      });
+
       it("标注找不到时不开始步骤", async () => {
         await request("guide-missing", "guide.step", { tabId: 101, text: "Click", marks: [{ selector: "#none" }] });
         expect(responseOf("guide-missing").error.code).toBe("SELECTOR_NOT_FOUND");
