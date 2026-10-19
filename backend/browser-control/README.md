@@ -85,6 +85,10 @@ paused task, stay open). Expired sessions must be replaced.
 other tasks' tabs, and the marker are refused.
 `session list` exposes live task IDs, expiry, pause state, and owned tab IDs so an operator can `session pause <id>` before
 taking over a tab and `session resume <id>` afterward. Already-running page JavaScript is not cancelled by pause.
+It needs no session. Next to `tabIds`, each session carries `tabs: [{"id": 762, "origin": "https://voice.google.com"}]`
+(empty sessions encode `[]`). `origin` is `scheme://host[:port]` of the tab's current (or pending) URL, or `null` for
+non-http(s) or vanished tabs; paths, queries, and titles of other tasks' tabs are never exposed. Use it to check whether
+another task already holds a tab on a given site. Available since LBcat 4.23.0.
 
 `session begin --label <name>` (or `BROWSER_CONTROL_LABEL`) names the task for humans. Each tab a task owns shows the
 label as initials on the extension's toolbar badge and as a colored page border with an "Agent: <label>" pill on

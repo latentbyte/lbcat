@@ -29,6 +29,8 @@ type State = {
 };
 
 export type AgentSessionView = { sessionId: string; label?: string; expiresAt: number; paused: boolean };
+// 只暴露来源（scheme://host[:port]），其他任务的路径、标题等不可见
+export type AgentSessionTab = { id: number; origin: string | null };
 export type TabAccessView = {
   tabId: number;
   grant?: TabGrant;
@@ -89,6 +91,11 @@ function sessionLabel(label: string | undefined): string | undefined {
 
 function sessionView({ sessionId, label, expiresAt, paused }: Session): AgentSessionView {
   return { sessionId, label, expiresAt, paused };
+}
+
+function httpOrigin(tab: chrome.tabs.Tab | undefined): string | null {
+  const url = URL.parse(tab?.url || tab?.pendingUrl || "");
+  return url?.protocol === "http:" || url?.protocol === "https:" ? url.origin : null;
 }
 
 export class AgentWindowService implements AgentWindowScope {
@@ -350,12 +357,22 @@ export class AgentWindowService implements AgentWindowScope {
     });
   }
 
-  async listSessions(): Promise<Array<AgentSessionView & { tabIds: number[] }>> {
+  async listSessions(): Promise<Array<AgentSessionView & { tabIds: number[]; tabs: AgentSessionTab[] }>> {
     return this.withState(async (state) => {
       await this.registration(state);
-      return state.sessions
-        .filter((session) => session.expiresAt > this.deps.now())
-        .map((session) => ({ ...sessionView(session), tabIds: [...session.tabIds] }));
+      const live = state.sessions.filter((session) => session.expiresAt > this.deps.now());
+      return Promise.all(
+        live.map(async (session) => ({
+          ...sessionView(session),
+          tabIds: [...session.tabIds],
+          tabs: await Promise.all(
+            session.tabIds.map(async (id) => ({
+              id,
+              origin: httpOrigin(await this.deps.getTab(id).catch(() => undefined)),
+            }))
+          ),
+        }))
+      );
     });
   }
 

@@ -61,6 +61,9 @@ func newSessionCmd() *cobra.Command {
 	command.AddCommand(newSessionBeginCmd())
 	command.AddCommand(&cobra.Command{
 		Use: "list", Short: "List active task sessions and owned tab IDs", Args: cobra.NoArgs,
+		Long: "List active task sessions with expiry, pause state, and owned tabs. Needs no session.\n" +
+			"Each session has tabIds and a parallel tabs array of {id, origin}; origin is the tab's current\n" +
+			"http(s) scheme://host[:port] or null, never its path, query, or title.",
 		RunE: func(cmd *cobra.Command, _ []string) error { return printAgentResponse(cmd, "sessions.list", nil) },
 	})
 	for _, operation := range []struct{ name, remote string }{{"renew", "renew"}, {"end", "close"}, {"pause", "pause"}, {"resume", "resume"}} {

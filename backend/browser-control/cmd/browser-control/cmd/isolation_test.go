@@ -224,12 +224,13 @@ func TestTabCreateForegroundPermission(t *testing.T) {
 
 func TestSessionList(t *testing.T) {
 	t.Run("列出任务会话供操作者暂停", func(t *testing.T) {
-		result := startPageCommandDaemon(t, map[string]json.RawMessage{"sessions.list": json.RawMessage(`{"data":[{"sessionId":"task-123","expiresAt":42,"paused":false,"tabIds":[17]}]}`)})
+		result := startPageCommandDaemon(t, map[string]json.RawMessage{"sessions.list": json.RawMessage(`{"data":[{"sessionId":"task-123","expiresAt":42,"paused":false,"tabIds":[17],"tabs":[{"id":17,"origin":"https://voice.google.com"}]}]}`)})
 		command, _, err := newSessionCmd().Find([]string{"list"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		command.SetOut(io.Discard)
+		var output bytes.Buffer
+		command.SetOut(&output)
 		if command.RunE == nil {
 			t.Fatal("session list command missing")
 		}
@@ -239,6 +240,9 @@ func TestSessionList(t *testing.T) {
 		requests := waitPageCommandRequests(t, result)
 		if len(requests) != 1 || requests[0].Cmd != "sessions.list" {
 			t.Fatalf("requests = %#v", requests)
+		}
+		if !strings.Contains(output.String(), `"tabs":[{"id":17,"origin":"https://voice.google.com"}]`) {
+			t.Fatalf("output = %s", output.String())
 		}
 	})
 }

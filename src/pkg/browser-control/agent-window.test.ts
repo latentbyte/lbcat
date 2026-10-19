@@ -551,6 +551,33 @@ describe("代理专用窗口与标签租约", () => {
     expect((await service.listSessions()).at(-1)?.label).toHaveLength(60);
   });
 
+  it("任务列表按当前 URL 返回所持标签的来源且不泄露路径", async () => {
+    const sessionId = await prepare();
+    const empty = (await service.openSession()).sessionId;
+    const web = await service.createTab(sessionId, "https://voice.google.com/u/0/calls?x=1#y");
+    const port = await service.createTab(sessionId, "http://localhost:8443/app");
+    const blank = await service.createTab(sessionId, "about:blank");
+    const internal = await service.createTab(sessionId, "https://example.com");
+    const pending = await service.createTab(sessionId, "https://example.org");
+    const gone = await service.createTab(sessionId, "https://example.net");
+    tabs.get(internal.id!)!.url = "chrome://newtab/";
+    Object.assign(tabs.get(pending.id!)!, { url: "", pendingUrl: "https://voice.google.com/u/0/calls" });
+    tabs.delete(gone.id!);
+    const sessions = await service.listSessions();
+    expect(sessions.find((item) => item.sessionId === sessionId)).toMatchObject({
+      tabIds: [web.id, port.id, blank.id, internal.id, pending.id, gone.id],
+      tabs: [
+        { id: web.id, origin: "https://voice.google.com" },
+        { id: port.id, origin: "http://localhost:8443" },
+        { id: blank.id, origin: null },
+        { id: internal.id, origin: null },
+        { id: pending.id, origin: "https://voice.google.com" },
+        { id: gone.id, origin: null },
+      ],
+    });
+    expect(sessions.find((item) => item.sessionId === empty)).toMatchObject({ tabIds: [], tabs: [] });
+  });
+
   it("关闭标签访问后所有任务都不能操作且释放原有租约", async () => {
     await service.designate(7);
     const sessionId = (await service.openSession()).sessionId;

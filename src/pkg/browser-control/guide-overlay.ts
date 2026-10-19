@@ -16,6 +16,8 @@ export type GuideOverlayMessage = { type: string; stepId: number; event: GuidePa
 export function renderGuideOverlay(view: GuideOverlayView | null, options: GuideOverlayOptions): void {
   const store = globalThis as {
     __lbcatGuideTeardown?: () => void;
+    // 人工拖动后的卡片位置，同一页面后续步骤沿用
+    __lbcatGuidePosition?: { left: number; top: number };
     __bctlRefs?: Map<string, WeakRef<Element>>;
   };
   store.__lbcatGuideTeardown?.();
@@ -70,11 +72,36 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
       `box-shadow: 0 8px 28px rgba(0,0,0,.35); pointer-events: auto; ${font}`
   );
   card.dataset.card = "";
+  // 标题栏可拖动卡片，右侧按钮折叠或展开正文；新步骤总是展开显示
   const header = create(
     "div",
-    "display: flex; justify-content: space-between; gap: 8px; color: #FCD34D; font-weight: 600;",
-    view.title ? `${view.title} - Step ${view.stepId}` : `Agent walkthrough - Step ${view.stepId}`
+    "display: flex; justify-content: space-between; align-items: center; gap: 8px; color: #FCD34D; " +
+      "font-weight: 600; cursor: move; user-select: none; touch-action: none;"
   );
+  header.dataset.handle = "";
+  header.append(
+    create(
+      "span",
+      "overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
+      view.title ? `${view.title} - Step ${view.stepId}` : `Agent walkthrough - Step ${view.stepId}`
+    )
+  );
+  const body = create("div", "");
+  const fold = create(
+    "button",
+    `all: unset; cursor: pointer; flex: none; width: 22px; text-align: center; border-radius: 4px; ` +
+      `color: #F9FAFB; background: #374151; ${font}`
+  );
+  fold.dataset.fold = "";
+  const setFolded = (folded: boolean) => {
+    body.style.display = folded ? "none" : "block";
+    fold.textContent = folded ? "+" : "-";
+    fold.title = folded ? "Show the step" : "Fold the step";
+    fold.setAttribute("aria-expanded", String(!folded));
+    schedule();
+  };
+  fold.addEventListener("click", () => setFolded(body.style.display !== "none"));
+  header.append(fold);
   // 说明支持 Markdown 子集：段落、标题、- / 1. 列表、**粗体**、*斜体*、`代码`；只用 DOM 构建，不解析 HTML
   // 不支持 _ 强调，避免 snake_case 名称被误解析
   const inline = (parent: HTMLElement, source: string) => {
@@ -147,6 +174,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   );
   text.dataset.text = "";
   const actions = create("div", "display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap;");
+  actions.dataset.actions = "";
   const button = (label: string, primary: boolean, onClick: () => void) => {
     const element = create(
       "button",
@@ -157,7 +185,8 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     element.addEventListener("click", onClick);
     return element;
   };
-  card.append(header, text);
+  body.append(text);
+  card.append(header, body);
 
   const shown = (el: Element) => {
     const check = (el as Element & { checkVisibility?: () => boolean }).checkVisibility;
@@ -185,7 +214,22 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     label.style.top = `${spot.top}px`;
     return spot;
   };
-  // 卡片默认在底部，挡住标注时移到顶部
+  // 卡片保持在视口内
+  const place = (left: number, top: number) => {
+    const { width, height } = card.getBoundingClientRect();
+    const position = {
+      left: Math.max(0, Math.min(left, window.innerWidth - width)),
+      top: Math.max(0, Math.min(top, window.innerHeight - height)),
+    };
+    Object.assign(card.style, {
+      left: `${position.left}px`,
+      top: `${position.top}px`,
+      bottom: "auto",
+      transform: "none",
+    });
+    return position;
+  };
+  // 卡片默认在底部，挡住标注时移到顶部；人工拖动过则留在拖到的位置
   const layout = () => {
     const placed: Array<{ label: HTMLElement; rect: DOMRect; box: Box }> = [];
     for (const { el, box, label } of marks) {
@@ -202,6 +246,10 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     }
     const taken = placed.map((item) => item.box);
     for (const { label, box } of placed) taken.push(placeLabel(label, box, taken));
+    if (store.__lbcatGuidePosition) {
+      place(store.__lbcatGuidePosition.left, store.__lbcatGuidePosition.top);
+      return;
+    }
     const rects = placed.map((item) => item.rect);
     const height = card.getBoundingClientRect().height || 160;
     const zone = window.innerHeight - height - 32;
@@ -217,6 +265,8 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
         layout();
       });
   };
+
+  setFolded(false);
 
   // 人工响应后卡片改为提示状态；next 与 talk 结束本步，移除标注并允许关闭，代理未继续时卡片不会一直挡住页面
   const settle = (message: string, stepDone: boolean) => {
@@ -268,10 +318,25 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
         settle(PREPARING, true);
       })
     );
-    card.append(textarea);
+    body.append(textarea);
   }
-  card.append(actions);
+  body.append(actions);
   root.append(card);
+
+  let drag: { x: number; y: number } | undefined;
+  header.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.composedPath().includes(fold)) return;
+    const rect = card.getBoundingClientRect();
+    drag = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    header.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  header.addEventListener("pointermove", (event) => {
+    if (drag) store.__lbcatGuidePosition = place(event.clientX - drag.x, event.clientY - drag.y);
+  });
+  const drop = () => (drag = undefined);
+  header.addEventListener("pointerup", drop);
+  header.addEventListener("pointercancel", drop);
 
   // 标注元素上的人工点击与输入，同一元素同一类型每步只上报一次；勾选框与单选框的输入已由点击表示
   const reported = new Set<string>();
