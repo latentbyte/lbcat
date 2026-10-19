@@ -25,7 +25,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   if (!view) return;
 
   const ACCENT = "#F59E0B";
-  const PREPARING = "Got it. The agent is preparing the next step...";
+  const PREPARING = "Got it. The agent is preparing the next step";
   const PAD = 4;
   const send = (event: GuidePageEvent) => {
     const message: GuideOverlayMessage = { type: options.message, stepId: view.stepId, event };
@@ -269,8 +269,19 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   setFolded(false);
 
   // 人工响应后卡片改为提示状态；next 与 talk 结束本步，移除标注并允许关闭，代理未继续时卡片不会一直挡住页面
-  const settle = (message: string, stepDone: boolean) => {
+  // busy：代理正在处理，文字前显示转圈
+  const settle = (message: string, stepDone: boolean, busy = false) => {
     text.textContent = message;
+    if (busy) {
+      const spinner = create(
+        "span",
+        "display: inline-block; box-sizing: border-box; width: 11px; height: 11px; margin-right: 8px; " +
+          "vertical-align: -1px; border: 2px solid rgba(252,211,77,.25); border-top-color: #FCD34D; " +
+          "border-radius: 50%; animation: lbcat-guide-spin .8s linear infinite;"
+      );
+      spinner.dataset.busy = "";
+      text.prepend(spinner);
+    }
     textarea?.remove();
     actions.replaceChildren();
     if (stepDone) {
@@ -285,7 +296,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
 
   let textarea: HTMLTextAreaElement | undefined;
   if (view.state === "preparing") {
-    settle(PREPARING, true);
+    settle(PREPARING, true, true);
   } else {
     text.replaceChildren(...markdown(view.text));
     textarea = create(
@@ -299,7 +310,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     const sendReply = button("Send", false, () => {
       if (!reply()) return;
       send({ kind: "reply", reply: reply() });
-      settle("Sent. The agent is updating this step...", false);
+      settle("Sent. The agent is updating this step", false, true);
     });
     const syncReply = () => {
       sendReply.disabled = !reply();
@@ -316,17 +327,17 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
       // 人工把本步交给代理代为操作
       button("Do it for me", false, () => {
         send({ kind: "delegate", ...(reply() ? { reply: reply() } : {}) });
-        settle("Over to the agent. The agent is doing this step...", true);
+        settle("Over to the agent. The agent is doing this step", true, true);
       }),
       button("Got it, next", true, () => {
         send({ kind: "next", ...(reply() ? { reply: reply() } : {}) });
-        settle(PREPARING, true);
+        settle(PREPARING, true, true);
       })
     );
     body.append(textarea);
   }
   body.append(actions);
-  root.append(card);
+  root.append(create("style", "", "@keyframes lbcat-guide-spin { to { transform: rotate(360deg); } }"), card);
 
   let drag: { x: number; y: number } | undefined;
   header.addEventListener("pointerdown", (event) => {

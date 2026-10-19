@@ -98,6 +98,7 @@ describe("引导覆盖层", () => {
     button(root, "Got it, next").click();
     expect(send).toHaveBeenCalledWith({ type: MESSAGE, stepId: 3, event: { kind: "next", reply: "copied it" } });
     expect(root.querySelector("[data-text]")!.textContent).toContain("preparing the next step");
+    expect(root.querySelector("[data-text] [data-busy]")).not.toBeNull();
     expect(root.querySelectorAll("[data-mark]")).toHaveLength(0);
     expect(Array.from(root.querySelectorAll("[data-actions] button")).map((item) => item.textContent)).toEqual([
       "Close",
@@ -120,6 +121,7 @@ describe("引导覆盖层", () => {
     });
     expect(root.querySelectorAll("[data-mark]")).toHaveLength(2);
     expect(root.querySelector("[data-text]")!.textContent).toContain("updating this step");
+    expect(root.querySelector("[data-text] [data-busy]")).not.toBeNull();
   });
 
   it("选择讨论时通知代理并提示回到对话", () => {
@@ -127,6 +129,7 @@ describe("引导覆盖层", () => {
     button(root, "No, let's talk").click();
     expect(send).toHaveBeenCalledWith({ type: MESSAGE, stepId: 3, event: { kind: "talk" } });
     expect(root.querySelector("[data-text]")!.textContent).toContain("chat");
+    expect(root.querySelector("[data-busy]")).toBeNull();
     button(root, "Close").click();
     expect(document.querySelector("lbcat-agent-guide")).toBeNull();
   });
@@ -141,12 +144,14 @@ describe("引导覆盖层", () => {
       event: { kind: "delegate", reply: "only the first box" },
     });
     expect(root.querySelector("[data-text]")!.textContent).toContain("agent is doing this step");
+    expect(root.querySelector("[data-text] [data-busy]")).not.toBeNull();
     expect(root.querySelectorAll("[data-mark]")).toHaveLength(0);
   });
 
   it("准备状态只显示等待提示", () => {
     const root = render({ stepId: 4, text: "", marks: [], state: "preparing" })!;
     expect(root.querySelector("[data-text]")!.textContent).toContain("preparing the next step");
+    expect(root.querySelector("[data-text] [data-busy]")).not.toBeNull();
     expect(root.querySelector("textarea")).toBeNull();
     button(root, "Close").click();
     expect(document.querySelector("lbcat-agent-guide")).toBeNull();
