@@ -55,6 +55,13 @@ describe("引导模式后台接线", () => {
     });
   });
 
+  it("接受交给代理的事件", async () => {
+    const step = guideService.current(5)!.id;
+    const waiting = guideService.wait(5, 60_000);
+    message({ type: AGENT_GUIDE_MESSAGE, stepId: step, event: { kind: "delegate" } }, fromPage);
+    await expect(waiting).resolves.toEqual({ step, action: "delegate", interactions: [] });
+  });
+
   it("主框架导航结束等待，加载完成后在新页面显示准备状态；新步骤已开始时不覆盖", async () => {
     const step = guideService.current(5)!.id;
     (listeners.committed as Listener)({ tabId: 5, frameId: 1, url: "https://a.test/frame" } as never);

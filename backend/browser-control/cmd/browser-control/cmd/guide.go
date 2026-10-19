@@ -95,6 +95,7 @@ then blocks until the human responds in the browser:
   next       the human did the step (reply may carry a note)
   reply      the human sent a message; revise the current step
   talk       the human wants to discuss; stop and end the turn
+  delegate   the human asks you to do this step yourself, then keep guiding
   navigated  the page changed; inspect it before the next step
   closed     the tab was closed or the guide was cleared
   timeout    nothing yet; the card stays up, run guide wait again

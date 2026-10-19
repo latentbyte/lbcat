@@ -313,6 +313,11 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
         settle("Head back to the chat with the agent to talk it through.", true);
       }),
       sendReply,
+      // 人工把本步交给代理代为操作
+      button("Do it for me", false, () => {
+        send({ kind: "delegate", ...(reply() ? { reply: reply() } : {}) });
+        settle("Over to the agent. The agent is doing this step...", true);
+      }),
       button("Got it, next", true, () => {
         send({ kind: "next", ...(reply() ? { reply: reply() } : {}) });
         settle(PREPARING, true);

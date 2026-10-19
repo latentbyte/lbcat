@@ -131,6 +131,19 @@ describe("引导覆盖层", () => {
     expect(document.querySelector("lbcat-agent-guide")).toBeNull();
   });
 
+  it("选择交给代理时带上回复通知代理，标注移除并提示代理正在操作", () => {
+    const root = render(view)!;
+    root.querySelector("textarea")!.value = "only the first box";
+    button(root, "Do it for me").click();
+    expect(send).toHaveBeenCalledWith({
+      type: MESSAGE,
+      stepId: 3,
+      event: { kind: "delegate", reply: "only the first box" },
+    });
+    expect(root.querySelector("[data-text]")!.textContent).toContain("agent is doing this step");
+    expect(root.querySelectorAll("[data-mark]")).toHaveLength(0);
+  });
+
   it("准备状态只显示等待提示", () => {
     const root = render({ stepId: 4, text: "", marks: [], state: "preparing" })!;
     expect(root.querySelector("[data-text]")!.textContent).toContain("preparing the next step");

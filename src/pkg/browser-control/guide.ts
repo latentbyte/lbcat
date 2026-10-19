@@ -6,9 +6,9 @@ export type GuideInteractionEvent = "click" | "input";
 export type GuideInteraction = { ref: string; label: string; event: GuideInteractionEvent };
 // 页面引导卡片发回的事件
 export type GuidePageEvent =
-  | { kind: "next" | "talk" | "reply"; reply?: string }
+  | { kind: "next" | "talk" | "reply" | "delegate"; reply?: string }
   | { kind: "interaction"; ref: string; event: GuideInteractionEvent };
-export type GuideAction = "next" | "talk" | "reply" | "navigated" | "closed" | "timeout";
+export type GuideAction = "next" | "talk" | "reply" | "delegate" | "navigated" | "closed" | "timeout";
 export type GuideOutcome = {
   step: number;
   action: GuideAction;

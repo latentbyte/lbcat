@@ -39,7 +39,7 @@ function isGuideEvent(event: unknown): event is GuidePageEvent {
   if (value.kind === "interaction")
     return typeof value.ref === "string" && ["click", "input"].includes(value.event as string);
   return (
-    ["next", "talk", "reply"].includes(value.kind as string) &&
+    ["next", "talk", "reply", "delegate"].includes(value.kind as string) &&
     (value.reply === undefined || typeof value.reply === "string")
   );
 }

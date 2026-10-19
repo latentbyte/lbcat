@@ -266,7 +266,7 @@ bctl guide clear 123                           # remove the card when done
 are numbered), so a selector containing `|` needs a label. Every mark must resolve to exactly one visible element,
 otherwise the step fails (`SELECTOR_NOT_FOUND`, `AMBIGUOUS_MATCH`) before anything is drawn. Marks follow scrolling,
 resizes, and DOM changes; the page scrolls to the first mark when it is off-screen. The card has an optional reply
-box and three buttons: `No, let's talk`, `Send` (reply only), and `Got it, next`. It sits in a closed shadow root,
+box and four buttons: `No, let's talk`, `Send` (reply only), `Do it for me`, and `Got it, next`. It sits in a closed shadow root,
 so page scripts cannot press its buttons. The human can drag the card by its title bar (the spot sticks for later steps on that
 page) and fold it to the title bar with `-` / `+`; each new step opens unfolded.
 
@@ -280,6 +280,7 @@ page) and fold it to the title bar with `-` / `+`; each new step opens unfolded.
 | `next` | the human did the step; `reply` carries an optional note |
 | `reply` | the human sent a message; the card stays, so revise it with another `guide step` |
 | `talk` | the human wants to discuss; stop calling tools and end the turn |
+| `delegate` | the human asks the agent to do this step itself (`reply` may narrow it); do it, then continue with the next `guide step` |
 | `navigated` | the main frame navigated (`url`); returns once the new page loads (up to 10s), and the card shows "preparing the next step" there |
 | `closed` | the tab closed, the guide was cleared, or agent access ended |
 | `timeout` | no response within `--timeout` (default 9m, under agent shell limits); the card stays up |
