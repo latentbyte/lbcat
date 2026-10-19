@@ -9,6 +9,7 @@ export type PageActionRequest =
   | ({ op: "press"; key: string } & PageLocator)
   | { op: "wait"; selector?: string; text?: string; state: PageWaitState; timeoutMs: number }
   | { op: "snapshot"; selector?: string; max: number }
+  | { op: "resolve"; locators: PageLocator[] }
   | ({ op: "upload"; files: PageUploadFile[] } & PageLocator);
 // data 为 base64 编码的文件内容
 export type PageUploadFile = { name: string; type: string; data: string };
@@ -31,7 +32,10 @@ export type PageSnapshot = {
   truncated?: boolean;
 };
 export type PageActionResult =
-  | { success: true; value: { matched?: PageElementSummary; selected?: string; snapshot?: PageSnapshot } }
+  | {
+      success: true;
+      value: { matched?: PageElementSummary; selected?: string; snapshot?: PageSnapshot; refs?: string[] };
+    }
   | { success: false; code: string; error: string };
 
 export async function runPageAction(request: PageActionRequest): Promise<PageActionResult> {
@@ -455,6 +459,9 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
       }
       case "snapshot":
         return { success: true, value: { snapshot: snapshot(request.selector, request.max) } };
+      // 引导标注：把各种定位统一换成引用，供隔离世界中的标注层取回元素
+      case "resolve":
+        return { success: true, value: { refs: request.locators.map((locator) => refFor(locate(locator, "click"))) } };
       case "upload": {
         const input = locate(request, "upload") as HTMLInputElement;
         if (request.files.length > 1 && !input.multiple)

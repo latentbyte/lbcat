@@ -221,6 +221,26 @@ describe("页面动作", () => {
         code: "SELECTOR_NOT_FOUND",
       });
     });
+
+    it("把引用、选择器与文本标注统一解析为引用，复用已有引用", async () => {
+      document.body.innerHTML = `<button id="a">Save</button><code id="key">sk-123</code><p>Plan: Pro</p>`;
+      await runPageAction({ op: "snapshot", max: 50 });
+      const result = await runPageAction({
+        op: "resolve",
+        locators: [{ ref: "e1" }, { selector: "#key" }, { text: "Plan: Pro" }],
+      });
+      expect(result).toEqual({ success: true, value: { refs: ["e1", "e2", "e3"] } });
+    });
+
+    it("任一标注找不到或有歧义时整体失败", async () => {
+      document.body.innerHTML = `<button>Go</button><button>Go</button>`;
+      await expect(
+        runPageAction({ op: "resolve", locators: [{ selector: "button", nth: 1 }, { selector: "#none" }] })
+      ).resolves.toMatchObject({ code: "SELECTOR_NOT_FOUND" });
+      await expect(runPageAction({ op: "resolve", locators: [{ text: "Go" }] })).resolves.toMatchObject({
+        code: "AMBIGUOUS_MATCH",
+      });
+    });
   });
 
   describe("等待", () => {
