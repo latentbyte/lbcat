@@ -120,4 +120,56 @@ describe("引导覆盖层", () => {
     render(null);
     expect(document.querySelector("lbcat-agent-guide")).toBeNull();
   });
+
+  it("勾选框的输入与 change 不单独上报，由点击表示", () => {
+    // jsdom 中 click() 合成的点击不可信，但勾选框随之触发的 input/change 可信
+    document.body.innerHTML = `<input id="box" type="checkbox">`;
+    refs({ e1: document.getElementById("box")! });
+    render({ ...view, marks: [{ ref: "e1", label: "1" }] });
+    const changes = vi.fn((event: Event) => event.isTrusted);
+    document.addEventListener("change", changes);
+    document.getElementById("box")!.click();
+    document.removeEventListener("change", changes);
+    expect(changes).toHaveReturnedWith(true);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("相邻标注的标签不遮挡其他标注元素", () => {
+    document.body.innerHTML = `<input id="a" type="checkbox"><input id="b" type="checkbox">`;
+    refs({ e1: document.getElementById("a")!, e2: document.getElementById("b")! });
+    const rects: Record<string, DOMRect> = {
+      a: new DOMRect(32, 151, 13, 13),
+      b: new DOMRect(32, 172, 13, 13),
+    };
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      if (this.id in rects) return rects[this.id];
+      if ((this as HTMLElement).dataset?.mark) return new DOMRect(0, 0, 20, 22);
+      return new DOMRect(0, 0, 0, 0);
+    });
+    vi.spyOn(Element.prototype, "getClientRects").mockImplementation(
+      () => [new DOMRect(0, 0, 1, 1)] as unknown as DOMRectList
+    );
+    const root = render({
+      ...view,
+      marks: [
+        { ref: "e1", label: "2" },
+        { ref: "e2", label: "3" },
+      ],
+    })!;
+    const labels = Array.from(root.querySelectorAll<HTMLElement>("[data-mark]")).map((label) => {
+      const left = parseFloat(label.style.left);
+      const top = parseFloat(label.style.top);
+      return { left, top, right: left + 20, bottom: top + 22 };
+    });
+    const boxes = Object.values(rects).map((rect) => ({
+      left: rect.left - 4,
+      top: rect.top - 4,
+      right: rect.right + 4,
+      bottom: rect.bottom + 4,
+    }));
+    const overlaps = (a: (typeof boxes)[0], b: (typeof boxes)[0]) =>
+      a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    for (const label of labels) for (const box of boxes) expect(overlaps(label, box)).toBe(false);
+    expect(overlaps(labels[0], labels[1])).toBe(false);
+  });
 });

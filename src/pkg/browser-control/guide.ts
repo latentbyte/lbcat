@@ -2,7 +2,7 @@ import { BrowserControlError } from "./errors";
 
 export type GuideMark = { ref: string; label: string };
 export type GuideStep = { text: string; title?: string; marks: GuideMark[] };
-export type GuideInteractionEvent = "click" | "input" | "change";
+export type GuideInteractionEvent = "click" | "input";
 export type GuideInteraction = { ref: string; label: string; event: GuideInteractionEvent };
 // 页面引导卡片发回的事件
 export type GuidePageEvent =

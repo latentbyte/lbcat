@@ -26,7 +26,7 @@ function isGuideEvent(event: unknown): event is GuidePageEvent {
   const value = event as Partial<Record<string, unknown>> | null;
   if (!value || typeof value !== "object") return false;
   if (value.kind === "interaction")
-    return typeof value.ref === "string" && ["click", "input", "change"].includes(value.event as string);
+    return typeof value.ref === "string" && ["click", "input"].includes(value.event as string);
   return (
     ["next", "talk", "reply"].includes(value.kind as string) &&
     (value.reply === undefined || typeof value.reply === "string")

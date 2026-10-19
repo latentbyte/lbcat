@@ -94,22 +94,46 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     const check = (el as Element & { checkVisibility?: () => boolean }).checkVisibility;
     return el.isConnected && (check ? check.call(el) : el.getClientRects().length > 0);
   };
+  type Box = { left: number; top: number; right: number; bottom: number };
+  const intersects = (a: Box, b: Box) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  // 标签依次尝试放在框的上、下、右、左，取第一个不压住其他标注框与已放标签的位置
+  const placeLabel = (label: HTMLElement, box: Box, taken: Box[]) => {
+    const { width, height } = label.getBoundingClientRect();
+    const middle = box.top + (box.bottom - box.top - height) / 2;
+    const spots = [
+      [Math.max(4, box.left), box.top - height - 2],
+      [Math.max(4, box.left), box.bottom + 2],
+      [box.right + 4, middle],
+      [box.left - width - 4, middle],
+    ].map(([left, top]) => ({ left, top, right: left + width, bottom: top + height }));
+    const inView = (spot: Box) =>
+      spot.left >= 0 && spot.top >= 0 && spot.right <= window.innerWidth && spot.bottom <= window.innerHeight;
+    const spot =
+      spots.find((item) => inView(item) && !taken.some((other) => intersects(item, other))) ??
+      spots.find(inView) ??
+      spots[0];
+    label.style.left = `${spot.left}px`;
+    label.style.top = `${spot.top}px`;
+    return spot;
+  };
   // 卡片默认在底部，挡住标注时移到顶部
   const layout = () => {
-    const rects: DOMRect[] = [];
+    const placed: Array<{ label: HTMLElement; rect: DOMRect; box: Box }> = [];
     for (const { el, box, label } of marks) {
       const visible = shown(el);
       box.style.display = label.style.display = visible ? "block" : "none";
       if (!visible) continue;
       const rect = el.getBoundingClientRect();
-      rects.push(rect);
-      box.style.left = `${rect.left - PAD}px`;
-      box.style.top = `${rect.top - PAD}px`;
-      box.style.width = `${rect.width + PAD * 2}px`;
-      box.style.height = `${rect.height + PAD * 2}px`;
-      label.style.left = `${Math.max(4, rect.left - PAD)}px`;
-      label.style.top = rect.top - PAD - 24 >= 0 ? `${rect.top - PAD - 24}px` : `${rect.bottom + PAD + 2}px`;
+      const area = { left: rect.left - PAD, top: rect.top - PAD, right: rect.right + PAD, bottom: rect.bottom + PAD };
+      box.style.left = `${area.left}px`;
+      box.style.top = `${area.top}px`;
+      box.style.width = `${area.right - area.left}px`;
+      box.style.height = `${area.bottom - area.top}px`;
+      placed.push({ label, rect, box: area });
     }
+    const taken = placed.map((item) => item.box);
+    for (const { label, box } of placed) taken.push(placeLabel(label, box, taken));
+    const rects = placed.map((item) => item.rect);
     const height = card.getBoundingClientRect().height || 160;
     const zone = window.innerHeight - height - 32;
     const top = rects.some((rect) => rect.bottom > zone && rect.top < window.innerHeight);
@@ -180,15 +204,18 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   card.append(actions);
   root.append(card);
 
-  // 标注元素上的人工点击与输入，同一元素同一类型每步只上报一次
+  // 标注元素上的人工点击与输入，同一元素同一类型每步只上报一次；勾选框与单选框的输入已由点击表示
   const reported = new Set<string>();
   const onInteraction = (event: Event) => {
     if (!event.isTrusted) return;
     const path = event.composedPath();
     if (path.includes(host)) return;
+    const target = path[0];
+    if (event.type === "input" && target instanceof HTMLInputElement && ["checkbox", "radio"].includes(target.type))
+      return;
     const hit = marks.find(({ el }) => path.includes(el));
     if (!hit) return;
-    const type = event.type as "click" | "input" | "change";
+    const type = event.type as "click" | "input";
     const key = `${hit.mark.ref}:${type}`;
     if (reported.has(key)) return;
     reported.add(key);
@@ -200,7 +227,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   mutations.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
   window.addEventListener("scroll", schedule, { capture: true, passive: true });
   window.addEventListener("resize", schedule);
-  for (const type of ["click", "input", "change"]) document.addEventListener(type, onInteraction, true);
+  for (const type of ["click", "input"]) document.addEventListener(type, onInteraction, true);
 
   store.__lbcatGuideTeardown = () => {
     cancelAnimationFrame(frame);
@@ -208,7 +235,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     mutations.disconnect();
     window.removeEventListener("scroll", schedule, { capture: true });
     window.removeEventListener("resize", schedule);
-    for (const type of ["click", "input", "change"]) document.removeEventListener(type, onInteraction, true);
+    for (const type of ["click", "input"]) document.removeEventListener(type, onInteraction, true);
     host.remove();
   };
 
