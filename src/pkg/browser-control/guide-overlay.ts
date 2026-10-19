@@ -75,7 +75,76 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     "display: flex; justify-content: space-between; gap: 8px; color: #FCD34D; font-weight: 600;",
     view.title ? `${view.title} - Step ${view.stepId}` : `Agent walkthrough - Step ${view.stepId}`
   );
-  const text = create("div", "margin: 6px 0 10px; white-space: pre-wrap; overflow-wrap: anywhere;");
+  // 说明支持 Markdown 子集：段落、标题、- / 1. 列表、**粗体**、*斜体*、`代码`；只用 DOM 构建，不解析 HTML
+  // 不支持 _ 强调，避免 snake_case 名称被误解析
+  const inline = (parent: HTMLElement, source: string) => {
+    let last = 0;
+    for (const match of source.matchAll(/`([^`]+)`|\*\*(.+?)\*\*|\*(\S(?:[^*]*\S)?)\*/g)) {
+      parent.append(source.slice(last, match.index));
+      last = match.index + match[0].length;
+      if (match[1] !== undefined) {
+        parent.append(
+          create(
+            "code",
+            "padding: 0 4px; border-radius: 4px; background: #374151; font: 12px ui-monospace, Menlo, monospace;",
+            match[1]
+          )
+        );
+      } else {
+        const element = create(
+          match[2] !== undefined ? "strong" : "em",
+          match[2] !== undefined ? "font-weight: 700;" : "font-style: italic;"
+        );
+        inline(element, match[2] ?? match[3]);
+        parent.append(element);
+      }
+    }
+    parent.append(source.slice(last));
+  };
+  const markdown = (source: string) => {
+    const blocks: HTMLElement[] = [];
+    let list: HTMLElement | undefined;
+    let paragraph: HTMLElement | undefined;
+    for (const line of source.split(/\r?\n/)) {
+      const item = /^\s*(?:([-*+])|(\d+)[.)])\s+(.*)$/.exec(line);
+      const heading = /^#{1,6}\s+(.*)$/.exec(line);
+      if (item) {
+        const tag = item[1] ? "ul" : "ol";
+        if (list?.localName !== tag) {
+          list = create(tag, "margin: 0 0 6px; padding-left: 20px;");
+          if (item[2]) list.setAttribute("start", item[2]);
+          blocks.push(list);
+        }
+        const entry = create("li", "margin: 1px 0;");
+        inline(entry, item[3]);
+        list.append(entry);
+        paragraph = undefined;
+      } else if (list && /^\s+\S/.test(line)) {
+        // 缩进行接续上一列表项
+        const entry = list.lastElementChild as HTMLElement;
+        entry.append(" ");
+        inline(entry, line.trim());
+      } else if (heading) {
+        const element = create("div", "margin: 0 0 6px; font-weight: 700;");
+        inline(element, heading[1]);
+        blocks.push(element);
+        list = paragraph = undefined;
+      } else if (!line.trim()) {
+        list = paragraph = undefined;
+      } else {
+        list = undefined;
+        if (paragraph) paragraph.append(create("br", ""));
+        else blocks.push((paragraph = create("p", "margin: 0 0 6px;")));
+        inline(paragraph, line);
+      }
+    }
+    return blocks;
+  };
+
+  const text = create(
+    "div",
+    "margin: 6px 0 10px; max-height: 50vh; overflow-y: auto; overflow-wrap: anywhere; overscroll-behavior: contain;"
+  );
   text.dataset.text = "";
   const actions = create("div", "display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap;");
   const button = (label: string, primary: boolean, onClick: () => void) => {
@@ -168,7 +237,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   if (view.state === "preparing") {
     settle(PREPARING, true);
   } else {
-    text.textContent = view.text;
+    text.replaceChildren(...markdown(view.text));
     textarea = create(
       "textarea",
       `display: block; box-sizing: border-box; width: 100%; min-height: 34px; margin: 0 0 8px; padding: 6px 8px; ` +

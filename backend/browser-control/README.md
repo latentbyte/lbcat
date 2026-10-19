@@ -265,6 +265,9 @@ resizes, and DOM changes; the page scrolls to the first mark when it is off-scre
 box and three buttons: `No, let's talk`, `Send` (reply only), and `Got it, next`. It sits in a closed shadow root,
 so page scripts cannot press its buttons.
 
+`--text` renders a Markdown subset: paragraphs, `#` headings, `-` / `1.` lists, `**bold**`, `*italic*`, and
+`` `code` ``. HTML and `_` emphasis stay literal, so `snake_case` names are safe. Long text scrolls inside the card.
+
 `guide step` (unless `--no-wait`) and `guide wait` print `{tabId, step, action, reply?, url, title, interactions}` (no `url`/`title` when `closed`):
 
 | action | meaning |

@@ -66,6 +66,31 @@ describe("引导覆盖层", () => {
     expect(labels).toEqual(["copy this", "1"]);
   });
 
+  it("说明按 Markdown 渲染列表、粗体、斜体与代码，snake_case 保持原样", () => {
+    const root = render({
+      ...view,
+      text: "## Events\nTick **these** *two*:\n- `checkout.session.completed`\n- invoice_payment_succeeded\n  (v2)\n\n2. Press next",
+    })!;
+    const text = root.querySelector("[data-text]")!;
+    expect(text.querySelector("div")!.textContent).toBe("Events");
+    expect(text.querySelector("p strong")!.textContent).toBe("these");
+    expect(text.querySelector("p em")!.textContent).toBe("two");
+    expect(Array.from(text.querySelectorAll("ul > li")).map((item) => item.textContent)).toEqual([
+      "checkout.session.completed",
+      "invoice_payment_succeeded (v2)",
+    ]);
+    expect(text.querySelector("li code")!.textContent).toBe("checkout.session.completed");
+    expect(text.querySelector("ol")!.getAttribute("start")).toBe("2");
+    expect(text.querySelector("ol > li")!.textContent).toBe("Press next");
+  });
+
+  it("说明中的 HTML 按纯文本显示", () => {
+    const root = render({ ...view, text: '<img src=x onerror="alert(1)"> **<b>hi</b>**' })!;
+    const text = root.querySelector("[data-text]")!;
+    expect(text.querySelector("img, b")).toBeNull();
+    expect(text.textContent).toBe('<img src=x onerror="alert(1)"> <b>hi</b>');
+  });
+
   it("点击下一步发送回复并进入等待状态，标注随之移除", () => {
     const root = render(view)!;
     root.querySelector("textarea")!.value = "copied it";
