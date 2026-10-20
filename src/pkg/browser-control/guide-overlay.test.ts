@@ -92,6 +92,49 @@ describe("引导覆盖层", () => {
     expect(text.textContent).toBe('<img src=x onerror="alert(1)"> <b>hi</b>');
   });
 
+  it("围栏代码块渲染为可复制块，列表内缩进的围栏同样生效，未闭合的围栏延续到末尾", () => {
+    const root = render({
+      ...view,
+      text: "Paste this webhook URL:\n```\nhttps://example.com/hook\n```\n- Then the secret:\n  ```\n  line one\n    line two\n  ```\n```\nunclosed `x`",
+    })!;
+    const blocks = Array.from(root.querySelectorAll("[data-text] [data-copy]"));
+    expect(blocks.map((block) => block.querySelector("pre")!.textContent)).toEqual([
+      "https://example.com/hook",
+      "line one\n  line two",
+      "unclosed `x`",
+    ]);
+    expect(blocks.every((block) => block.querySelector("button[title='Copy']"))).toBe(true);
+    expect(root.querySelector("[data-text] p")!.textContent).toBe("Paste this webhook URL:");
+    expect(root.querySelector("[data-text] li")!.textContent).toBe("Then the secret:");
+  });
+
+  it("点击复制按钮写入剪贴板并提示已复制，不通知代理", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const root = render({ ...view, text: "```\nsk-123\n```" })!;
+    const copy = root.querySelector<HTMLButtonElement>("[data-copy] button")!;
+    copy.click();
+    await vi.waitFor(() => expect(copy.title).toBe("Copied"));
+    expect(writeText).toHaveBeenCalledWith("sk-123");
+    expect(send).not.toHaveBeenCalled();
+    delete (navigator as { clipboard?: unknown }).clipboard;
+  });
+
+  it("剪贴板写入失败时选中文本供手动复制", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("denied")) },
+    });
+    // jsdom 无法选中 Shadow Root 内的节点，只断言选中了代码文本
+    const select = vi.spyOn(Selection.prototype, "selectAllChildren").mockImplementation(() => {});
+    const root = render({ ...view, text: "```\nsk-123\n```" })!;
+    const copy = root.querySelector<HTMLButtonElement>("[data-copy] button")!;
+    copy.click();
+    await vi.waitFor(() => expect(copy.title).toBe("Press Ctrl+C or Cmd+C to copy"));
+    expect(select).toHaveBeenCalledWith(root.querySelector("[data-copy] pre"));
+    delete (navigator as { clipboard?: unknown }).clipboard;
+  });
+
   it("点击下一步发送回复并进入等待状态，标注随之移除", () => {
     const root = render(view)!;
     root.querySelector("textarea")!.value = "copied it";

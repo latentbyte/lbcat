@@ -137,7 +137,7 @@ interactions lists clicks and inputs on marked elements since the last result.`,
 			return printGuideResponse(cmd, resp)
 		},
 	}
-	step.Flags().String("text", "", "instructions shown to the human, Markdown subset: lists, **bold**, *italic*, inline code (required)")
+	step.Flags().String("text", "", "instructions shown to the human, Markdown subset: lists, **bold**, *italic*, inline code, ``` fenced blocks with a copy button (required)")
 	step.Flags().String("title", "", "card title (default: Agent walkthrough)")
 	step.Flags().StringArray("mark", nil, `highlight an element: "@e12|label", "text=Save|label", or "css|label" (repeatable; unlabeled marks are numbered)`)
 	step.Flags().Bool("no-wait", false, "draw the step and return without waiting")

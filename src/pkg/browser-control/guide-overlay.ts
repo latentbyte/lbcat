@@ -106,7 +106,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   };
   fold.addEventListener("click", () => setFolded(body.style.display !== "none"));
   header.append(fold);
-  // 说明支持 Markdown 子集：段落、标题、- / 1. 列表、**粗体**、*斜体*、`代码`；只用 DOM 构建，不解析 HTML
+  // 说明支持 Markdown 子集：段落、标题、- / 1. 列表、**粗体**、*斜体*、`代码`、``` 围栏代码块；只用 DOM 构建，不解析 HTML
   // 不支持 _ 强调，避免 snake_case 名称被误解析
   const inline = (parent: HTMLElement, source: string) => {
     let last = 0;
@@ -132,11 +132,90 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     }
     parent.append(source.slice(last));
   };
+  // 图标只用 DOM 构建：剪贴板与对勾
+  const icon = (paths: string[]) => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const [name, value] of Object.entries({
+      viewBox: "0 0 24 24",
+      width: "14",
+      height: "14",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "2",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+    }))
+      svg.setAttribute(name, value);
+    for (const d of paths) {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", d);
+      svg.append(path);
+    }
+    return svg;
+  };
+  const CLIPBOARD = ["M9 9h11v11H9z", "M5 15H4V4h11v1"];
+  const CHECK = ["M5 12l5 5L20 7"];
+  // 围栏代码块是供人工复制粘贴的文本，旁边的按钮一键复制；剪贴板不可用时选中文本供手动复制
+  const copyBlock = (value: string) => {
+    const block = create(
+      "div",
+      "display: flex; align-items: flex-start; gap: 6px; margin: 0 0 6px; padding: 6px 8px; border-radius: 6px; " +
+        "background: #1F2937; border: 1px solid #374151;"
+    );
+    block.dataset.copy = "";
+    const pre = create(
+      "pre",
+      "flex: 1; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.45 ui-monospace, Menlo, monospace;",
+      value
+    );
+    const copy = create(
+      "button",
+      "all: unset; flex: none; display: flex; padding: 3px; border-radius: 4px; cursor: pointer; color: #FCD34D; " +
+        "background: #374151;"
+    );
+    let reset = 0;
+    const show = (title: string, paths: string[]) => {
+      copy.title = title;
+      copy.setAttribute("aria-label", title);
+      copy.replaceChildren(icon(paths));
+    };
+    show("Copy", CLIPBOARD);
+    copy.addEventListener("click", () => {
+      clearTimeout(reset);
+      navigator.clipboard.writeText(value).then(
+        () => {
+          show("Copied", CHECK);
+          reset = window.setTimeout(() => show("Copy", CLIPBOARD), 1500);
+        },
+        () => {
+          getSelection()?.selectAllChildren(pre);
+          show("Press Ctrl+C or Cmd+C to copy", CLIPBOARD);
+        }
+      );
+    });
+    block.append(pre, copy);
+    return block;
+  };
   const markdown = (source: string) => {
     const blocks: HTMLElement[] = [];
     let list: HTMLElement | undefined;
     let paragraph: HTMLElement | undefined;
+    // 进行中的围栏代码块：去掉开头围栏的缩进
+    let fence: { indent: number; lines: string[] } | undefined;
     for (const line of source.split(/\r?\n/)) {
+      const fenceLine = /^(\s*)```/.exec(line);
+      if (fence) {
+        if (fenceLine) {
+          blocks.push(copyBlock(fence.lines.join("\n")));
+          fence = undefined;
+        } else fence.lines.push(line.slice(Math.min(fence.indent, /^\s*/.exec(line)![0].length)));
+        continue;
+      }
+      if (fenceLine) {
+        fence = { indent: fenceLine[1].length, lines: [] };
+        list = paragraph = undefined;
+        continue;
+      }
       const item = /^\s*(?:([-*+])|(\d+)[.)])\s+(.*)$/.exec(line);
       const heading = /^#{1,6}\s+(.*)$/.exec(line);
       if (item) {
@@ -169,6 +248,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
         inline(paragraph, line);
       }
     }
+    if (fence) blocks.push(copyBlock(fence.lines.join("\n")));
     return blocks;
   };
 

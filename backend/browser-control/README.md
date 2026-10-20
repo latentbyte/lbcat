@@ -272,6 +272,8 @@ page) and fold it to the title bar with `-` / `+`; each new step opens unfolded.
 
 `--text` renders a Markdown subset: paragraphs, `#` headings, `-` / `1.` lists, `**bold**`, `*italic*`, and
 `` `code` ``. HTML and `_` emphasis stay literal, so `snake_case` names are safe. Long text scrolls inside the card.
+A ```` ``` ```` fenced block renders as a copy box with a clipboard button, for text the human pastes into the page
+(a URL, key, or snippet); the button copies the block verbatim. Fences may be indented under a list item.
 
 `guide step` (unless `--no-wait`) and `guide wait` print `{tabId, step, action, reply?, url, title, interactions}` (no `url`/`title` when `closed`):
 
