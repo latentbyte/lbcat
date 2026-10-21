@@ -402,6 +402,7 @@ const DEFAULT_READ_TIMEOUT_MS = 25_000;
 // CLI 截图默认请求超时为 2 分钟
 const DEFAULT_SCREENSHOT_TIMEOUT_MS = 115_000;
 const DEFAULT_ACTION_SETTLE_MS = 300;
+const DEFAULT_SNAPSHOT_MAX = 150;
 // 引导等待默认 9 分钟，低于代理 Bash 工具 10 分钟上限；超时后界面保留，可再次等待
 const DEFAULT_GUIDE_WAIT_MS = 9 * 60_000;
 const GUIDE_LOAD_WAIT_MS = 10_000;
@@ -492,11 +493,13 @@ async function execInPage(tabId: number, code: string, maxChars: number): Promis
   };
 }
 
-// 动作可能触发导航：在同一标签队列内执行并观察导航，返回动作结果与最终页面
+// 动作可能触发导航：在同一标签队列内执行并观察导航，返回动作结果与最终页面；
+// snapshot 为 diff 时附带动作引起的快照变化（新文档则为完整快照），为 full 时附带整页快照
 async function nativePageAction(args: Record<string, unknown>, request: PageActionRequest) {
   const tabId = args.tabId;
   if (typeof tabId !== "number") throw new Error("tabId is required");
   const timeoutMs = timeoutArg(args, DEFAULT_LOAD_TIMEOUT_MS);
+  const observe = args.snapshot === "diff" || args.snapshot === "full" ? args.snapshot : undefined;
   return withNativeTabOperation(
     tabId,
     async () => {
@@ -505,7 +508,7 @@ async function nativePageAction(args: Record<string, unknown>, request: PageActi
       const { navigated, tab } = await navigateTab(
         tabId,
         async () => {
-          value = await injectPageAction(tabId, request);
+          value = await injectPageAction(tabId, { ...request, ...(observe === "diff" ? { observe: true } : {}) });
         },
         {
           wait: waitMode(args),
@@ -513,7 +516,15 @@ async function nativePageAction(args: Record<string, unknown>, request: PageActi
           settleMs: typeof args.settleMs === "number" ? args.settleMs : DEFAULT_ACTION_SETTLE_MS,
         }
       );
-      return { data: { ...value, navigated, url: tab.url || tab.pendingUrl || "", title: tab.title || "" } };
+      // 动作已生效，快照失败只随结果报告，避免调用方重复执行动作
+      const observed = observe
+        ? await injectPageAction(tabId, { op: "snapshot", max: DEFAULT_SNAPSHOT_MAX, diff: observe === "diff" }).catch(
+            (error: unknown) => ({ snapshotError: error instanceof Error ? error.message : String(error) })
+          )
+        : {};
+      return {
+        data: { ...value, navigated, url: tab.url || tab.pendingUrl || "", title: tab.title || "", ...observed },
+      };
     },
     { timeoutMs: timeoutMs + NAVIGATION_MARGIN_MS, label: `page.${request.op}` }
   );
@@ -832,6 +843,8 @@ const handlers: Record<string, Handler> = {
   },
 
   async "page.click"(args) {
+    const { x, y } = args;
+    if (typeof x === "number" && typeof y === "number") return nativePageAction(args, { op: "click", point: { x, y } });
     return nativePageAction(args, { op: "click", ...locatorArgs(args) });
   },
 
@@ -886,7 +899,7 @@ const handlers: Record<string, Handler> = {
     const tabId = args.tabId;
     if (typeof tabId !== "number") throw new Error("tabId is required");
     const selector = typeof args.selector === "string" && args.selector ? args.selector : undefined;
-    const max = typeof args.max === "number" && args.max > 0 ? args.max : 150;
+    const max = typeof args.max === "number" && args.max > 0 ? args.max : DEFAULT_SNAPSHOT_MAX;
     const value = await withNativeTabOperation(
       tabId,
       async (operation) => {

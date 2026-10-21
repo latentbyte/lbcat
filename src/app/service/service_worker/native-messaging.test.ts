@@ -555,6 +555,60 @@ describe("原生消息并发控制", () => {
       expect(clicked).toHaveBeenCalledTimes(1);
     });
 
+    it("动作请求差异快照时返回动作引起的变化，请求完整快照时返回整页", async () => {
+      document.body.innerHTML = `<button id="add">Add</button>`;
+      document.getElementById("add")!.addEventListener("click", () => {
+        document.body.insertAdjacentHTML("beforeend", `<button>Remove</button><a href="/next">Next</a>`);
+      });
+      tabsGet.mockResolvedValue({ id: 101, windowId: 7, url: "https://a.test/", title: "A", status: "complete" });
+      await request("diff-click", "page.click", { tabId: 101, selector: "#add", snapshot: "diff" });
+      expect(responseOf("diff-click").data).toMatchObject({
+        matched: { tag: "button", id: "add" },
+        changes: {
+          added: [
+            { role: "button", name: "Remove" },
+            { role: "link", name: "Next", href: "/next" },
+          ],
+          removed: [],
+          changed: [],
+          total: 3,
+        },
+      });
+      await request("full-fill", "page.click", { tabId: 101, text: "Remove", snapshot: "full" });
+      expect(responseOf("full-fill").data.snapshot).toMatchObject({ total: 3 });
+    });
+
+    it("动作已完成但随后的快照失败时报告快照错误而非动作失败", async () => {
+      document.body.innerHTML = `<button id="go">Go</button>`;
+      const clicked = vi.fn();
+      document.getElementById("go")!.addEventListener("click", clicked);
+      tabsGet.mockResolvedValue({ id: 101, windowId: 7, url: "https://a.test/", title: "A", status: "complete" });
+      executeScript
+        .mockImplementationOnce(async ({ func, args }) => [{ result: await func(...args) }])
+        .mockRejectedValueOnce(new Error("Frame with ID 0 was removed"));
+      await request("snapshot-lost", "page.click", { tabId: 101, selector: "#go", snapshot: "diff" });
+      expect(clicked).toHaveBeenCalledTimes(1);
+      expect(responseOf("snapshot-lost")).toMatchObject({
+        cmd: "page.click",
+        data: { matched: { id: "go" }, snapshotError: "Frame with ID 0 was removed" },
+      });
+    });
+
+    it("按视口坐标点击", async () => {
+      document.body.innerHTML = `<canvas id="board"></canvas>`;
+      const board = document.getElementById("board")!;
+      const clicked = vi.fn((event: MouseEvent) => [event.clientX, event.clientY]);
+      board.addEventListener("click", clicked);
+      document.elementFromPoint = vi.fn(() => board);
+      try {
+        await request("point-click", "page.click", { tabId: 101, x: 12, y: 34 });
+      } finally {
+        delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+      }
+      expect(clicked).toHaveReturnedWith([12, 34]);
+      expect(responseOf("point-click").data).toMatchObject({ matched: { tag: "canvas", id: "board" } });
+    });
+
     describe("引导模式", () => {
       beforeEach(() => {
         // jsdom 未实现 ResizeObserver

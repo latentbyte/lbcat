@@ -148,6 +148,9 @@ func summarizeStep(action string, data json.RawMessage) (string, error) {
 	if result.Navigated {
 		line += "; navigated to " + result.URL
 	}
+	if observation := formatObservation(&result); observation != "" {
+		line += "\n" + strings.TrimRight(observation, "\n")
+	}
 	return line, nil
 }
 
@@ -163,6 +166,7 @@ Each step is {"action": ..., ...args}; args are the extension's argument names (
    {"action": "content", "selector": "main", "format": "markdown", "maxChars": 4000}]
 Actions: goto back forward reload click fill select press wait content snapshot exec fetch viewport.
 Navigating actions wait for load unless "wait": "none". "timeout" takes a duration. Use -f - for stdin.
+Actions return no snapshot unless a step asks: "snapshot": "diff" or "full" (see page click --snapshot).
 --json prints {steps: [{action, data}], failed?: {step, action, error}}.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

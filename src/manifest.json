@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LBcat",
-  "version": "4.26.1",
+  "version": "4.27.0",
   "author": "LatentByte",
   "description": "__MSG_scriptcat_description__",
   "options_ui": {

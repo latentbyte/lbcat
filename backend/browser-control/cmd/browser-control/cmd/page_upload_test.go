@@ -58,7 +58,7 @@ func TestPageUploadSendsChunksThenSetsFiles(t *testing.T) {
 	}
 	got := lastRequestArgs(t, requests, "page.upload")
 	want := map[string]any{
-		"tabId": 12.0, "text": "Attach", "wait": "load", "timeoutMs": 30000.0,
+		"tabId": 12.0, "text": "Attach", "wait": "load", "timeoutMs": 30000.0, "snapshot": "diff",
 		"files": []any{map[string]any{"name": "report.json", "type": "application/json", "uploadId": uploadID}},
 	}
 	if !reflect.DeepEqual(got, want) {

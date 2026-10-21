@@ -179,6 +179,7 @@ Prefer these over `page exec` + `sleep`; each returns what happened instead of `
 
 ```sh
 bctl page click 123 --text "Sign in"          # or a CSS selector: page click 123 'button[type=submit]'
+bctl page click 123 --at 640,380              # viewport CSS pixels, for canvas/map/editor surfaces
 bctl page fill 123 --text Email --value a@b.c # label, aria-label, placeholder, or name
 bctl page select 123 '#country' --value Canada
 bctl page press 123 Enter '#search'           # no selector: the focused element
@@ -197,6 +198,21 @@ match before substring), or both. Only visible elements count. Several matches f
 five candidates; pick one with `--nth N`. No match fails with `SELECTOR_NOT_FOUND`. Text clicks target the closest
 clickable ancestor. `fill` uses the native value setter and fires `input`/`change`, so React/Vue inputs update.
 `press` accepts modifiers (`Control+a`); Enter in a form field submits the form.
+
+`click --at x,y` targets whatever is at that viewport point (CSS pixels, origin top left), entering open shadow roots
+and same-origin iframes, and dispatches pointer/mouse events carrying those coordinates; editable or clickable targets
+are focused as a real click would. Points inside cross-origin frames fail with `CROSS_ORIGIN_FRAME`, empty points with
+`NO_ELEMENT_AT_POINT`. Prefer refs: coordinates are for surfaces without elements to target.
+
+Actions (`click`, `fill`, `select`, `press`, `upload`) report what they changed, saving a separate `page snapshot`
+round trip. `--snapshot diff` (default) prints snapshot lines the action added (`+`), removed (`-`), or changed (`~`,
+with the new state), or `snapshot unchanged`; it compares the whole page before and after the action, so it only covers
+links, buttons, fields, and headings, not plain text. When the action loads a new document, or the diff would be at
+least as long as the page, the full snapshot is printed instead. `--snapshot full` always prints the full snapshot;
+`--snapshot none` skips it. Output is capped at 150 lines. A snapshot that fails after the action succeeded is reported
+as `snapshot unavailable: ...` without failing the command, so the action is not retried. JSON adds `changes: {added,
+removed, changed, total, truncated?, count?}`, `snapshot`, or `snapshotError`. `page run` steps take no snapshot unless
+the step sets `"snapshot": "diff"` or `"full"`.
 
 Actions and `goto`/`back`/`forward`/`reload` default to `--wait load`: if the action starts a navigation (including
 SPA URL changes), the command returns after it finishes loading (`LOAD_TIMEOUT` after `--timeout`, default 30s);
@@ -221,7 +237,7 @@ page's only file input is used. Repeat `--file` for `multiple` inputs. Contents 
 
 `page run <tab> -f steps.json` runs a JSON array of steps (`{"action": "click", "text": "Save"}`) over one connection
 and stops at the first failure with a non-zero exit. Actions: `goto back forward reload click fill select press wait
-content snapshot exec fetch viewport`; other keys are the extension's argument names (camelCase, e.g. `maxChars`),
+content snapshot exec fetch viewport`; other keys are the extension's argument names (camelCase, e.g. `maxChars`; `click` takes `x`/`y` for `--at`),
 `timeout` takes a duration, refs accept `@e3`, and navigating actions wait for load unless `"wait": "none"`. `-f -`
 reads stdin. `--json` returns `{steps: [{action, data}], failed?: {step, action, error}}`.
 

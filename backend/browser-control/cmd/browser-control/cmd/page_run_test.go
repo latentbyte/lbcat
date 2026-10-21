@@ -130,3 +130,14 @@ func TestPageRunJSONReportsFailedStep(t *testing.T) {
 		t.Fatalf("report = %s", output)
 	}
 }
+
+func TestSummarizeStepIncludesRequestedSnapshot(t *testing.T) {
+	got, err := summarizeStep("click", json.RawMessage(`{"matched":{"tag":"button","text":"Add"},`+
+		`"changes":{"total":2,"added":[{"ref":"e2","role":"button","name":"Remove"}],"removed":[],"changed":[]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := " <button> \"Add\"\n+ @e2 button \"Remove\""; got != want {
+		t.Fatalf("summary = %q, want %q", got, want)
+	}
+}

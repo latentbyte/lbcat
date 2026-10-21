@@ -59,6 +59,9 @@ Repeat --file for inputs that accept multiple files. Files are capped at about 4
 			uploads[i] = upload{filepath.Base(path), mimeType, hex.EncodeToString(id), data}
 		}
 		request := locatorArgs(cmd, optionalArg(args, 1), map[string]any{"tabId": tabID})
+		if err := snapshotArgs(cmd, request); err != nil {
+			return err
+		}
 		request, timeout, err := waitArgs(cmd, request)
 		if err != nil {
 			return err
@@ -111,5 +114,6 @@ func init() {
 	pageUploadCmd.Flags().String("text", "", "match the input by its label or the button/label that opens it")
 	pageUploadCmd.Flags().Int("nth", 0, "pick the Nth match (1-based) instead of failing with AMBIGUOUS_MATCH")
 	addWaitFlags(pageUploadCmd)
+	addSnapshotFlag(pageUploadCmd)
 	pageCmd.AddCommand(pageUploadCmd)
 }

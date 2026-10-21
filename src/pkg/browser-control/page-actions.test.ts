@@ -78,6 +78,72 @@ describe("页面动作", () => {
     });
   });
 
+  describe("坐标点击", () => {
+    afterEach(() => {
+      delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+    });
+
+    it("按视口坐标点击命中元素，事件携带坐标并聚焦可编辑元素", async () => {
+      document.body.innerHTML = `<canvas id="board"></canvas><input id="name">`;
+      const board = document.getElementById("board")!;
+      const events: Array<[string, number, number]> = [];
+      for (const type of ["mousedown", "mouseup", "click"]) {
+        board.addEventListener(type, (event) => {
+          const mouse = event as MouseEvent;
+          events.push([type, mouse.clientX, mouse.clientY]);
+        });
+      }
+      document.elementFromPoint = vi.fn(() => board);
+      const result = await runPageAction({ op: "click", point: { x: 40, y: 25 } });
+      expect(result).toEqual({ success: true, value: { matched: { tag: "canvas", id: "board" } } });
+      expect(document.elementFromPoint).toHaveBeenCalledWith(40, 25);
+      expect(events).toEqual([
+        ["mousedown", 40, 25],
+        ["mouseup", 40, 25],
+        ["click", 40, 25],
+      ]);
+
+      const input = document.getElementById("name")!;
+      document.elementFromPoint = vi.fn(() => input);
+      await runPageAction({ op: "click", point: { x: 5, y: 5 } });
+      expect(document.activeElement).toBe(input);
+    });
+
+    it("坐标落在同源 iframe 内时换算到框架内命中元素", async () => {
+      document.body.innerHTML = `<iframe></iframe>`;
+      const frame = document.querySelector("iframe")!;
+      vi.spyOn(frame, "getBoundingClientRect").mockReturnValue({ left: 100, top: 50 } as DOMRect);
+      const inner = frame.contentDocument!;
+      inner.body.innerHTML = `<button>Inner</button>`;
+      const button = inner.querySelector("button")!;
+      const clicked = vi.fn((event: MouseEvent) => [event.clientX, event.clientY]);
+      button.addEventListener("click", clicked);
+      document.elementFromPoint = vi.fn(() => frame);
+      inner.elementFromPoint = vi.fn(() => button);
+      await expect(runPageAction({ op: "click", point: { x: 130, y: 70 } })).resolves.toMatchObject({
+        value: { matched: { tag: "button", text: "Inner" } },
+      });
+      expect(inner.elementFromPoint).toHaveBeenCalledWith(30, 20);
+      expect(clicked).toHaveReturnedWith([30, 20]);
+    });
+
+    it("坐标处无元素或落在跨源 iframe 内时返回明确错误码", async () => {
+      document.elementFromPoint = vi.fn(() => null);
+      await expect(runPageAction({ op: "click", point: { x: 9999, y: 9999 } })).resolves.toMatchObject({
+        success: false,
+        code: "NO_ELEMENT_AT_POINT",
+      });
+      document.body.innerHTML = `<iframe></iframe>`;
+      const frame = document.querySelector("iframe")!;
+      Object.defineProperty(frame, "contentDocument", { value: null });
+      document.elementFromPoint = vi.fn(() => frame);
+      await expect(runPageAction({ op: "click", point: { x: 1, y: 1 } })).resolves.toMatchObject({
+        success: false,
+        code: "CROSS_ORIGIN_FRAME",
+      });
+    });
+  });
+
   describe("填写与选择", () => {
     it("填写输入框时绕过框架的实例 value 并触发 input 与 change", async () => {
       document.body.innerHTML = `<label for="e">Email</label><input id="e">`;
@@ -161,10 +227,95 @@ describe("页面动作", () => {
 
   describe("快照", () => {
     afterEach(() => {
-      const store = globalThis as { __bctlRefs?: unknown; __bctlRefIds?: unknown; __bctlRefSeq?: unknown };
+      const store = globalThis as {
+        __bctlRefs?: unknown;
+        __bctlRefIds?: unknown;
+        __bctlRefSeq?: unknown;
+        __bctlObserved?: unknown;
+      };
       delete store.__bctlRefs;
       delete store.__bctlRefIds;
       delete store.__bctlRefSeq;
+      delete store.__bctlObserved;
+    });
+
+    it("观察动作后的差异快照只列出新增、移除与变化的元素", async () => {
+      document.body.innerHTML = `
+        <h2>Cart</h2>
+        <input aria-label="Qty" value="1">
+        <button id="save">Save</button>
+        <a href="/help">Help</a>`;
+      document.getElementById("save")!.addEventListener("click", () => {
+        document.getElementById("save")!.remove();
+        document.querySelector("input")!.value = "2";
+        document.body.insertAdjacentHTML("beforeend", `<h2>Saved</h2><button>Undo</button>`);
+      });
+      await expect(runPageAction({ op: "click", selector: "#save", observe: true })).resolves.toMatchObject({
+        success: true,
+      });
+      const result = await runPageAction({ op: "snapshot", max: 50, diff: true });
+      expect(result).toEqual({
+        success: true,
+        value: {
+          changes: {
+            url: location.href,
+            title: document.title,
+            total: 5,
+            added: [
+              { role: "heading", name: "Saved", level: 2 },
+              { ref: "e4", role: "button", name: "Undo" },
+            ],
+            removed: [{ ref: "e2", role: "button", name: "Save" }],
+            changed: [{ ref: "e1", role: "textbox", name: "Qty", value: "2" }],
+          },
+        },
+      });
+    });
+
+    it("页面无变化时差异为空，基线只用一次", async () => {
+      document.body.innerHTML = `<button>Same</button><a href="/x">X</a>`;
+      await runPageAction({ op: "click", text: "Same", observe: true });
+      await expect(runPageAction({ op: "snapshot", max: 50, diff: true })).resolves.toMatchObject({
+        value: { changes: { added: [], removed: [], changed: [], total: 2 } },
+      });
+      // 基线已消耗：再次请求差异时返回完整快照
+      await expect(runPageAction({ op: "snapshot", max: 50, diff: true })).resolves.toMatchObject({
+        value: { snapshot: { total: 2 } },
+      });
+    });
+
+    it("没有观察基线（如导航到新文档）时返回完整快照", async () => {
+      document.body.innerHTML = `<button>One</button>`;
+      await expect(runPageAction({ op: "snapshot", max: 50, diff: true })).resolves.toEqual({
+        success: true,
+        value: {
+          snapshot: {
+            url: location.href,
+            title: document.title,
+            total: 1,
+            elements: [{ ref: "e1", role: "button", name: "One" }],
+          },
+        },
+      });
+    });
+
+    it("差异不比完整快照短时返回完整快照，差异超出上限时截断", async () => {
+      document.body.innerHTML = `<button>A</button><button>B</button>`;
+      await runPageAction({ op: "snapshot", max: 50, diff: true });
+      await runPageAction({ op: "click", text: "A", observe: true });
+      document.body.innerHTML = `<button>C</button><button>D</button>`;
+      await expect(runPageAction({ op: "snapshot", max: 50, diff: true })).resolves.toMatchObject({
+        value: { snapshot: { total: 2, elements: [{ name: "C" }, { name: "D" }] } },
+      });
+
+      document.body.innerHTML = Array.from({ length: 6 }, (_, i) => `<button>K${i}</button>`).join("");
+      await runPageAction({ op: "click", text: "K0", observe: true });
+      document.body.insertAdjacentHTML("beforeend", `<a href="/1">N1</a><a href="/2">N2</a><a href="/3">N3</a>`);
+      await expect(runPageAction({ op: "snapshot", max: 2, diff: true })).resolves.toMatchObject({
+        value: {
+          changes: { total: 9, truncated: true, count: 3, added: [{ name: "N1" }, { name: "N2" }], removed: [] },
+        },
+      });
     });
 
     it("列出可见的可交互元素与标题并分配引用", async () => {

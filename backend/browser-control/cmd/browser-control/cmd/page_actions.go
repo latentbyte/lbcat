@@ -37,12 +37,55 @@ func (e *pageElement) String() string {
 }
 
 type pageResult struct {
-	Matched   *pageElement `json:"matched"`
-	Selected  string       `json:"selected"`
-	Navigated bool         `json:"navigated"`
-	URL       string       `json:"url"`
-	Title     string       `json:"title"`
-	ElapsedMs int          `json:"elapsedMs"`
+	Matched       *pageElement     `json:"matched"`
+	Selected      string           `json:"selected"`
+	Navigated     bool             `json:"navigated"`
+	URL           string           `json:"url"`
+	Title         string           `json:"title"`
+	ElapsedMs     int              `json:"elapsedMs"`
+	Snapshot      *pageSnapshot    `json:"snapshot"`
+	Changes       *snapshotChanges `json:"changes"`
+	SnapshotError string           `json:"snapshotError"`
+}
+
+// snapshotChanges is what an action changed in the snapshot; Count is set when the lists are truncated
+type snapshotChanges struct {
+	Added     []snapshotElement `json:"added"`
+	Removed   []snapshotElement `json:"removed"`
+	Changed   []snapshotElement `json:"changed"`
+	Total     int               `json:"total"`
+	Truncated bool              `json:"truncated"`
+	Count     int               `json:"count"`
+}
+
+// formatObservation renders the snapshot an action asked for, one line per element, or "" when none
+func formatObservation(result *pageResult) string {
+	switch {
+	case result.SnapshotError != "":
+		return "snapshot unavailable: " + result.SnapshotError + "\n"
+	case result.Snapshot != nil:
+		return formatSnapshot(*result.Snapshot)
+	case result.Changes == nil:
+		return ""
+	}
+	changes := result.Changes
+	var b strings.Builder
+	for _, group := range []struct {
+		mark     string
+		elements []snapshotElement
+	}{{"+", changes.Added}, {"-", changes.Removed}, {"~", changes.Changed}} {
+		for _, el := range group.elements {
+			fmt.Fprintf(&b, "%s %s\n", group.mark, formatElement(el))
+		}
+	}
+	if b.Len() == 0 {
+		return "snapshot unchanged\n"
+	}
+	if changes.Truncated {
+		shown := len(changes.Added) + len(changes.Removed) + len(changes.Changed)
+		fmt.Fprintf(&b, "[showing %d of %d changes; run page snapshot for the full list]\n", shown, changes.Count)
+	}
+	return b.String()
 }
 
 // sendPageCommand runs one tab-scoped command and prints the raw response for --json
@@ -129,8 +172,35 @@ func printPageResult(cmd *cobra.Command, verb string, result *pageResult) error 
 	if result.Navigated {
 		line += "; navigated to " + result.URL
 	}
-	_, err := fmt.Fprintln(cmd.OutOrStdout(), line)
+	_, err := fmt.Fprint(cmd.OutOrStdout(), line+"\n"+formatObservation(result))
 	return err
+}
+
+func addSnapshotFlag(command *cobra.Command) {
+	command.Flags().String("snapshot", "diff",
+		"after the action: diff (snapshot lines it added +, removed -, or changed ~; a full snapshot after loading a new document), full, or none")
+}
+
+func snapshotArgs(cmd *cobra.Command, args map[string]any) error {
+	switch mode, _ := cmd.Flags().GetString("snapshot"); mode {
+	case "diff", "full":
+		args["snapshot"] = mode
+	case "none":
+	default:
+		return fmt.Errorf("--snapshot must be diff, full, or none")
+	}
+	return nil
+}
+
+// parsePoint reads viewport CSS pixel coordinates given as x,y
+func parsePoint(value string) (float64, float64, error) {
+	xText, yText, ok := strings.Cut(value, ",")
+	x, xErr := strconv.ParseFloat(strings.TrimSpace(xText), 64)
+	y, yErr := strconv.ParseFloat(strings.TrimSpace(yText), 64)
+	if !ok || xErr != nil || yErr != nil {
+		return 0, 0, fmt.Errorf("--at must be x,y in viewport CSS pixels, got %q", value)
+	}
+	return x, y, nil
 }
 
 func newPageActionCmd(use, short, verb, op string, minArgs, maxArgs int, build func(*cobra.Command, []string) (map[string]any, error)) *cobra.Command {
@@ -148,6 +218,9 @@ func newPageActionCmd(use, short, verb, op string, minArgs, maxArgs int, build f
 				return err
 			}
 			request["tabId"] = tabID
+			if err := snapshotArgs(cmd, request); err != nil {
+				return err
+			}
 			request, timeout, err := waitArgs(cmd, request)
 			if err != nil {
 				return err
@@ -159,11 +232,12 @@ func newPageActionCmd(use, short, verb, op string, minArgs, maxArgs int, build f
 			return printPageResult(cmd, verb, result)
 		},
 	}
-	command.Example = "  page click 12 'button[type=submit]'\n  page click 12 --text Save --nth 2\n  page click 12 @e7   # ref from page snapshot"
+	command.Example = "  page click 12 'button[type=submit]'\n  page click 12 --text Save --nth 2\n  page click 12 @e7   # ref from page snapshot\n  page click 12 --at 640,380   # viewport CSS pixels"
 	command.Flags().String("text", "", "match by visible text, label, or placeholder (case-insensitive, exact before contains)")
 	command.Flags().Int("nth", 0, "pick the Nth visible match (1-based) instead of failing with AMBIGUOUS_MATCH")
 	command.Flags().String("wait", "load", "after the action: load (wait for any navigation it starts) or none")
 	command.Flags().Duration("timeout", 30*time.Second, "max time to wait for navigation")
+	addSnapshotFlag(command)
 	return command
 }
 
@@ -181,11 +255,23 @@ func requireLocator(cmd *cobra.Command, selector string) error {
 	return nil
 }
 
-var pageClickCmd = newPageActionCmd("click <tab-id> [selector]", "Click an element by CSS selector or visible text",
+var pageClickCmd = newPageActionCmd("click <tab-id> [selector]",
+	"Click an element by CSS selector, visible text, ref, or viewport coordinates",
 	"clicked", "page.click", 1, 2, func(cmd *cobra.Command, args []string) (map[string]any, error) {
 		selector := optionalArg(args, 1)
-		if err := requireLocator(cmd, selector); err != nil {
-			return nil, err
+		text, _ := cmd.Flags().GetString("text")
+		if at, _ := cmd.Flags().GetString("at"); at != "" {
+			if nth, _ := cmd.Flags().GetInt("nth"); selector != "" || text != "" || nth > 0 {
+				return nil, fmt.Errorf("--at cannot be combined with a selector, --text, or --nth")
+			}
+			x, y, err := parsePoint(at)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"x": x, "y": y}, nil
+		}
+		if selector == "" && text == "" {
+			return nil, fmt.Errorf("provide a selector, --text, or --at")
 		}
 		return locatorArgs(cmd, selector, map[string]any{}), nil
 	})
@@ -406,29 +492,34 @@ type pageSnapshot struct {
 	Truncated bool              `json:"truncated"`
 }
 
-// formatSnapshot renders one element per line: @e3 textbox "Email" = "a@b.c" [disabled]
+// formatElement renders one snapshot element: @e3 textbox "Email" = "a@b.c" [disabled]
+func formatElement(el snapshotElement) string {
+	if el.Role == "heading" {
+		return fmt.Sprintf("h%d %s", el.Level, strconv.Quote(el.Name))
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "@%s %s %s", el.Ref, el.Role, strconv.Quote(el.Name))
+	if el.Value != "" {
+		fmt.Fprintf(&b, " = %s", strconv.Quote(el.Value))
+	}
+	if el.Href != "" {
+		fmt.Fprintf(&b, " -> %s", el.Href)
+	}
+	if el.Checked != nil {
+		b.WriteString(map[bool]string{true: " [checked]", false: " [unchecked]"}[*el.Checked])
+	}
+	if el.Disabled {
+		b.WriteString(" [disabled]")
+	}
+	return b.String()
+}
+
+// formatSnapshot renders the title, URL, then one element per line
 func formatSnapshot(snapshot pageSnapshot) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n%s\n", snapshot.Title, snapshot.URL)
 	for _, el := range snapshot.Elements {
-		if el.Role == "heading" {
-			fmt.Fprintf(&b, "h%d %s\n", el.Level, strconv.Quote(el.Name))
-			continue
-		}
-		fmt.Fprintf(&b, "@%s %s %s", el.Ref, el.Role, strconv.Quote(el.Name))
-		if el.Value != "" {
-			fmt.Fprintf(&b, " = %s", strconv.Quote(el.Value))
-		}
-		if el.Href != "" {
-			fmt.Fprintf(&b, " -> %s", el.Href)
-		}
-		if el.Checked != nil {
-			b.WriteString(map[bool]string{true: " [checked]", false: " [unchecked]"}[*el.Checked])
-		}
-		if el.Disabled {
-			b.WriteString(" [disabled]")
-		}
-		b.WriteString("\n")
+		b.WriteString(formatElement(el) + "\n")
 	}
 	if snapshot.Truncated {
 		fmt.Fprintf(&b, "[showing %d of %d; narrow --selector or raise --max]\n", len(snapshot.Elements), snapshot.Total)
@@ -565,6 +656,7 @@ reached size is reported.`,
 }
 
 func init() {
+	pageClickCmd.Flags().String("at", "", "click the element at x,y viewport CSS pixels (canvas, maps, editors); mouse events carry those coordinates")
 	pageSelectCmd.Flags().String("value", "", "option value or visible label")
 	pageFillCmd.Flags().String("value", "", "text to enter (replaces the current value)")
 

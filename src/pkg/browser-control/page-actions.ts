@@ -2,15 +2,17 @@
 
 export type PageLocator = { selector?: string; text?: string; ref?: string; nth?: number };
 export type PageWaitState = "visible" | "attached" | "gone";
+// observe 在动作前记录快照基线，供随后的差异快照比较
+type PageActionOptions = PageLocator & { observe?: boolean };
 export type PageActionRequest =
-  | ({ op: "click" } & PageLocator)
-  | ({ op: "fill"; value: string } & PageLocator)
-  | ({ op: "select"; value: string } & PageLocator)
-  | ({ op: "press"; key: string } & PageLocator)
+  | ({ op: "click"; point?: { x: number; y: number } } & PageActionOptions)
+  | ({ op: "fill"; value: string } & PageActionOptions)
+  | ({ op: "select"; value: string } & PageActionOptions)
+  | ({ op: "press"; key: string } & PageActionOptions)
   | { op: "wait"; selector?: string; text?: string; state: PageWaitState; timeoutMs: number }
-  | { op: "snapshot"; selector?: string; max: number }
+  | { op: "snapshot"; selector?: string; max: number; diff?: boolean }
   | { op: "resolve"; locators: PageLocator[] }
-  | ({ op: "upload"; files: PageUploadFile[] } & PageLocator);
+  | ({ op: "upload"; files: PageUploadFile[] } & PageActionOptions);
 // data 为 base64 编码的文件内容
 export type PageUploadFile = { name: string; type: string; data: string };
 export type PageElementSummary = { tag: string; id?: string; text?: string };
@@ -31,10 +33,28 @@ export type PageSnapshot = {
   total: number;
   truncated?: boolean;
 };
+// 与观察基线相比的变化；changed 给出元素的新状态
+export type PageSnapshotChanges = {
+  url: string;
+  title: string;
+  added: PageSnapshotElement[];
+  removed: PageSnapshotElement[];
+  changed: PageSnapshotElement[];
+  total: number;
+  // 截断时给出变化总数
+  truncated?: boolean;
+  count?: number;
+};
 export type PageActionResult =
   | {
       success: true;
-      value: { matched?: PageElementSummary; selected?: string; snapshot?: PageSnapshot; refs?: string[] };
+      value: {
+        matched?: PageElementSummary;
+        selected?: string;
+        snapshot?: PageSnapshot;
+        changes?: PageSnapshotChanges;
+        refs?: string[];
+      };
     }
   | { success: false; code: string; error: string };
 
@@ -145,6 +165,7 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
     __bctlRefs?: Map<string, WeakRef<Element>>;
     __bctlRefIds?: WeakMap<Element, string>;
     __bctlRefSeq?: number;
+    __bctlObserved?: PageSnapshotElement[];
   };
   const refFor = (el: Element): string => {
     const refs = (refStore.__bctlRefs ??= new Map());
@@ -208,13 +229,13 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
     return false;
   };
 
-  const snapshot = (selector: string | undefined, max: number): PageSnapshot => {
+  const snapshotTargets = (selector: string | undefined): Element[] => {
     const scope = selector ? queryAll(selector)[0] : undefined;
     if (selector && !scope) throw new ActionError("SELECTOR_NOT_FOUND", `no element matches selector: ${selector}`);
     for (const [id, ref] of refStore.__bctlRefs ?? []) {
       if (!ref.deref()?.isConnected) refStore.__bctlRefs!.delete(id);
     }
-    const candidates = roots()
+    return roots()
       .flatMap((root) => Array.from(root.querySelectorAll(`${CLICKABLE},${EDITABLE},h1,h2,h3,h4,h5,h6`)))
       .filter((el) => {
         if (scope && !inside(scope, el)) return false;
@@ -224,33 +245,98 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
           return false;
         return visible(el);
       });
-    const elements = candidates.slice(0, max).map((el): PageSnapshotElement => {
-      const role = roleOf(el);
-      const entry: PageSnapshotElement = { role, name: nameOf(el) };
-      if (role === "heading") {
-        entry.level = Number(el.tagName[1]) || Number(el.getAttribute("aria-level")) || 2;
-        return entry;
-      }
-      entry.ref = refFor(el);
-      if (el instanceof HTMLSelectElement) entry.value = clean(el.selectedOptions[0]?.text ?? el.value);
-      else if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio"))
-        entry.checked = el.checked;
-      else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-        if (el.value) entry.value = el instanceof HTMLInputElement && el.type === "password" ? "***" : clean(el.value);
-      }
-      const ariaChecked = el.getAttribute("aria-checked");
-      if (ariaChecked) entry.checked = ariaChecked === "true";
-      if ((el as HTMLButtonElement).disabled || el.getAttribute("aria-disabled") === "true") entry.disabled = true;
-      const href = el.tagName === "A" ? el.getAttribute("href") : null;
-      if (href && !href.startsWith("javascript:")) entry.href = href;
+  };
+  const describe = (el: Element): PageSnapshotElement => {
+    const role = roleOf(el);
+    const entry: PageSnapshotElement = { role, name: nameOf(el) };
+    if (role === "heading") {
+      entry.level = Number(el.tagName[1]) || Number(el.getAttribute("aria-level")) || 2;
       return entry;
-    });
+    }
+    entry.ref = refFor(el);
+    if (el instanceof HTMLSelectElement) entry.value = clean(el.selectedOptions[0]?.text ?? el.value);
+    else if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio"))
+      entry.checked = el.checked;
+    else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      if (el.value) entry.value = el instanceof HTMLInputElement && el.type === "password" ? "***" : clean(el.value);
+    }
+    const ariaChecked = el.getAttribute("aria-checked");
+    if (ariaChecked) entry.checked = ariaChecked === "true";
+    if ((el as HTMLButtonElement).disabled || el.getAttribute("aria-disabled") === "true") entry.disabled = true;
+    const href = el.tagName === "A" ? el.getAttribute("href") : null;
+    if (href && !href.startsWith("javascript:")) entry.href = href;
+    return entry;
+  };
+  const snapshot = (selector: string | undefined, max: number): PageSnapshot => {
+    const targets = snapshotTargets(selector);
     return {
       url: location.href,
       title: document.title,
-      elements,
-      total: candidates.length,
-      ...(candidates.length > max ? { truncated: true } : {}),
+      elements: targets.slice(0, max).map(describe),
+      total: targets.length,
+      ...(targets.length > max ? { truncated: true } : {}),
+    };
+  };
+  // 整页基线（不截断），差异按集合比较才不会因截断位置移动而误报
+  const observe = () => {
+    refStore.__bctlObserved = snapshotTargets(undefined).map(describe);
+  };
+  // 有引用的元素按引用比对；标题没有引用，按级别与名称计数比对
+  const diffKeys = (elements: PageSnapshotElement[]) => {
+    const seen = new Map<string, number>();
+    return elements.map((el) => {
+      const base = el.ref ?? `h${el.level}:${el.name}`;
+      const count = (seen.get(base) ?? 0) + 1;
+      seen.set(base, count);
+      return `${base}#${count}`;
+    });
+  };
+  // 无基线（未观察或已导航到新文档）或变化不少于元素总数时返回完整快照
+  const diffSnapshot = (max: number): { snapshot: PageSnapshot } | { changes: PageSnapshotChanges } => {
+    const before = refStore.__bctlObserved;
+    delete refStore.__bctlObserved;
+    if (!before) return { snapshot: snapshot(undefined, max) };
+    const current = snapshotTargets(undefined).map(describe);
+    const beforeKeys = diffKeys(before);
+    const currentKeys = diffKeys(current);
+    const previous = new Map(beforeKeys.map((key, i) => [key, before[i]]));
+    const kept = new Set(currentKeys);
+    const added: PageSnapshotElement[] = [];
+    const changed: PageSnapshotElement[] = [];
+    current.forEach((el, i) => {
+      const old = previous.get(currentKeys[i]);
+      if (!old) added.push(el);
+      else if (JSON.stringify(old) !== JSON.stringify(el)) changed.push(el);
+    });
+    const removed = before.filter((_, i) => !kept.has(beforeKeys[i]));
+    const count = added.length + removed.length + changed.length;
+    if (count && count >= current.length) {
+      return {
+        snapshot: {
+          url: location.href,
+          title: document.title,
+          elements: current.slice(0, max),
+          total: current.length,
+          ...(current.length > max ? { truncated: true } : {}),
+        },
+      };
+    }
+    let room = max;
+    const take = (list: PageSnapshotElement[]) => {
+      const shown = list.slice(0, room);
+      room -= shown.length;
+      return shown;
+    };
+    return {
+      changes: {
+        url: location.href,
+        title: document.title,
+        added: take(added),
+        removed: take(removed),
+        changed: take(changed),
+        total: current.length,
+        ...(count > max ? { truncated: true, count } : {}),
+      },
     };
   };
 
@@ -339,6 +425,45 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
   };
   const fire = (el: Element, type: string) => el.dispatchEvent(new Event(type, { bubbles: true }));
 
+  // 视口坐标命中的最内层元素：穿透开放 Shadow Root 与同源 iframe，坐标随框架换算
+  const elementAt = (x: number, y: number): { el: Element; x: number; y: number } => {
+    let el = document.elementFromPoint(x, y);
+    while (el) {
+      const inner: Element | null = el.shadowRoot?.elementFromPoint(x, y) ?? null;
+      if (inner && inner !== el) {
+        el = inner;
+        continue;
+      }
+      if (el.tagName !== "IFRAME" && el.tagName !== "FRAME") break;
+      const frameDoc = (el as HTMLIFrameElement).contentDocument;
+      if (!frameDoc)
+        throw new ActionError(
+          "CROSS_ORIGIN_FRAME",
+          `point ${x},${y} is inside a cross-origin frame (${el.getAttribute("src") ?? "no src"}); open the frame URL in its own tab`
+        );
+      const rect = el.getBoundingClientRect();
+      x -= rect.left + el.clientLeft;
+      y -= rect.top + el.clientTop;
+      el = frameDoc.elementFromPoint(x, y);
+    }
+    if (!el)
+      throw new ActionError("NO_ELEMENT_AT_POINT", `no element at ${x},${y}; coordinates are viewport CSS pixels`);
+    return { el, x, y };
+  };
+  const clickAt = (point: { x: number; y: number }): Element => {
+    const { el, x, y } = elementAt(point.x, point.y);
+    const view = el.ownerDocument.defaultView ?? window;
+    const init = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0 };
+    const Pointer = view.PointerEvent ?? view.MouseEvent;
+    el.dispatchEvent(new Pointer("pointerdown", { ...init, buttons: 1 }));
+    if (el.dispatchEvent(new view.MouseEvent("mousedown", { ...init, buttons: 1, detail: 1 })))
+      (el.closest(`${EDITABLE},${CLICKABLE}`) as HTMLElement | null)?.focus?.();
+    el.dispatchEvent(new Pointer("pointerup", init));
+    el.dispatchEvent(new view.MouseEvent("mouseup", { ...init, detail: 1 }));
+    el.dispatchEvent(new view.MouseEvent("click", { ...init, detail: 1 }));
+    return el;
+  };
+
   const selectOption = (el: Element, value: string): string => {
     if (!(el instanceof HTMLSelectElement))
       throw new ActionError("NOT_EDITABLE", `<${el.tagName.toLowerCase()}> is not a select`);
@@ -413,8 +538,10 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
     });
 
   try {
+    if ("observe" in request && request.observe) observe();
     switch (request.op) {
       case "click": {
+        if (request.point) return { success: true, value: { matched: summary(clickAt(request.point)) } };
         const el = locate(request, "click");
         el.scrollIntoView?.({ block: "center", inline: "center" });
         for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) {
@@ -458,6 +585,7 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
         return { success: true, value: matched ? { matched } : {} };
       }
       case "snapshot":
+        if (request.diff) return { success: true, value: diffSnapshot(request.max) };
         return { success: true, value: { snapshot: snapshot(request.selector, request.max) } };
       // 引导标注：把各种定位统一换成引用，供隔离世界中的标注层取回元素
       case "resolve":
