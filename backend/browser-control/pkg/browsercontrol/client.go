@@ -313,10 +313,22 @@ func (c *daemonClient) Subscribe(ctx context.Context, opts SubscribeOptions) (<-
 				return nil, err
 			}
 		}
+		// one stale browser must not starve the others, so all-browser
+		// subscriptions only fail when no browser accepted and nothing else is wanted
+		var errs []error
 		for _, target := range targets {
 			if err := c.subscribeBrowserTabs(ctx, subscription, target.ID, opts.Events); err != nil {
-				return nil, err
+				if !opts.AllBrowsers {
+					return nil, err
+				}
+				errs = append(errs, fmt.Errorf("%s: %w", target.ID, err))
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if len(errs) > 0 && len(errs) == len(targets) && !wantsLifecycleEvents(opts.Events) {
+			return nil, errors.Join(errs...)
 		}
 	}
 	// tab subscriptions are per browser, so extend all-browser subscriptions

@@ -789,3 +789,112 @@ func TestAllBrowserSubscriptionFollowsNewBrowsers(t *testing.T) {
 		waitSubscriptionEvent(t, events, model.EventTypeTabFocused)
 	})
 }
+
+// connectFakeBrowser registers another browser that answers tab subscriptions
+// with subscribeReply and returns a function that sends it a tab event
+func connectFakeBrowser(t *testing.T, name string, subscribeReply json.RawMessage) func(model.EventType) {
+	t.Helper()
+	conn, err := net.Dial("unix", protocol.SocketPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	if err := protocol.WriteJSON(conn, &protocol.Handshake{ID: name + "-browser", Type: protocol.MsgHandshake, Role: protocol.RoleBrowser, Browser: name}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := protocol.ReadFrame(conn); err != nil {
+		t.Fatal(err)
+	}
+	var writeMu sync.Mutex
+	go func() {
+		for {
+			env, err := protocol.ReadEnvelope(conn)
+			if err != nil {
+				return
+			}
+			var command struct {
+				Cmd string `json:"cmd"`
+			}
+			_ = json.Unmarshal(env.Payload, &command)
+			reply := json.RawMessage(`{"data":{}}`)
+			switch command.Cmd {
+			case "agentWindow.status":
+				reply = json.RawMessage(`{"cmd":"agentWindow.status","data":{"windowId":7,"markerTabId":8}}`)
+			case "tabs.subscribe":
+				reply = subscribeReply
+			}
+			writeMu.Lock()
+			_ = protocol.WriteEnvelope(conn, &protocol.Envelope{ID: env.ID, Type: protocol.MsgResponse, Payload: reply})
+			writeMu.Unlock()
+		}
+	}()
+	return func(typ model.EventType) {
+		payload, err := json.Marshal(map[string]any{"cmd": "tabs.event", "data": model.Event{Type: typ}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeMu.Lock()
+		err = protocol.WriteEnvelope(conn, &protocol.Envelope{ID: name + "-event", Type: protocol.MsgEvent, Payload: payload})
+		writeMu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+var unknownSubscribeReply = json.RawMessage(`{"cmd":"tabs.subscribe","error":{"code":"UNKNOWN_COMMAND","message":"unknown command: tabs.subscribe"}}`)
+
+func rejectTabSubscribe(payload json.RawMessage) json.RawMessage {
+	var command struct {
+		Cmd string `json:"cmd"`
+	}
+	_ = json.Unmarshal(payload, &command)
+	if command.Cmd == "tabs.subscribe" {
+		return unknownSubscribeReply
+	}
+	return json.RawMessage(`{"data":{}}`)
+}
+
+func TestAllBrowserSubscriptionSkipsRejectingBrowser(t *testing.T) {
+	t.Run("一个浏览器不支持订阅时其他浏览器仍然推送事件", func(t *testing.T) {
+		client, _ := newSubscriptionTestBrowser(t, rejectTabSubscribe)
+		sendGood := connectFakeBrowser(t, "chrome", json.RawMessage(`{"data":{}}`))
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		events, err := client.Subscribe(ctx, SubscribeOptions{AllBrowsers: true, Events: []model.EventType{model.EventTypeTabFocused}})
+		if err != nil {
+			t.Fatalf("Subscribe with one rejecting browser: %v", err)
+		}
+		sendGood(model.EventTypeTabFocused)
+		waitSubscriptionEvent(t, events, model.EventTypeTabFocused)
+	})
+
+	t.Run("所有浏览器拒绝且只订阅标签事件时返回错误", func(t *testing.T) {
+		client, _ := newSubscriptionTestBrowser(t, rejectTabSubscribe)
+		_, err := client.Subscribe(context.Background(), SubscribeOptions{AllBrowsers: true, Events: []model.EventType{model.EventTypeTabFocused}})
+		var commandErr *CommandError
+		if !errors.As(err, &commandErr) || commandErr.Code != "UNKNOWN_COMMAND" {
+			t.Fatalf("subscription error = %v, want UNKNOWN_COMMAND", err)
+		}
+	})
+
+	t.Run("所有浏览器拒绝但订阅生命周期事件时保持订阅", func(t *testing.T) {
+		client, _ := newSubscriptionTestBrowser(t, rejectTabSubscribe)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		_, err := client.Subscribe(ctx, SubscribeOptions{AllBrowsers: true, Events: []model.EventType{model.EventTypeTabFocused, model.EventTypeBrowserDisconnected}})
+		if err != nil {
+			t.Fatalf("Subscribe with lifecycle events: %v", err)
+		}
+	})
+
+	t.Run("指定浏览器拒绝订阅时返回错误", func(t *testing.T) {
+		client, _ := newSubscriptionTestBrowser(t, rejectTabSubscribe)
+		connectFakeBrowser(t, "chrome", json.RawMessage(`{"data":{}}`))
+		_, err := client.Subscribe(context.Background(), SubscribeOptions{BrowserID: "zen", Events: []model.EventType{model.EventTypeTabFocused}})
+		var commandErr *CommandError
+		if !errors.As(err, &commandErr) || commandErr.Code != "UNKNOWN_COMMAND" {
+			t.Fatalf("subscription error = %v, want UNKNOWN_COMMAND", err)
+		}
+	})
+}
