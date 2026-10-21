@@ -14,7 +14,6 @@ import { ScriptDAO } from "@App/app/repo/scripts";
 import { SystemService } from "./system";
 import { type Logger, LoggerDAO } from "@App/app/repo/logger";
 import { initLocales, initLocalesPromise, localePath, t, watchLanguageChange } from "@App/locales/locales";
-import { getCurrentTab } from "@App/pkg/utils/utils";
 import { onTabRemoved, onUrlNavigated, setOnUserActionDomainChanged } from "./url_monitor";
 import { LocalStorageDAO } from "@App/app/repo/localStorage";
 import { FaviconDAO } from "@App/app/repo/favicon";
@@ -273,33 +272,13 @@ export default class ServiceWorkerManager {
           console.error("chrome.runtime.lastError in chrome.runtime.onInstalled:", lastError);
           // chrome.runtime.onInstalled API出错不进行后续处理
         }
+        // 安装或更新时不自动打开页面，更新只弹出通知
         initLocalesPromise.then(() => {
-          if (details.reason === "install") {
-            chrome.tabs.create({ url: `${DocumentationSite}${localePath}/docs/use/install_comple` });
-          } else if (details.reason === "update") {
+          if (details.reason === "update") {
             const url = `${DocumentationSite}${localePath}/docs/change/${ExtVersion.includes("-") ? "beta-changelog/" : ""}#${ExtVersion}`;
-            // 如果只是修复版本，只弹出通知不打开页面
-            // beta版本还是每次都打开更新页面
             InfoNotification(t("ext_update_notification"), t("ext_update_notification_desc", { version: ExtVersion }), {
               url,
             });
-            if (ExtVersion.endsWith(".0")) {
-              getCurrentTab()
-                .then((tab) => {
-                  // 检查是否正在播放视频，或者窗口未激活
-                  const openInBackground = !tab || tab.audible === true || !tab.active;
-                  // chrome.tabs.create 传回 Promise<chrome.tabs.Tab>
-                  return chrome.tabs.create({
-                    url,
-                    active: !openInBackground,
-                    index: !tab ? undefined : tab.index + 1,
-                    windowId: !tab ? undefined : tab.windowId,
-                  });
-                })
-                .catch((e) => {
-                  console.error(e);
-                });
-            }
           }
         });
 
