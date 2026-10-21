@@ -38,6 +38,8 @@ type Server struct {
 	cancel      context.CancelFunc
 	idleMu      sync.Mutex
 	idleTimer   *time.Timer
+	connsMu     sync.Mutex
+	conns       map[net.Conn]struct{} // nil once stopping
 }
 
 // NewServer creates a daemon server.
@@ -47,6 +49,7 @@ func NewServer() *Server {
 		reg:         reg,
 		router:      NewRouter(reg),
 		IdleTimeout: DefaultIdleTimeout,
+		conns:       make(map[net.Conn]struct{}),
 	}
 }
 
@@ -120,6 +123,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		s.listener.Close()
+		s.closeConns()
 	}()
 
 	// start idle timer if no connections arrive
@@ -138,11 +142,46 @@ func (s *Server) Serve(ctx context.Context) error {
 			}
 		}
 
+		if !s.trackConn(raw) {
+			_ = raw.Close()
+			continue
+		}
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
+			defer s.untrackConn(raw)
 			s.handleConn(raw)
 		}()
+	}
+}
+
+// trackConn records an accepted connection so shutdown can close it.
+// It returns false once the server is stopping.
+func (s *Server) trackConn(raw net.Conn) bool {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	if s.conns == nil {
+		return false
+	}
+	s.conns[raw] = struct{}{}
+	return true
+}
+
+func (s *Server) untrackConn(raw net.Conn) {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	delete(s.conns, raw)
+}
+
+// closeConns closes every live connection so their handlers return and
+// Serve can finish waiting on them.
+func (s *Server) closeConns() {
+	s.connsMu.Lock()
+	conns := s.conns
+	s.conns = nil
+	s.connsMu.Unlock()
+	for raw := range conns {
+		_ = raw.Close()
 	}
 }
 

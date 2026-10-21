@@ -76,3 +76,30 @@ func TestRelayBothClosesConnectionAfterOversizedFrame(t *testing.T) {
 	}
 	_ = browserWriter.Close()
 }
+
+// stuckReader models os.Stdin on a blocking pipe: Close does not wake a pending Read
+type stuckReader struct{ release chan struct{} }
+
+func (r *stuckReader) Read([]byte) (int, error) { <-r.release; return 0, io.EOF }
+func (r *stuckReader) Close() error             { return nil }
+
+func TestRelayBothReturnsWhenDaemonDisconnects(t *testing.T) {
+	t.Run("守护进程断开时即使浏览器输入仍阻塞也立即返回", func(t *testing.T) {
+		browserIn := &stuckReader{release: make(chan struct{})}
+		defer close(browserIn.release)
+		shimConn, daemonConn := net.Pipe()
+
+		done := make(chan struct{})
+		go func() {
+			relayBoth(browserIn, io.Discard, shimConn, t.TempDir())
+			close(done)
+		}()
+
+		_ = daemonConn.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("守护进程断开后 shim 仍在等待浏览器输入")
+		}
+	})
+}

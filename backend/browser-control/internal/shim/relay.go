@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
@@ -65,31 +64,26 @@ func Run(cfg Config) error {
 }
 
 func relayBoth(browserIn io.ReadCloser, browserOut io.Writer, conn net.Conn, offloadDir string) {
-	var wg sync.WaitGroup
-	wg.Add(2)
-	var closeOnce sync.Once
-	closeBoth := func() {
-		closeOnce.Do(func() {
-			_ = browserIn.Close()
-			_ = conn.Close()
-		})
-	}
+	// return when either direction ends; closing os.Stdin does not wake a
+	// pending read, so waiting for both would keep the shim alive with a dead
+	// daemon and the browser would never reconnect
+	stopped := make(chan struct{}, 2)
 
 	// browser stdin -> daemon socket (with large-frame offload)
 	go func() {
-		defer wg.Done()
-		defer closeBoth()
+		defer func() { stopped <- struct{}{} }()
 		relayBrowserToDaemon(browserIn, conn, offloadDir)
 	}()
 
 	// daemon socket -> browser stdout
 	go func() {
-		defer wg.Done()
-		defer closeBoth()
+		defer func() { stopped <- struct{}{} }()
 		relay(conn, browserOut, "daemon->browser")
 	}()
 
-	wg.Wait()
+	<-stopped
+	_ = browserIn.Close()
+	_ = conn.Close()
 }
 
 // relay copies length-prefixed frames from src to dst.
