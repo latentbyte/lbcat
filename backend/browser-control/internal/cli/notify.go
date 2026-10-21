@@ -27,20 +27,36 @@ func notifyMissingWindow(target string) {
 		return
 	}
 	_ = latch.Close()
+	if err := runNotify("Agent browser blocked", "Open or designate the agent browser window with browser-control agent-window create or designate."); err != nil {
+		fmt.Fprintf(os.Stderr, "browser-control: agent-window notification failed (%v); agent browser remains blocked\n", err)
+	}
+}
+
+// NotifyGuideStarted tells the human an agent began walking them through a page
+func NotifyGuideStarted(title string) {
+	if title == "" {
+		title = "Agent walkthrough"
+	}
+	if err := runNotify("Agent guide started", title+": follow the steps in the agent browser window."); err != nil {
+		fmt.Fprintf(os.Stderr, "browser-control: guide notification failed (%v)\n", err)
+	}
+}
+
+func runNotify(title, body string) error {
 	executable, err := exec.LookPath("notify.sh")
 	if err != nil {
 		home, homeErr := os.UserHomeDir()
 		if homeErr != nil {
-			fmt.Fprintln(os.Stderr, "browser-control: cannot locate notify.sh; agent browser remains blocked")
-			return
+			return fmt.Errorf("cannot locate notify.sh")
 		}
 		executable = filepath.Join(home, "scripts", "compat", "notify.sh")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := exec.CommandContext(ctx, executable, "Agent browser blocked", "Open or designate the agent browser window with browser-control agent-window create or designate.").Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "browser-control: agent-window notification failed; verify notify.sh is installed and executable")
+	if err := exec.CommandContext(ctx, executable, title, body).Run(); err != nil {
+		return fmt.Errorf("verify notify.sh is installed and executable: %w", err)
 	}
+	return nil
 }
 
 func clearMissingWindow(target string) { _ = os.Remove(missingWindowLatch(target)) }

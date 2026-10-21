@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -50,4 +53,29 @@ func TestGuideStepArgs(t *testing.T) {
 	if _, err := guideStepArgs("x", "hi", "", nil); err == nil {
 		t.Error("bad tab ID should fail")
 	}
+}
+
+func TestNotifyGuideStart(t *testing.T) {
+	t.Run("仅在会话的第一步通知人工，并带上卡片标题", func(t *testing.T) {
+		dir := t.TempDir()
+		output := filepath.Join(dir, "notifications")
+		script := "#!/bin/sh\nprintf '%s|%s\\n' \"$1\" \"$2\" >> \"$BC_TEST_NOTIFY_FILE\"\n"
+		if err := os.WriteFile(filepath.Join(dir, "notify.sh"), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", dir)
+		t.Setenv("BC_TEST_NOTIFY_FILE", output)
+		notifyGuideStart(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":7,"step":1,"started":true}}`), " Setup ")
+		notifyGuideStart(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":7,"step":2}}`), "Setup")
+		notifyGuideStart(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":8,"step":1,"started":true}}`), "")
+		data, err := os.ReadFile(output)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "Agent guide started|Setup: follow the steps in the agent browser window.\n" +
+			"Agent guide started|Agent walkthrough: follow the steps in the agent browser window.\n"
+		if string(data) != want {
+			t.Fatalf("notifications = %q; want %q", data, want)
+		}
+	})
 }

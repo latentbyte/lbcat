@@ -295,7 +295,8 @@ the popup), the human turns off agent access to the tab (Stop or the popup), or 
 session shows one guide at a time: a `guide step` on another tab ends the session's guide on its earlier tabs, and
 their cards point to the new tab with a "Go to that tab" button. When the step's window is showing one of the session's own tabs,
 `guide step` also switches that window to the step's tab; it never takes over a personal or other task's tab and never
-focuses the window.
+focuses the window. The step that opens a session's guide returns `started: true`, and the CLI sends one `notify.sh`
+ping ("Agent guide started") so the human knows to look at the browser; later steps and moves to another tab stay quiet.
 
 ## Human-operated tab switchers
 

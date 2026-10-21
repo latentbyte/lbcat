@@ -81,6 +81,19 @@ func printGuideResponse(cmd *cobra.Command, resp json.RawMessage) error {
 	return err
 }
 
+// notifyGuideStart pings the human when this step opened the session's guide, so they know to
+// look at the browser; later steps and moves to another tab stay quiet
+func notifyGuideStart(resp json.RawMessage, title string) {
+	var result struct {
+		Data struct {
+			Started bool `json:"started"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(resp, &result) == nil && result.Data.Started {
+		cli.NotifyGuideStarted(strings.TrimSpace(title))
+	}
+}
+
 func guideWait(c *cli.Client, target string, tabID int, timeout time.Duration) (json.RawMessage, error) {
 	args := map[string]any{"tabId": tabID, "timeoutMs": int(timeout / time.Millisecond)}
 	return c.RequestWithTimeout(target, cli.ExtCommand{Cmd: "guide.wait", Args: args}, timeout+pageRequestMargin)
@@ -127,6 +140,7 @@ interactions lists clicks and inputs on marked elements since the last result.`,
 			if err != nil {
 				return err
 			}
+			notifyGuideStart(resp, title)
 			if noWait, _ := cmd.Flags().GetBool("no-wait"); noWait {
 				return printGuideResponse(cmd, resp)
 			}

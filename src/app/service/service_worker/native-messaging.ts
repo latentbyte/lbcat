@@ -925,6 +925,8 @@ const handlers: Record<string, Handler> = {
           ? await injectPageAction(tabId, { op: "resolve", locators: marks.map((mark) => mark.locator) })
           : {};
         const guideMarks = refs.map((ref, index) => ({ ref, label: marks[index].label }));
+        // 会话此前没有进行中的引导时标记开始，CLI 据此通知人工；换标签与后续步骤不重复通知
+        const started = !guideService.owned(sessionId(args)).length;
         const stepId = guideService.begin(tabId, { text, title, marks: guideMarks }, sessionId(args));
         try {
           await drawGuide(tabId, { stepId, title, text, marks: guideMarks, state: "step" });
@@ -934,7 +936,7 @@ const handlers: Record<string, Handler> = {
         }
         await handOffGuides(tabId, sessionId(args));
         await bringGuideForward(tab, sessionId(args));
-        return { step: stepId, marks: guideMarks };
+        return { step: stepId, marks: guideMarks, ...(started ? { started } : {}) };
       },
       { timeoutMs: timeoutArg(args, DEFAULT_READ_TIMEOUT_MS), label: "guide.step" }
     );

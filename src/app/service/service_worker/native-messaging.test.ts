@@ -601,10 +601,18 @@ describe("原生消息并发控制", () => {
         });
       });
 
+      it("会话的第一步标记为开始，同一标签的后续步骤不再标记", async () => {
+        await request("guide-first", "guide.step", { tabId: 101, text: "Open billing" });
+        expect(responseOf("guide-first").data).toMatchObject({ tabId: 101, started: true });
+        await request("guide-second", "guide.step", { tabId: 101, text: "Click save" });
+        expect(responseOf("guide-second").data).not.toHaveProperty("started");
+      });
+
       it("同一会话在新标签给出步骤时，旧标签的卡片改为指向新标签", async () => {
         guideService.begin(55, { text: "Click save", marks: [] }, "task");
         await request("guide-moved", "guide.step", { tabId: 101, text: "Open billing" });
         expect(responseOf("guide-moved").data).toMatchObject({ tabId: 101 });
+        expect(responseOf("guide-moved").data).not.toHaveProperty("started");
         expect(guideService.current(55)).toBeUndefined();
         expect(executeScript).toHaveBeenCalledWith(
           expect.objectContaining({
