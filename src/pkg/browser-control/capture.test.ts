@@ -40,6 +40,21 @@ describe("原生标签截图区域", () => {
     expect(captureTab).toHaveBeenCalledWith(101, { format: "png", rect: { x: 1, y: 2, width: 101, height: 51 } });
   });
 
+  it("视口区域应换算为文档坐标后截取", async () => {
+    vi.stubGlobal("window", { scrollX: 5, scrollY: 100, innerWidth: 800, innerHeight: 600 });
+    const region = { x: 10, y: 20, width: 300, height: 40 };
+    await expect(captureNativeTab(101, { region })).resolves.toMatchObject({ width: 300, height: 40 });
+    expect(captureTab).toHaveBeenCalledWith(101, { format: "png", rect: { x: 15, y: 120, width: 300, height: 40 } });
+  });
+
+  it("超出视口的区域应报错且不调用截图 API", async () => {
+    vi.stubGlobal("window", { scrollX: 0, scrollY: 0, innerWidth: 800, innerHeight: 600 });
+    await expect(captureNativeTab(101, { region: { x: 700, y: 0, width: 200, height: 10 } })).rejects.toThrow(
+      "outside the 800x600 viewport"
+    );
+    expect(captureTab).not.toHaveBeenCalled();
+  });
+
   it("空元素应报错且不调用截图 API", async () => {
     const element = document.createElement("div");
     element.id = "target";
@@ -201,6 +216,15 @@ describe("前台截图回退契约", () => {
   it.each([0, 95])("元素 JPEG 最终编码应保留质量 %i", async (quality) => {
     await finish(captureNativeTab(101, { selector: "#target", allowForeground: true, format: "jpeg", quality }));
     expect(toDataURL).toHaveBeenCalledWith("image/jpeg", quality / 100);
+  });
+
+  it("区域截图按像素密度裁剪可见视口且不滚动页面", async () => {
+    await expect(
+      finish(captureNativeTab(101, { region: { x: 10, y: 20, width: 100, height: 50 }, allowForeground: true }))
+    ).resolves.toEqual({ dataUrl: "data:image/png;base64,canvas", width: 100, height: 50 });
+    expect(captureVisibleTab).toHaveBeenCalledTimes(1);
+    expect(drawImage).toHaveBeenCalledWith(expect.anything(), 20, 40, 200, 100, 0, 0, 200, 100);
+    expect({ scrollX, scrollY }).toEqual({ scrollX: 75, scrollY: 230 });
   });
 
   it("超出视口的元素应明确报错而非输出缺失像素的图片", async () => {

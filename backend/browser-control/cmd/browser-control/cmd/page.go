@@ -235,6 +235,15 @@ var pageScreenshotCmd = &cobra.Command{
 			return fmt.Errorf("--focus-on-error requires --foreground")
 		}
 		timeout, _ := cmd.Flags().GetDuration("timeout")
+		var region map[string]any
+		if value, _ := cmd.Flags().GetString("region"); value != "" {
+			if selector != "" || fullPage {
+				return fmt.Errorf("--region cannot be combined with --selector or --full-page")
+			}
+			if region, err = parseRegion(value); err != nil {
+				return err
+			}
+		}
 
 		c, err := connectScoped()
 		if err != nil {
@@ -262,6 +271,9 @@ var pageScreenshotCmd = &cobra.Command{
 		cmdArgs["timeoutMs"] = int(extensionTimeout / time.Millisecond)
 		if selector != "" {
 			cmdArgs["selector"] = selector
+		}
+		if region != nil {
+			cmdArgs["region"] = region
 		}
 
 		resp, err := c.RequestWithTimeout(target, cli.ExtCommand{
@@ -321,6 +333,7 @@ var pageScreenshotCmd = &cobra.Command{
 		if flagJSON {
 			data, err := json.Marshal(map[string]any{"cmd": "page.screenshot", "data": map[string]any{
 				"path": output, "width": outWidth, "height": outHeight, "bytes": len(decoded),
+				"cssWidth": result.Data.Width, "cssHeight": result.Data.Height,
 			}})
 			if err != nil {
 				return err
@@ -328,9 +341,27 @@ var pageScreenshotCmd = &cobra.Command{
 			_, err = fmt.Fprintln(out, string(data))
 			return err
 		}
-		_, err = fmt.Fprintf(out, "screenshot saved to %s (%dx%d bitmap pixels)\n", output, outWidth, outHeight)
+		_, err = fmt.Fprintf(out, "screenshot saved to %s (%dx%d bitmap pixels, %dx%d CSS pixels)\n",
+			output, outWidth, outHeight, result.Data.Width, result.Data.Height)
 		return err
 	},
+}
+
+// parseRegion reads a viewport CSS pixel rectangle given as x,y,width,height
+func parseRegion(value string) (map[string]any, error) {
+	parts := strings.Split(value, ",")
+	numbers := make([]int, len(parts))
+	for i, part := range parts {
+		number, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil {
+			return nil, fmt.Errorf("--region must be x,y,width,height in viewport CSS pixels, got %q", value)
+		}
+		numbers[i] = number
+	}
+	if len(numbers) != 4 || numbers[2] <= 0 || numbers[3] <= 0 {
+		return nil, fmt.Errorf("--region must be x,y,width,height in viewport CSS pixels, got %q", value)
+	}
+	return map[string]any{"x": numbers[0], "y": numbers[1], "width": numbers[2], "height": numbers[3]}, nil
 }
 
 type extensionError = cli.CommandError
@@ -495,6 +526,7 @@ func init() {
 	pageReloadCmd.Flags().Bool("bypass-cache", false, "bypass browser cache on reload")
 
 	pageScreenshotCmd.Flags().String("selector", "", "CSS selector for element screenshot")
+	pageScreenshotCmd.Flags().String("region", "", "capture x,y,width,height in viewport CSS pixels at full device resolution (zoom into small text or controls)")
 	pageScreenshotCmd.Flags().String("format", "png", "image format: png, jpeg")
 	pageScreenshotCmd.Flags().Int("quality", 80, "JPEG quality (0-100, ignored for PNG)")
 	pageScreenshotCmd.Flags().Bool("full-page", false, "capture full scrollable page")

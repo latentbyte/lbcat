@@ -6,6 +6,8 @@ export { withNativeTabOperation } from "./tab-operation";
 
 export type NativeScreenshotOptions = {
   selector?: string;
+  // 视口内的 CSS 像素区域，原点为视口左上角
+  region?: CaptureArea;
   format?: "png" | "jpeg";
   quality?: number;
   fullPage?: boolean;
@@ -65,8 +67,16 @@ function readCaptureResult<T>(
 async function captureArea(tabId: number, options: NativeScreenshotOptions): Promise<CaptureArea> {
   const [result] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: (selector: string | null, fullPage: boolean) => {
+    func: (selector: string | null, fullPage: boolean, region: CaptureArea | null) => {
       try {
+        if (region) {
+          const { x, y, width, height } = region;
+          if (x < 0 || y < 0 || x + width > window.innerWidth || y + height > window.innerHeight)
+            throw new Error(
+              `region ${x},${y},${width},${height} is outside the ${window.innerWidth}x${window.innerHeight} viewport`
+            );
+          return { x: x + window.scrollX, y: y + window.scrollY, width, height };
+        }
         if (selector) {
           const element = document.querySelector(selector);
           if (!element) throw new Error("element not found: " + selector);
@@ -95,7 +105,7 @@ async function captureArea(tabId: number, options: NativeScreenshotOptions): Pro
         return { error: error instanceof Error ? error.message : String(error) };
       }
     },
-    args: [options.selector ?? null, Boolean(options.fullPage)],
+    args: [options.selector ?? null, Boolean(options.fullPage), options.region ?? null],
   });
   const area = readCaptureResult<CaptureArea>(result);
   if (!area || area.width <= 0 || area.height <= 0) {
@@ -114,6 +124,7 @@ export function captureNativeTab(
     async () => {
       await validateAccess?.();
       const tabs = chrome.tabs as CaptureTabs;
+      const clipped = Boolean(options.selector || options.fullPage || options.region);
       const format = options.format ?? "png";
       const quality = options.quality ?? 80;
       const captureOpts: chrome.extensionTypes.ImageDetails = { format, ...(format === "jpeg" ? { quality } : {}) };
@@ -121,7 +132,7 @@ export function captureNativeTab(
         const area = await captureArea(tabId, options);
         const dataUrl = await tabs.captureTab(tabId, {
           ...captureOpts,
-          ...(options.selector || options.fullPage ? { rect: area } : {}),
+          ...(clipped ? { rect: area } : {}),
         });
         return { dataUrl, width: area.width, height: area.height };
       }
@@ -133,8 +144,8 @@ export function captureNativeTab(
           const result = (await chrome.debugger.sendCommand(target, "Page.captureScreenshot", {
             ...captureOpts,
             fromSurface: true,
-            captureBeyondViewport: Boolean(options.selector || options.fullPage),
-            ...(options.selector || options.fullPage ? { clip: { ...area, scale: 1 } } : {}),
+            captureBeyondViewport: clipped,
+            ...(clipped ? { clip: { ...area, scale: 1 } } : {}),
           })) as { data: string };
           return { dataUrl: "data:image/" + format + ";base64," + result.data, width: area.width, height: area.height };
         });
@@ -324,12 +335,20 @@ async function captureVisibleScreenshot(tabId: number, options: NativeScreenshot
       return { dataUrl, width: dims.scrollWidth, height: dims.scrollHeight };
     }
 
-    if (selector) {
+    if (selector || options.region) {
       const [rectResult] = await chrome.scripting.executeScript({
         target: { tabId },
-        func: (sel: string) => {
+        func: (sel: string | null, region: CaptureArea | null) => {
           try {
-            const el = document.querySelector(sel);
+            if (region) {
+              const { x, y, width, height } = region;
+              if (x < 0 || y < 0 || x + width > window.innerWidth || y + height > window.innerHeight)
+                throw new Error(
+                  `region ${x},${y},${width},${height} is outside the ${window.innerWidth}x${window.innerHeight} viewport`
+                );
+              return { ...region, dpr: window.devicePixelRatio || 1 };
+            }
+            const el = document.querySelector(sel!);
             if (!el) return null;
             el.scrollIntoView({ block: "center", inline: "center" });
             const r = el.getBoundingClientRect();
@@ -354,7 +373,7 @@ async function captureVisibleScreenshot(tabId: number, options: NativeScreenshot
             return { error: error instanceof Error ? error.message : String(error) };
           }
         },
-        args: [selector],
+        args: [selector, options.region ?? null],
       });
       const rect = readCaptureResult<{ x: number; y: number; width: number; height: number; dpr: number }>(rectResult);
       if (!rect) throw new Error(`element not found: ${selector}`);

@@ -8,7 +8,12 @@ import {
   resolveBrowserControlIdentity,
   type BrowserControlIdentity,
 } from "@App/pkg/browser-control/identity";
-import { captureNativeTab, withNativeTabOperation, withNativeWindowOperation } from "@App/pkg/browser-control/capture";
+import {
+  captureNativeTab,
+  type NativeScreenshotOptions,
+  withNativeTabOperation,
+  withNativeWindowOperation,
+} from "@App/pkg/browser-control/capture";
 import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-control/agent-window";
 import { BrowserControlError } from "@App/pkg/browser-control/errors";
 import { runPageContent } from "@App/pkg/browser-control/page-content";
@@ -1139,6 +1144,7 @@ const handlers: Record<string, Handler> = {
         tabId,
         {
           selector: args["selector"] as string | undefined,
+          region: args.region as NativeScreenshotOptions["region"],
           format: args["format"] as "png" | "jpeg" | undefined,
           quality: args["quality"] as number | undefined,
           fullPage: Boolean(args["fullPage"]),

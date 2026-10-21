@@ -441,3 +441,53 @@ func TestScreenshotJSONWithOutputSavesFile(t *testing.T) {
 		t.Fatalf("output = %s", stdout.String())
 	}
 }
+
+func TestScreenshotRegionReportsCSSSize(t *testing.T) {
+	var source bytes.Buffer
+	if err := png.Encode(&source, image.NewRGBA(image.Rect(0, 0, 600, 80))); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "region.png")
+	setCommandFlags(t, pageScreenshotCmd, map[string]string{"region": "10,20,300,40", "output": output})
+	var stdout bytes.Buffer
+	pageScreenshotCmd.SetOut(&stdout)
+	t.Cleanup(func() { pageScreenshotCmd.SetOut(nil) })
+	response, err := json.Marshal(map[string]any{"data": map[string]any{
+		"dataUrl": "data:image/png;base64," + base64.StdEncoding.EncodeToString(source.Bytes()), "width": 300, "height": 40,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := startPageCommandDaemon(t, map[string]json.RawMessage{"page.screenshot": response})
+	if err := pageScreenshotCmd.RunE(pageScreenshotCmd, []string{"123"}); err != nil {
+		t.Fatal(err)
+	}
+	args := lastRequestArgs(t, waitPageCommandRequests(t, result), "page.screenshot")
+	if want := map[string]any{"x": 10.0, "y": 20.0, "width": 300.0, "height": 40.0}; !reflect.DeepEqual(args["region"], want) {
+		t.Fatalf("region = %v, want %v", args["region"], want)
+	}
+	if want := "screenshot saved to " + output + " (600x80 bitmap pixels, 300x40 CSS pixels)"; strings.TrimSpace(stdout.String()) != want {
+		t.Fatalf("output = %q, want %q", stdout.String(), want)
+	}
+}
+
+func TestScreenshotRegionArgumentErrors(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		flags map[string]string
+		want  string
+	}{
+		{"区域与选择器同时给出", map[string]string{"region": "0,0,10,10", "selector": "#a"}, "--region cannot be combined"},
+		{"区域与整页同时给出", map[string]string{"region": "0,0,10,10", "full-page": "true"}, "--region cannot be combined"},
+		{"区域格式错误", map[string]string{"region": "0,0,10"}, "--region must be x,y,width,height"},
+		{"区域尺寸为零", map[string]string{"region": "0,0,0,10"}, "--region must be x,y,width,height"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			setCommandFlags(t, pageScreenshotCmd, test.flags)
+			err := pageScreenshotCmd.RunE(pageScreenshotCmd, []string{"123"})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("err = %v, want %q", err, test.want)
+			}
+		})
+	}
+}

@@ -142,9 +142,14 @@ focus changes can make fallback captures fail.
 Foreground full-page capture stitches both horizontal and vertical overflow. Foreground selector capture requires the
 whole element to fit in the viewport after scrolling; otherwise it fails explicitly. It leaves the target tab active.
 JPEG quality applies to the final cropped or stitched image. Screenshot file output enforces `--max-pixels` against
-decoded bitmap dimensions and reports saved bitmap dimensions; raw screenshot JSON retains CSS region dimensions.
-With `--output`, `--json` prints only `{path, width, height, bytes}`; base64 is printed only for `--json` without
-`--output`. `page content --selector` fails with `SELECTOR_NOT_FOUND` when nothing matches.
+decoded bitmap dimensions and reports saved bitmap and CSS dimensions; raw screenshot JSON retains CSS region dimensions.
+With `--output`, `--json` prints only `{path, width, height, bytes, cssWidth, cssHeight}`; base64 is printed only for
+`--json` without `--output`.
+`--region x,y,width,height` captures a viewport rectangle (CSS pixels, origin top left, the same space as
+`page click --at`) at full device resolution, so a small region is not downscaled the way a whole viewport is: use it to
+read small text or controls. The region must lie inside the viewport (it never scrolls) and cannot be combined with
+`--selector` or `--full-page`. To map an image pixel back to `--at` coordinates, scale by CSS size / bitmap size and add
+the region origin. `page content --selector` fails with `SELECTOR_NOT_FOUND` when nothing matches.
 `page content --format markdown` returns visible content as Markdown (headings, lists, links with absolute URLs, tables,
 code); hidden elements, scripts, and styles are dropped. `--max-chars N` truncates any format and appends
 `[truncated: N of M characters; ...]`. `script push --reload-tabs` reloads session-accessible tabs whose URL matches
@@ -201,8 +206,8 @@ clickable ancestor. `fill` uses the native value setter and fires `input`/`chang
 
 `click --at x,y` targets whatever is at that viewport point (CSS pixels, origin top left), entering open shadow roots
 and same-origin iframes, and dispatches pointer/mouse events carrying those coordinates; editable or clickable targets
-are focused as a real click would. Points inside cross-origin frames fail with `CROSS_ORIGIN_FRAME`, empty points with
-`NO_ELEMENT_AT_POINT`. Prefer refs: coordinates are for surfaces without elements to target.
+are focused as a real click would. Points inside cross-origin frames fail with `CROSS_ORIGIN_FRAME`, points outside the viewport
+with `NO_ELEMENT_AT_POINT`. Prefer refs: coordinates are for surfaces without elements to target.
 
 Actions (`click`, `fill`, `select`, `press`, `upload`) report what they changed, saving a separate `page snapshot`
 round trip. `--snapshot diff` (default) prints snapshot lines the action added (`+`), removed (`-`), or changed (`~`,

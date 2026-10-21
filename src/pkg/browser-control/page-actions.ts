@@ -439,7 +439,7 @@ export async function runPageAction(request: PageActionRequest): Promise<PageAct
       if (!frameDoc)
         throw new ActionError(
           "CROSS_ORIGIN_FRAME",
-          `point ${x},${y} is inside a cross-origin frame (${el.getAttribute("src") ?? "no src"}); open the frame URL in its own tab`
+          `point ${x},${y} is inside a cross-origin frame (${el.getAttribute("src")?.slice(0, 100) ?? "no src"}); open the frame URL in its own tab`
         );
       const rect = el.getBoundingClientRect();
       x -= rect.left + el.clientLeft;
