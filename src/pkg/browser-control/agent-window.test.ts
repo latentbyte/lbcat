@@ -89,6 +89,18 @@ describe("代理专用窗口与标签租约", () => {
     expect(deps.createTab).not.toHaveBeenCalled();
   });
 
+  it("会话 ID 取 8 位短 ID 且避开现有会话", async () => {
+    await service.designate(7);
+    const ids = [
+      "ab12cd34-0000-4000-8000-000000000001",
+      "ab12cd34-0000-4000-8000-000000000002",
+      "ef56ab78-0000-4000-8000-000000000003",
+    ];
+    deps.id = () => ids.shift()!;
+    expect((await service.openSession()).sessionId).toBe("ab12cd34");
+    expect((await service.openSession()).sessionId).toBe("ef56ab78");
+  });
+
   it("创建专用窗口时不抢焦点", async () => {
     const status = await service.create();
     expect(deps.createWindow).toHaveBeenCalledWith(expect.objectContaining({ focused: false, type: "normal" }));

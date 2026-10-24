@@ -280,8 +280,12 @@ export class AgentWindowService implements AgentWindowScope {
   private startSession(state: State, ttlMs: number, label?: string): { sessionId: string; expiresAt: number } {
     // 保留过期暂停记录，避免其他任务清理租约后绕过人工接管
     state.sessions = state.sessions.filter((item) => item.paused || item.expiresAt > this.deps.now());
+    // 短 ID 节省代理每次命令携带的 token；仅需在本浏览器的现存会话内唯一
+    let sessionId: string;
+    do sessionId = this.deps.id().slice(0, 8);
+    while (state.sessions.some((item) => item.sessionId === sessionId));
     const session: Session = {
-      sessionId: this.deps.id(),
+      sessionId,
       ...(label ? { label } : {}),
       expiresAt: this.deps.now() + ttlMs,
       ttlMs,
