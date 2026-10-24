@@ -8,20 +8,28 @@ import (
 	"time"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
+	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol"
 	"github.com/spf13/cobra"
 )
 
 func runAgentCommand(cmd *cobra.Command, name string, args map[string]any) (json.RawMessage, error) {
+	response, _, err := requestAgent(name, args)
+	return response, err
+}
+
+// requestAgent sends an extension command and also returns the resolved browser connection ID
+func requestAgent(name string, args map[string]any) (json.RawMessage, string, error) {
 	c, err := connectScoped()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer c.Close()
 	target, err := resolveBrowser(c.Peers())
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return c.Request(target, cli.ExtCommand{Cmd: name, Args: args})
+	response, err := c.Request(target, cli.ExtCommand{Cmd: name, Args: args})
+	return response, target, err
 }
 
 func printAgentResponse(cmd *cobra.Command, name string, args map[string]any) error {
@@ -70,10 +78,10 @@ func newSessionCmd() *cobra.Command {
 		child := &cobra.Command{
 			Use: operation.name + " [session-id]", Short: operation.name + " a task session", Args: cobra.MaximumNArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				sessionID := sessionFromFlag()
 				if len(args) > 0 {
-					sessionID = args[0]
+					flagSession = args[0]
 				}
+				sessionID := sessionFromFlag()
 				if sessionID == "" {
 					return fmt.Errorf("provide session ID or --session")
 				}
@@ -127,34 +135,43 @@ func sessionOpenArgs(cmd *cobra.Command) (map[string]any, error) {
 	return args, nil
 }
 
+// sessionBeginOutput prefixes the new session ID with the browser name ("zen:ab12cd34")
+func sessionBeginOutput(response json.RawMessage, target string, asJSON bool) (string, error) {
+	var result map[string]any
+	if err := json.Unmarshal(response, &result); err != nil {
+		return "", err
+	}
+	data, _ := result["data"].(map[string]any)
+	sessionID, _ := data["sessionId"].(string)
+	if sessionID == "" {
+		return "", fmt.Errorf("session response missing sessionId")
+	}
+	handle := browsercontrol.BrowserNameFromID(target) + ":" + sessionID
+	if !asJSON {
+		return handle, nil
+	}
+	data["sessionId"] = handle
+	output, err := json.Marshal(result)
+	return string(output), err
+}
+
 func newSessionBeginCmd() *cobra.Command {
 	begin := &cobra.Command{
-		Use: "begin", Short: "Begin a task and print its session ID", Args: cobra.NoArgs,
+		Use: "begin", Short: "Begin a task and print its session handle (<browser>:<id>)", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			args, err := sessionOpenArgs(cmd)
 			if err != nil {
 				return err
 			}
-			response, err := runAgentCommand(cmd, "sessions.open", args)
+			response, target, err := requestAgent("sessions.open", args)
 			if err != nil {
 				return err
 			}
-			if flagJSON {
-				fmt.Fprintln(cmd.OutOrStdout(), string(response))
-				return nil
-			}
-			var result struct {
-				Data struct {
-					SessionID string `json:"sessionId"`
-				} `json:"data"`
-			}
-			if err := json.Unmarshal(response, &result); err != nil {
+			output, err := sessionBeginOutput(response, target, flagJSON)
+			if err != nil {
 				return err
 			}
-			if result.Data.SessionID == "" {
-				return fmt.Errorf("session response missing sessionId")
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), result.Data.SessionID)
+			fmt.Fprintln(cmd.OutOrStdout(), output)
 			return nil
 		},
 	}

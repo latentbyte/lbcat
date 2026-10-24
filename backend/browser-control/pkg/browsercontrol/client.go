@@ -457,7 +457,7 @@ func (c *daemonClient) browserTargets(ctx context.Context, opts targetOptions) (
 				}
 			}
 		}
-		name := browserNameFromID(string(opts.BrowserID))
+		name := BrowserNameFromID(string(opts.BrowserID))
 		return []BrowserStatus{{ID: opts.BrowserID, Name: name, AppName: appNameForBrowser(name)}}, nil
 	}
 
@@ -657,7 +657,7 @@ func fillEventBrowser(evt *model.Event, source model.BrowserID) {
 		if evt.Tab.BrowserID == "" {
 			evt.Tab.BrowserID = source
 		}
-		name := browserNameFromID(string(evt.Tab.BrowserID))
+		name := BrowserNameFromID(string(evt.Tab.BrowserID))
 		if name != "" {
 			evt.Tab.BrowserName = name
 			evt.Tab.AppName = appNameForBrowser(name)
@@ -698,7 +698,8 @@ func eventTypeFromBrowserEvent(name string) model.EventType {
 	}
 }
 
-func browserNameFromID(id string) string {
+// BrowserNameFromID returns the browser name part of a connection ID ("zen-01" -> "zen")
+func BrowserNameFromID(id string) string {
 	if prefix, _, ok := strings.Cut(id, "-"); ok {
 		return prefix
 	}

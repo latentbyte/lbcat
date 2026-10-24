@@ -56,3 +56,31 @@ func TestResolveBrowserAcceptsNameAndEnvironment(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionHandleRoutesBrowser(t *testing.T) {
+	peers := []string{"cli-01", "zen-11", "chrome-01"}
+	for _, test := range []struct {
+		name, flagSession, envSession, flagBrowser, envBrowser, wantBrowser, wantSession string
+	}{
+		{"会话前缀选择浏览器", "", "zen:ab12cd34", "", "", "zen-11", "ab12cd34"},
+		{"参数会话优先于环境变量", "chrome:ff00ff00", "zen:ab12cd34", "", "", "chrome-01", "ff00ff00"},
+		{"显式浏览器优先于会话前缀", "", "zen:ab12cd34", "chrome", "", "chrome-01", "ab12cd34"},
+		{"浏览器环境变量优先于会话前缀", "", "zen:ab12cd34", "", "chrome", "chrome-01", "ab12cd34"},
+		{"无前缀的旧会话保持原样", "", "0b8f-uuid", "zen", "", "zen-11", "0b8f-uuid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			previousSession, previousBrowser := flagSession, flagBrowser
+			flagSession, flagBrowser = test.flagSession, test.flagBrowser
+			t.Cleanup(func() { flagSession, flagBrowser = previousSession, previousBrowser })
+			t.Setenv("BROWSER_CONTROL_SESSION", test.envSession)
+			t.Setenv("BROWSER_CONTROL_BROWSER", test.envBrowser)
+			got, err := resolveBrowser(peers)
+			if err != nil || got != test.wantBrowser {
+				t.Fatalf("resolveBrowser() = %q, %v; want %q", got, err, test.wantBrowser)
+			}
+			if id := sessionFromFlag(); id != test.wantSession {
+				t.Fatalf("sessionFromFlag() = %q, want %q", id, test.wantSession)
+			}
+		})
+	}
+}

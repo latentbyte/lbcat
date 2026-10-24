@@ -60,24 +60,25 @@ page JavaScript, site popups, and profile-wide userscript changes are not isolat
 
 ## Task sessions
 
-Pin `--browser <id>`, begin a separate session for each task/subagent, and retain explicit tab IDs:
+Begin a separate session for each task/subagent and retain explicit tab IDs. `session begin` prints a handle such as
+`zen:ab12cd34` (browser name, colon, session ID); later commands route to that browser, so `--browser` is only needed
+for `session begin` when several browsers are connected:
 
 ```sh
-BROWSER_CONTROL_SESSION="$(bctl --browser zen-01 session begin --label "claude: fix login")"
-export BROWSER_CONTROL_SESSION
-bctl --browser zen-01 tabs create https://example.com --active=false --json
-bctl --browser zen-01 page content 123 --json
-bctl --browser zen-01 page screenshot 123 --output /tmp/worker-1.png
-bctl --browser zen-01 session end --close-tabs
-unset BROWSER_CONTROL_SESSION
+bctl --browser zen session begin --label "claude: fix login"   # prints zen:ab12cd34
+bctl --session zen:ab12cd34 tabs create https://example.com --active=false --json
+bctl --session zen:ab12cd34 page content 123 --json
+bctl --session zen:ab12cd34 page screenshot 123 --output /tmp/worker-1.png
+bctl --session zen:ab12cd34 session end --close-tabs
 ```
 
 `--browser` (or `BROWSER_CONTROL_BROWSER`) accepts an exact connection ID (`zen-01`) or a browser name (`zen`) that
 resolves to the only connected browser of that name; IDs renumber across reconnects, names do not. Several connections
-with the same name fail and list the IDs.
-Use `--session <id>` instead of the environment variable when convenient. The CLI reads the environment directly;
-`env.example` documents it and is not automatically loaded. `session begin --ttl 30m` sets lease duration (default 15m,
-range 1s to 24h). Work tab creation and access claim exclusive ownership; activity renews the lease. `session renew`
+with the same name fail and list the IDs; pass the exact ID with `--browser`. An explicit `--browser` or
+`BROWSER_CONTROL_BROWSER` overrides the handle's browser, and bare session IDs (no prefix) still work.
+`BROWSER_CONTROL_SESSION` can replace `--session` in shells that keep exports between commands (agent harnesses
+usually do not). The CLI reads the environment directly; `env.example` documents it and is not automatically loaded.
+`session begin --ttl 30m` sets lease duration (default 15m, range 1s to 24h). Work tab creation and access claim exclusive ownership; activity renews the lease. `session renew`
 renews before long idle periods. `session end` releases ownership and leaves tabs open; `session end --close-tabs`
 also closes the task's agent-window work tabs and reports `closedTabIds`/`keptTabIds` (personal tabs, and every tab of a
 paused task, stay open). Expired sessions must be replaced.

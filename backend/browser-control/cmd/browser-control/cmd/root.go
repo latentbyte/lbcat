@@ -32,11 +32,22 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
-func sessionFromFlag() string {
-	if flagSession != "" {
-		return flagSession
+// sessionHandle splits --session or BROWSER_CONTROL_SESSION; `session begin` prints
+// "<browser>:<id>" so later commands route to the owning browser without --browser
+func sessionHandle() (browser, id string) {
+	value := flagSession
+	if value == "" {
+		value = os.Getenv("BROWSER_CONTROL_SESSION")
 	}
-	return os.Getenv("BROWSER_CONTROL_SESSION")
+	if browser, id, ok := strings.Cut(value, ":"); ok {
+		return browser, id
+	}
+	return "", value
+}
+
+func sessionFromFlag() string {
+	_, id := sessionHandle()
+	return id
 }
 
 func connectScoped() (*cli.Client, error) {
@@ -51,20 +62,25 @@ func connectScoped() (*cli.Client, error) {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&flagSession, "session", "", "agent task session (defaults to BROWSER_CONTROL_SESSION)")
+	rootCmd.PersistentFlags().StringVar(&flagSession, "session", "", "agent task session handle from session begin, e.g. zen:ab12cd34 (defaults to BROWSER_CONTROL_SESSION)")
 	rootCmd.PersistentFlags().IntVar(&flagPersonalTab, "personal-tab", 0, "explicit permission for this exact personal tab ID")
 	rootCmd.PersistentFlags().StringVar(&flagBrowser, "browser", "",
-		"target browser: connection ID (zen-01) or browser name (zen) when only one is connected; defaults to BROWSER_CONTROL_BROWSER")
+		"target browser: connection ID (zen-01) or browser name (zen) when only one is connected; defaults to BROWSER_CONTROL_BROWSER, then the --session handle's browser")
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false,
 		"output in JSON format")
 }
 
-// browserSelection is --browser or BROWSER_CONTROL_BROWSER: an exact ID or a browser name
+// browserSelection is --browser, BROWSER_CONTROL_BROWSER, or the session handle's browser:
+// an exact ID or a browser name
 func browserSelection() string {
 	if flagBrowser != "" {
 		return flagBrowser
 	}
-	return os.Getenv("BROWSER_CONTROL_BROWSER")
+	if browser := os.Getenv("BROWSER_CONTROL_BROWSER"); browser != "" {
+		return browser
+	}
+	browser, _ := sessionHandle()
+	return browser
 }
 
 func browserIDFromFlag() model.BrowserID {

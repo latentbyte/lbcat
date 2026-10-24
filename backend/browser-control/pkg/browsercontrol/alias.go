@@ -14,7 +14,7 @@ func ResolveBrowserAlias(requested string, connected []string) (string, error) {
 	}
 	var matches []string
 	for _, id := range connected {
-		if strings.EqualFold(browserNameFromID(id), requested) {
+		if strings.EqualFold(BrowserNameFromID(id), requested) {
 			matches = append(matches, id)
 		}
 	}
