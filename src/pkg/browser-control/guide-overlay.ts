@@ -106,6 +106,24 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   };
   fold.addEventListener("click", () => setFolded(body.style.display !== "none"));
   header.append(fold);
+  // 点击写入剪贴板并短暂提示已复制；剪贴板不可用时选中文本供手动复制
+  const copyOnClick = (trigger: HTMLElement, value: string, selectable: Node, show: (title: string) => void) => {
+    let reset = 0;
+    show("Copy");
+    trigger.addEventListener("click", () => {
+      clearTimeout(reset);
+      navigator.clipboard.writeText(value).then(
+        () => {
+          show("Copied");
+          reset = window.setTimeout(() => show("Copy"), 1500);
+        },
+        () => {
+          getSelection()?.selectAllChildren(selectable);
+          show("Press Ctrl+C or Cmd+C to copy");
+        }
+      );
+    });
+  };
   // 说明支持 Markdown 子集：段落、标题、- / 1. 列表、**粗体**、*斜体*、`代码`、``` 围栏代码块；只用 DOM 构建，不解析 HTML
   // 不支持 _ 强调，避免 snake_case 名称被误解析
   const inline = (parent: HTMLElement, source: string) => {
@@ -114,13 +132,18 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
       parent.append(source.slice(last, match.index));
       last = match.index + match[0].length;
       if (match[1] !== undefined) {
-        parent.append(
-          create(
-            "code",
-            "padding: 0 4px; border-radius: 4px; background: #374151; font: 12px ui-monospace, Menlo, monospace;",
-            match[1]
-          )
+        // 行内代码点击即复制，不额外占用按钮位置
+        const code = create(
+          "code",
+          "padding: 0 4px; border-radius: 4px; background: #374151; font: 12px ui-monospace, Menlo, monospace; " +
+            "cursor: copy;",
+          match[1]
         );
+        copyOnClick(code, match[1], code, (title) => {
+          code.title = title;
+          code.style.color = title === "Copied" ? "#FCD34D" : "";
+        });
+        parent.append(code);
       } else {
         const element = create(
           match[2] !== undefined ? "strong" : "em",
@@ -155,7 +178,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   };
   const CLIPBOARD = ["M9 9h11v11H9z", "M5 15H4V4h11v1"];
   const CHECK = ["M5 12l5 5L20 7"];
-  // 围栏代码块是供人工复制粘贴的文本，旁边的按钮一键复制；剪贴板不可用时选中文本供手动复制
+  // 围栏代码块是供人工复制粘贴的文本，旁边的按钮一键复制
   const copyBlock = (value: string) => {
     const block = create(
       "div",
@@ -173,25 +196,10 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
       "all: unset; flex: none; display: flex; padding: 3px; border-radius: 4px; cursor: pointer; color: #FCD34D; " +
         "background: #374151;"
     );
-    let reset = 0;
-    const show = (title: string, paths: string[]) => {
+    copyOnClick(copy, value, pre, (title) => {
       copy.title = title;
       copy.setAttribute("aria-label", title);
-      copy.replaceChildren(icon(paths));
-    };
-    show("Copy", CLIPBOARD);
-    copy.addEventListener("click", () => {
-      clearTimeout(reset);
-      navigator.clipboard.writeText(value).then(
-        () => {
-          show("Copied", CHECK);
-          reset = window.setTimeout(() => show("Copy", CLIPBOARD), 1500);
-        },
-        () => {
-          getSelection()?.selectAllChildren(pre);
-          show("Press Ctrl+C or Cmd+C to copy", CLIPBOARD);
-        }
-      );
+      copy.replaceChildren(icon(title === "Copied" ? CHECK : CLIPBOARD));
     });
     block.append(pre, copy);
     return block;

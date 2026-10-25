@@ -135,6 +135,33 @@ describe("引导覆盖层", () => {
     delete (navigator as { clipboard?: unknown }).clipboard;
   });
 
+  it("点击行内代码写入剪贴板并提示已复制，不通知代理", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const root = render({ ...view, text: "Remove header `X-Forwarded-For`" })!;
+    const code = root.querySelector<HTMLElement>("[data-text] code")!;
+    expect(code.title).toBe("Copy");
+    code.click();
+    await vi.waitFor(() => expect(code.title).toBe("Copied"));
+    expect(writeText).toHaveBeenCalledWith("X-Forwarded-For");
+    expect(send).not.toHaveBeenCalled();
+    delete (navigator as { clipboard?: unknown }).clipboard;
+  });
+
+  it("行内代码剪贴板写入失败时选中该代码供手动复制", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("denied")) },
+    });
+    const select = vi.spyOn(Selection.prototype, "selectAllChildren").mockImplementation(() => {});
+    const root = render({ ...view, text: "Remove `X-Forwarded-For`" })!;
+    const code = root.querySelector<HTMLElement>("[data-text] code")!;
+    code.click();
+    await vi.waitFor(() => expect(code.title).toBe("Press Ctrl+C or Cmd+C to copy"));
+    expect(select).toHaveBeenCalledWith(code);
+    delete (navigator as { clipboard?: unknown }).clipboard;
+  });
+
   it("点击下一步发送回复并进入等待状态，标注随之移除", () => {
     const root = render(view)!;
     root.querySelector("textarea")!.value = "copied it";
