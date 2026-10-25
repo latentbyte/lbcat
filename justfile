@@ -126,3 +126,25 @@ alias zip := pack
 # pack source files for Mozilla review, excluding Browser Control tooling
 mozilla-source:
     pnpm run mozilla-source
+
+# pack, submit the Firefox zip + source to Mozilla's unlisted signing channel, save the signed XPI and its feed
+amo-submit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f .env ]; then set -a; . ./.env; set +a; fi
+    : "${WEB_EXT_API_KEY:?set WEB_EXT_API_KEY in .env (AMO -> Manage API Keys -> JWT issuer)}"
+    : "${WEB_EXT_API_SECRET:?set WEB_EXT_API_SECRET in .env (AMO -> Manage API Keys -> JWT secret)}"
+    version=$(node -p 'require("./package.json").version')
+    xpi="dist/lbcat-$version.xpi"
+    # AMO never accepts a version twice; a signed XPI here means this version is already spent
+    if [ -e "$xpi" ]; then echo "$xpi already exists; bump the version first" >&2; exit 1; fi
+    pnpm run pack
+    work=$(mktemp -d)
+    trap 'rm -rf "$work"' EXIT
+    unzip -q "dist/lbcat-$version-firefox.zip" -d "$work/ext"
+    pnpm exec web-ext sign --channel unlisted --source-dir "$work/ext" --artifacts-dir "$work/signed" \
+        --upload-source-code "dist/lbcat-$version-source.zip"
+    mv "$work"/signed/*.xpi "$xpi"
+    pnpm --silent firefox:updates generate "$xpi" > "dist/lbcat-updates-$version.json"
+    echo "signed: $xpi"
+    echo "feed:   dist/lbcat-updates-$version.json (publish both via LB Stash, see docs/DEVELOP.md)"

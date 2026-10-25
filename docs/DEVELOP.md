@@ -119,7 +119,11 @@ pnpm run build:firefox        # alternative unpacked Firefox build in dist/ext
 ```
 
 Submit the Firefox zip through Mozilla's self-distribution ("On your own" / unlisted) signing channel.
-Download the signed XPI and keep its bytes unchanged. Then generate the feed offline (Node 22.18+):
+`just amo-submit` does this through the AMO signing API: it packs, uploads the Firefox zip with the source zip,
+waits for signing, saves the signed XPI unchanged as `dist/lbcat-<version>.xpi`, and writes
+`dist/lbcat-updates-<version>.json` with `generate` below. It reads `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`
+(AMO Developer Hub -> Manage API Keys) from the environment or the gitignored `.env`, and refuses a version
+that already has a signed XPI, since AMO never accepts a version twice. Manual feed commands (Node 22.18+):
 
 ```bash
 pnpm --silent firefox:updates init > dist/lbcat-updates.json

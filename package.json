@@ -1,6 +1,6 @@
 {
   "name": "lbcat",
-  "version": "4.29.4",
+  "version": "4.29.5",
   "description": "脚本猫,一个可以执行用户脚本的浏览器扩展,万物皆可脚本化,让你的浏览器可以做更多的事情!",
   "author": "LatentByte",
   "license": "GPLv3",
@@ -108,7 +108,8 @@
     "typescript-eslint": "^8.46.2",
     "uglify-js": "^3.19.3",
     "unocss": "66.5.4",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "web-ext": "^10.8.0"
   },
   "packageManager": "pnpm@10.34.1",
   "sideEffects": [
