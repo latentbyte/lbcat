@@ -301,3 +301,38 @@ func TestHumanTabsClose(t *testing.T) {
 		t.Fatalf("output = %q", output.String())
 	}
 }
+
+func TestHumanTabsFocus(t *testing.T) {
+	command, _, err := rootCmd.Find([]string{"human", "tabs", "focus"})
+	if err != nil || command.RunE == nil || command.CommandPath() != "browser-control human tabs focus" {
+		t.Fatalf("human tabs focus command missing: %v", err)
+	}
+	oldBrowser, oldSession := flagBrowser, flagSession
+	flagBrowser, flagSession = "zen-02", "task-human"
+	t.Cleanup(func() {
+		flagBrowser, flagSession = oldBrowser, oldSession
+		command.SetOut(nil)
+	})
+	requests := startTabListBrowsers(t, 2, json.RawMessage(`{"cmd":"switcher.tabs.focus","data":{"tabId":42,"windowId":3}}`))
+	var output bytes.Buffer
+	command.SetOut(&output)
+	if err := command.RunE(command, []string{"42"}); err != nil {
+		t.Fatal(err)
+	}
+	request := <-requests
+	var args map[string]any
+	if err := json.Unmarshal(request.Args, &args); err != nil {
+		t.Fatal(err)
+	}
+	if request.Cmd != "switcher.tabs.focus" || args["tabId"] != float64(42) {
+		t.Fatalf("request = %s %#v", request.Cmd, args)
+	}
+	for _, field := range []string{"sessionId", "allowFocus"} {
+		if _, exists := args[field]; exists {
+			t.Fatalf("human request includes %s", field)
+		}
+	}
+	if output.String() != "focused tab 42 in window 3\n" {
+		t.Fatalf("output = %q", output.String())
+	}
+}

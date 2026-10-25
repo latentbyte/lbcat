@@ -57,25 +57,29 @@ func TestGuideStepArgs(t *testing.T) {
 }
 
 func TestNotifyGuideStep(t *testing.T) {
-	t.Run("每一步都通知人工：首步标明开始，后续步骤标明新步骤，正文带标题与步骤首行", func(t *testing.T) {
+	t.Run("每一步都通知人工：首步标明开始，后续步骤标明新步骤，正文带标题与步骤首行，点击聚焦该标签", func(t *testing.T) {
 		dir := t.TempDir()
 		output := filepath.Join(dir, "notifications")
-		script := "#!/bin/sh\nprintf '%s|%s\\n' \"$1\" \"$2\" >> \"$BC_TEST_NOTIFY_FILE\"\n"
+		// $2 is the click command; drop its executable path, which varies per test binary
+		script := "#!/bin/sh\n[ \"$1\" = --on-click ] || exit 1\nprintf '%s|%s|%s\\n' \"$3\" \"$4\" \"${2#* }\" >> \"$BC_TEST_NOTIFY_FILE\"\n"
 		if err := os.WriteFile(filepath.Join(dir, "notify.sh"), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
 		}
 		t.Setenv("PATH", dir)
 		t.Setenv("BC_TEST_NOTIFY_FILE", output)
-		notifyGuideStep(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":7,"step":1,"started":true}}`), " Setup ", "\n Open **Settings**\nthen more")
-		notifyGuideStep(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":7,"step":2}}`), "Setup", "Click Save")
-		notifyGuideStep(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":8,"step":1,"started":true}}`), "", strings.Repeat("x", 150))
+		notifyGuideStep(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":7,"step":1,"started":true}}`), " Setup ", "\n Open **Settings**\nthen more", "zen-01", 7)
+		notifyGuideStep(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":7,"step":2}}`), "Setup", "Click Save", "zen-01", 7)
+		notifyGuideStep(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":8,"step":1,"started":true}}`), "", strings.Repeat("x", 150), "chrome-02", 8)
 		data, err := os.ReadFile(output)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := "Agent guide started|Setup: Open **Settings**\n" +
-			"Agent guide: new step|Setup: Click Save\n" +
-			"Agent guide started|Agent walkthrough: " + strings.Repeat("x", 99) + "...\n"
+		focus := func(browser, tab string) string {
+			return "'--browser' '" + browser + "' 'human' 'tabs' 'focus' '" + tab + "'"
+		}
+		want := "Agent guide started|Setup: Open **Settings**|" + focus("zen-01", "7") + "\n" +
+			"Agent guide: new step|Setup: Click Save|" + focus("zen-01", "7") + "\n" +
+			"Agent guide started|Agent walkthrough: " + strings.Repeat("x", 99) + "...|" + focus("chrome-02", "8") + "\n"
 		if string(data) != want {
 			t.Fatalf("notifications = %q; want %q", data, want)
 		}

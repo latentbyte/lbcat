@@ -319,7 +319,8 @@ their cards point to the new tab with a "Go to that tab" button. When the step's
 `guide step` also switches that window to the step's tab; it never takes over a personal or other task's tab and never
 focuses the window. Every `guide step` makes the CLI send a `notify.sh` ping
 with the card title and the step's first line, so the human knows a new instruction is waiting. The step that opens a
-session's guide returns `started: true` and pings "Agent guide started"; later steps ping "Agent guide: new step".
+session's guide returns `started: true` and pings "Agent guide started"; later steps ping "Agent guide: new step". Clicking the notification runs
+`bctl --browser <id> human tabs focus <tab-id>` to bring the guided tab forward.
 
 ## Human-operated tab switchers
 
@@ -329,10 +330,11 @@ For an operator listing or closing tabs directly from the CLI:
 bctl human tabs list                             # all windows in the sole connected browser
 bctl --browser zen-01 human tabs list --json      # one browser, structured metadata
 bctl human tabs list --all-browsers --json        # all windows in all connected browsers
+bctl human tabs focus 123                         # focus a tab and raise its window
 bctl human tabs close 123 456                     # close tabs in any window
 ```
 
-`human tabs list` and `human tabs close` use the switcher SDK below, without an agent window or task session.
+`human tabs list`, `human tabs focus`, and `human tabs close` use the switcher SDK below, without an agent window or task session.
 `human tabs close` refuses only the agent window marker.
 `--browser` takes precedence over `--all-browsers`; with multiple browsers, select one or use
 `--all-browsers`. JSON responses use `cmd: "switcher.tabs.list"`. These CLI entrypoints give no page

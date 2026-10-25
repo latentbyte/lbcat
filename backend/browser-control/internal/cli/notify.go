@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
@@ -32,8 +34,9 @@ func notifyMissingWindow(target string) {
 	}
 }
 
-// NotifyGuideStep tells the human an agent published a walkthrough step for them
-func NotifyGuideStep(started bool, title, summary string) {
+// NotifyGuideStep tells the human an agent published a walkthrough step for them; clicking
+// the notification focuses the guided tab
+func NotifyGuideStep(started bool, title, summary, browserID string, tabID int) {
 	if title == "" {
 		title = "Agent walkthrough"
 	}
@@ -41,12 +44,26 @@ func NotifyGuideStep(started bool, title, summary string) {
 	if started {
 		heading = "Agent guide started"
 	}
-	if err := runNotify(heading, title+": "+summary); err != nil {
+	var options []string
+	if executable, err := os.Executable(); err == nil {
+		focus := shellJoin(executable, "--browser", browserID, "human", "tabs", "focus", strconv.Itoa(tabID))
+		options = append(options, "--on-click", focus)
+	}
+	if err := runNotify(heading, title+": "+summary, options...); err != nil {
 		fmt.Fprintf(os.Stderr, "browser-control: guide notification failed (%v)\n", err)
 	}
 }
 
-func runNotify(title, body string) error {
+// shellJoin quotes each word for /bin/sh
+func shellJoin(words ...string) string {
+	quoted := make([]string, len(words))
+	for i, word := range words {
+		quoted[i] = "'" + strings.ReplaceAll(word, "'", `'\''`) + "'"
+	}
+	return strings.Join(quoted, " ")
+}
+
+func runNotify(title, body string, options ...string) error {
 	executable, err := exec.LookPath("notify.sh")
 	if err != nil {
 		home, homeErr := os.UserHomeDir()
@@ -57,7 +74,7 @@ func runNotify(title, body string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := exec.CommandContext(ctx, executable, title, body).Run(); err != nil {
+	if err := exec.CommandContext(ctx, executable, append(options, title, body)...).Run(); err != nil {
 		return fmt.Errorf("verify notify.sh is installed and executable: %w", err)
 	}
 	return nil

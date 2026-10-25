@@ -83,7 +83,7 @@ func printGuideResponse(cmd *cobra.Command, resp json.RawMessage) error {
 
 // notifyGuideStep pings the human on every step so they know a new instruction is waiting in
 // the browser; the step that opened the session's guide says so
-func notifyGuideStep(resp json.RawMessage, title, text string) {
+func notifyGuideStep(resp json.RawMessage, title, text, browserID string, tabID int) {
 	var result struct {
 		Data struct {
 			Started bool `json:"started"`
@@ -92,7 +92,7 @@ func notifyGuideStep(resp json.RawMessage, title, text string) {
 	if json.Unmarshal(resp, &result) != nil {
 		return
 	}
-	cli.NotifyGuideStep(result.Data.Started, strings.TrimSpace(title), guideStepSummary(text))
+	cli.NotifyGuideStep(result.Data.Started, strings.TrimSpace(title), guideStepSummary(text), browserID, tabID)
 }
 
 // guideStepSummary is the step text's first non-empty line, cut to fit a notification
@@ -156,7 +156,7 @@ interactions lists clicks and inputs on marked elements since the last result.`,
 			if err != nil {
 				return err
 			}
-			notifyGuideStep(resp, title, text)
+			notifyGuideStep(resp, title, text, target, request["tabId"].(int))
 			if noWait, _ := cmd.Flags().GetBool("no-wait"); noWait {
 				return printGuideResponse(cmd, resp)
 			}
