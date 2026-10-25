@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -55,8 +56,8 @@ func TestGuideStepArgs(t *testing.T) {
 	}
 }
 
-func TestNotifyGuideStart(t *testing.T) {
-	t.Run("仅在会话的第一步通知人工，并带上卡片标题", func(t *testing.T) {
+func TestNotifyGuideStep(t *testing.T) {
+	t.Run("每一步都通知人工：首步标明开始，后续步骤标明新步骤，正文带标题与步骤首行", func(t *testing.T) {
 		dir := t.TempDir()
 		output := filepath.Join(dir, "notifications")
 		script := "#!/bin/sh\nprintf '%s|%s\\n' \"$1\" \"$2\" >> \"$BC_TEST_NOTIFY_FILE\"\n"
@@ -65,15 +66,16 @@ func TestNotifyGuideStart(t *testing.T) {
 		}
 		t.Setenv("PATH", dir)
 		t.Setenv("BC_TEST_NOTIFY_FILE", output)
-		notifyGuideStart(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":7,"step":1,"started":true}}`), " Setup ")
-		notifyGuideStart(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":7,"step":2}}`), "Setup")
-		notifyGuideStart(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":8,"step":1,"started":true}}`), "")
+		notifyGuideStep(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":7,"step":1,"started":true}}`), " Setup ", "\n Open **Settings**\nthen more")
+		notifyGuideStep(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":7,"step":2}}`), "Setup", "Click Save")
+		notifyGuideStep(json.RawMessage(`{"cmd":"guide.step","data":{"tabId":8,"step":1,"started":true}}`), "", strings.Repeat("x", 150))
 		data, err := os.ReadFile(output)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := "Agent guide started|Setup: follow the steps in the agent browser window.\n" +
-			"Agent guide started|Agent walkthrough: follow the steps in the agent browser window.\n"
+		want := "Agent guide started|Setup: Open **Settings**\n" +
+			"Agent guide: new step|Setup: Click Save\n" +
+			"Agent guide started|Agent walkthrough: " + strings.Repeat("x", 99) + "...\n"
 		if string(data) != want {
 			t.Fatalf("notifications = %q; want %q", data, want)
 		}

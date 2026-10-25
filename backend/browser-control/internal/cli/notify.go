@@ -32,12 +32,16 @@ func notifyMissingWindow(target string) {
 	}
 }
 
-// NotifyGuideStarted tells the human an agent began walking them through a page
-func NotifyGuideStarted(title string) {
+// NotifyGuideStep tells the human an agent published a walkthrough step for them
+func NotifyGuideStep(started bool, title, summary string) {
 	if title == "" {
 		title = "Agent walkthrough"
 	}
-	if err := runNotify("Agent guide started", title+": follow the steps in the agent browser window."); err != nil {
+	heading := "Agent guide: new step"
+	if started {
+		heading = "Agent guide started"
+	}
+	if err := runNotify(heading, title+": "+summary); err != nil {
 		fmt.Fprintf(os.Stderr, "browser-control: guide notification failed (%v)\n", err)
 	}
 }
