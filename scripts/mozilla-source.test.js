@@ -11,4 +11,11 @@ describe("Mozilla 源码审核包", () => {
     const files = execFileSync("unzip", ["-Z1", `dist/${pkg.name}-${pkg.version}-source.zip`], { encoding: "utf8" });
     expect(files.split("\n")).toContain("rspack-plugins/ZipExecutionPlugin.ts");
   });
+
+  it("不包含 Browser Control 的 Go 代码", { timeout: 10_000 }, () => {
+    execFileSync(process.execPath, ["scripts/mozilla-source.mjs"]);
+    const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+    const files = execFileSync("unzip", ["-Z1", `dist/${pkg.name}-${pkg.version}-source.zip`], { encoding: "utf8" });
+    expect(files.split("\n").filter((file) => /^backend\/|\.go$|(^|\/)go\.(mod|sum)$/.test(file))).toEqual([]);
+  });
 });
