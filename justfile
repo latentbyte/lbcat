@@ -127,7 +127,7 @@ alias zip := pack
 mozilla-source:
     pnpm run mozilla-source
 
-# pack, submit the Firefox zip + source to Mozilla's unlisted signing channel, save the signed XPI and its feed
+# pack, sign the Firefox zip + source through Mozilla's unlisted channel, then publish via stash-publish
 amo-submit:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -145,6 +145,9 @@ amo-submit:
     pnpm exec web-ext sign --channel unlisted --source-dir "$work/ext" --artifacts-dir "$work/signed" \
         --upload-source-code "dist/lbcat-$version-source.zip"
     mv "$work"/signed/*.xpi "$xpi"
-    pnpm --silent firefox:updates generate "$xpi" > "dist/lbcat-updates-$version.json"
     echo "signed: $xpi"
-    echo "feed:   dist/lbcat-updates-$version.json (publish both via LB Stash, see docs/DEVELOP.md)"
+    just stash-publish
+
+# publish signed dist/lbcat-*.xpi files missing from LB Stash and promote the newest to the live update feed
+stash-publish *args:
+    pnpm --silent stash:publish {{args}}

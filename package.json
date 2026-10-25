@@ -1,6 +1,6 @@
 {
   "name": "lbcat",
-  "version": "4.29.5",
+  "version": "4.29.6",
   "description": "脚本猫,一个可以执行用户脚本的浏览器扩展,万物皆可脚本化,让你的浏览器可以做更多的事情!",
   "author": "LatentByte",
   "license": "GPLv3",
@@ -22,6 +22,7 @@
     "pack": "node ./scripts/pack.js",
     "set-version": "node ./scripts/set-version.mjs",
     "firefox:updates": "node ./scripts/firefox-release.ts",
+    "stash:publish": "node ./scripts/stash-publish.ts",
     "mozilla-source": "node ./scripts/mozilla-source.mjs",
     "lint": "tsc --noEmit && eslint .",
     "lint:ci": "tsc --noEmit && eslint . --cache --cache-location .eslintcache",

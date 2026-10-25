@@ -120,8 +120,8 @@ pnpm run build:firefox        # alternative unpacked Firefox build in dist/ext
 
 Submit the Firefox zip through Mozilla's self-distribution ("On your own" / unlisted) signing channel.
 `just amo-submit` does this through the AMO signing API: it packs, uploads the Firefox zip with the source zip,
-waits for signing, saves the signed XPI unchanged as `dist/lbcat-<version>.xpi`, and writes
-`dist/lbcat-updates-<version>.json` with `generate` below. It reads `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`
+waits for signing, saves the signed XPI unchanged as `dist/lbcat-<version>.xpi`, then runs `just stash-publish`
+(below). It reads `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`
 (AMO Developer Hub -> Manage API Keys) from the environment or the gitignored `.env`, and refuses a version
 that already has a signed XPI, since AMO never accepts a version twice. Manual feed commands (Node 22.18+):
 
@@ -139,7 +139,10 @@ plain `x.y.z` version, and signature metadata. `check` is read-only: it follows 
 checks JSON/XPI MIME types, every download hash, version, identity, feed URL, and compatibility.
 Signature metadata is a prerequisite check; Firefox verifies actual Mozilla signing trust.
 
-Publish explicitly through LB Stash in the existing `lb` namespace / `exts` folder:
+Publish explicitly through LB Stash in the existing `lb` namespace / `exts` folder. `just stash-publish`
+(`--dry-run` prints the plan only) performs steps 1-4 below except the native upgrade test: it uploads every
+signed `dist/lbcat-<version>.xpi` missing from Stash, and when the newest XPI on Stash is ahead of the live feed,
+it stages, checks, and swaps in that version's feed. Rerunning after an interruption resumes from Stash state.
 
 1. Serialize releases. Upload the signed XPI as `lbcat-<version>.xpi`, public, with MIME type
    `application/x-xpinstall`. Refuse existing versioned names; never replace released XPI bytes.

@@ -93,7 +93,7 @@ export async function generateUpdateFeed(bytes: ArrayBuffer): Promise<FirefoxUpd
   }
 }
 
-async function download(url: string, mime: string): Promise<Response> {
+export async function download(url: string, mime: string): Promise<Response> {
   let target = https(url);
   for (let redirects = 0; redirects <= 5; redirects++) {
     const response = await fetch(target.href, { redirect: "manual", signal: AbortSignal.timeout(30_000) });
