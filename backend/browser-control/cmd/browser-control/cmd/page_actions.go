@@ -380,6 +380,19 @@ All conditions share one --timeout. Fails with WAIT_TIMEOUT.`,
 	},
 }
 
+// parseHeaders reads repeated --header 'Name: value' flags
+func parseHeaders(values []string) (map[string]string, error) {
+	headers := map[string]string{}
+	for _, header := range values {
+		name, value, ok := strings.Cut(header, ":")
+		if !ok || strings.TrimSpace(name) == "" {
+			return nil, fmt.Errorf("--header must be 'Name: value', got %q", header)
+		}
+		headers[strings.TrimSpace(name)] = strings.TrimSpace(value)
+	}
+	return headers, nil
+}
+
 var pageFetchCmd = &cobra.Command{
 	Use:   "fetch <tab-id> <url>",
 	Short: "HTTP request from the page's origin with its cookies",
@@ -399,15 +412,10 @@ Fails with FETCH_FAILED (network/CORS) or FETCH_TIMEOUT.`,
 		if method, _ := cmd.Flags().GetString("method"); method != "" {
 			request["method"] = method
 		}
-		headerFlags, _ := cmd.Flags().GetStringArray("header")
-		if len(headerFlags) > 0 {
-			headers := map[string]string{}
-			for _, header := range headerFlags {
-				name, value, ok := strings.Cut(header, ":")
-				if !ok || strings.TrimSpace(name) == "" {
-					return fmt.Errorf("--header must be 'Name: value', got %q", header)
-				}
-				headers[strings.TrimSpace(name)] = strings.TrimSpace(value)
+		if headerFlags, _ := cmd.Flags().GetStringArray("header"); len(headerFlags) > 0 {
+			headers, err := parseHeaders(headerFlags)
+			if err != nil {
+				return err
 			}
 			request["headers"] = headers
 		}

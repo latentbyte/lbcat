@@ -217,8 +217,8 @@ links, buttons, fields, and headings, not plain text. When the action loads a ne
 least as long as the page, the full snapshot is printed instead. `--snapshot full` always prints the full snapshot;
 `--snapshot none` skips it. Output is capped at 150 lines. A snapshot that fails after the action succeeded is reported
 as `snapshot unavailable: ...` without failing the command, so the action is not retried. JSON adds `changes: {added,
-removed, changed, total, truncated?, count?}`, `snapshot`, or `snapshotError`. `page run` steps take no snapshot unless
-the step sets `"snapshot": "diff"` or `"full"`.
+removed, changed, total, truncated?, count?}`, `snapshot`, or `snapshotError`. In `page run` only the last step observes
+by default (a final action reports its diff); earlier steps take a snapshot only when asked.
 
 Actions and `goto`/`back`/`forward`/`reload` default to `--wait load`: if the action starts a navigation (including
 SPA URL changes), the command returns after it finishes loading (`LOAD_TIMEOUT` after `--timeout`, default 30s);
@@ -241,11 +241,15 @@ page's only file input is used. Repeat `--file` for `multiple` inputs. Contents 
 `page.upload.chunk` frames (native messaging caps frames at 1 MB), about 48 MB per file. Errors: `NOT_FILE_INPUT`,
 `UPLOAD_TOO_LARGE`, `UPLOAD_NOT_FOUND` (chunks expire after 2 minutes).
 
-`page run <tab> -f steps.json` runs a JSON array of steps (`{"action": "click", "text": "Save"}`) over one connection
-and stops at the first failure with a non-zero exit. Actions: `goto back forward reload click fill select press wait
-content snapshot exec fetch viewport`; other keys are the extension's argument names (camelCase, e.g. `maxChars`; `click` takes `x`/`y` for `--at`),
-`timeout` takes a duration, refs accept `@e3`, and navigating actions wait for load unless `"wait": "none"`. `-f -`
-reads stdin. `--json` returns `{steps: [{action, data}], failed?: {step, action, error}}`.
+`page run <tab> 'step' ...` runs steps in order over one connection and stops at the first failure with a non-zero
+exit. Each quoted argument is one step written like its single command without the tab ID, e.g. `page run 12 'fill @e2
+--value "a@b.c"' 'click --text "Sign in"'`; steps split into words like a shell (quotes, backslash escapes) without
+expansion, and take the single commands' flags. `-f steps.json` takes a JSON array instead (`{"action": "click", "text":
+"Save"}`; other keys are the extension's argument names, camelCase, e.g. `maxChars`; `click` takes `x`/`y` for `--at`;
+`timeout` takes a duration; refs accept `@e3`; `-f -` reads stdin). Actions: `goto back forward reload click fill select
+press wait content snapshot exec fetch viewport`. Navigating actions wait for load unless `"wait": "none"`. A final
+`click`/`fill`/`select`/`press` reports its snapshot diff like the single command (`--snapshot none` skips it); earlier
+steps observe only when asked. `--json` returns `{steps: [{action, data}], failed?: {step, action, error}}`.
 
 `page monitor start|read|stop <tab>` captures failed requests (HTTP >= 400 and network errors, via `webRequest`,
 persisting across navigations) plus console errors/warnings, uncaught errors, unhandled rejections, and dialogs (hooked
