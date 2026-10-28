@@ -20,6 +20,17 @@ import (
 
 func startTabListBrowsers(t *testing.T, count int, response json.RawMessage) <-chan pageCommandRequest {
 	t.Helper()
+	return startBrowsers(t, count, func(command string) json.RawMessage {
+		if command == "agentWindow.status" {
+			return json.RawMessage(`{"cmd":"error","error":{"code":"AGENT_WINDOW_MISSING","message":"Open or designate the agent window"}}`)
+		}
+		return response
+	})
+}
+
+// startBrowsers connects fake zen browsers that answer each command with reply(cmd)
+func startBrowsers(t *testing.T, count int, reply func(command string) json.RawMessage) <-chan pageCommandRequest {
+	t.Helper()
 	stateDir, err := os.MkdirTemp("/tmp", "bc-human-")
 	if err != nil {
 		t.Fatal(err)
@@ -71,11 +82,7 @@ func startTabListBrowsers(t *testing.T, count int, response json.RawMessage) <-c
 					return
 				}
 				requests <- request
-				payload := response
-				if request.Cmd == "agentWindow.status" {
-					payload = json.RawMessage(`{"cmd":"error","error":{"code":"AGENT_WINDOW_MISSING","message":"Open or designate the agent window"}}`)
-				}
-				if err := protocol.WriteEnvelope(browser, &protocol.Envelope{ID: env.ID, Type: protocol.MsgResponse, Payload: payload}); err != nil {
+				if err := protocol.WriteEnvelope(browser, &protocol.Envelope{ID: env.ID, Type: protocol.MsgResponse, Payload: reply(request.Cmd)}); err != nil {
 					return
 				}
 			}

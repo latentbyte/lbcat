@@ -46,7 +46,9 @@ moving, or navigating the marker makes scope unavailable; stale numeric IDs neve
 Browser restoration may require explicit designation again. Missing scope fails with `AGENT_WINDOW_MISSING`; the message names the cause
 (never registered, marker closed or moved, or marker gone after an extension reload/update or browser restart). The
 CLI invokes `notify.sh` once per outage to request operator setup. Successful scope validation clears the notification
-latch. No command falls back to the current personal window. SDK callers receive the error without desktop notification.
+latch. `agent-window create --ask` lets an agent recover with approval: it returns a live registration unchanged,
+otherwise sends a click-to-allow notification (clicks need `terminal-notifier`) and creates the window only after the
+click; no click within `--timeout` (default 9m) fails with `AGENT_WINDOW_APPROVAL_TIMEOUT`. No command falls back to the current personal window. SDK callers receive the error without desktop notification.
 Registrations predating explicit tab grants require operator re-designation to grant access to existing tabs.
 All extension marker pages remain protected, including markers from earlier registrations.
 `agent-window status --json` reports the connected extension's `extensionVersion` and `manifestVersion`.

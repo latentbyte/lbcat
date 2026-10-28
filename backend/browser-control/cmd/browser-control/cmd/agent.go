@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -41,9 +42,55 @@ func printAgentResponse(cmd *cobra.Command, name string, args map[string]any) er
 	return nil
 }
 
+// defaultApprovalWait stays under common 10-minute agent tool timeouts, like guide waits
+const defaultApprovalWait = 9 * time.Minute
+
+// awaitWindowApproval is swapped in tests
+var awaitWindowApproval = cli.AwaitWindowApproval
+
+// askCreateAgentWindow returns a live registration as is; otherwise it creates a window once
+// the human clicks the approval notification
+func askCreateAgentWindow(cmd *cobra.Command, timeout time.Duration) error {
+	response, target, err := requestAgent("agentWindow.status", nil)
+	var commandError *cli.CommandError
+	if err == nil {
+		fmt.Fprintln(cmd.OutOrStdout(), string(response))
+		return nil
+	}
+	if !errors.As(err, &commandError) || commandError.Code != "AGENT_WINDOW_MISSING" {
+		return err
+	}
+	if err := awaitWindowApproval(target, browsercontrol.BrowserNameFromID(target), timeout); err != nil {
+		return err
+	}
+	return printAgentResponse(cmd, "agentWindow.create", nil)
+}
+
 func newAgentWindowCmd() *cobra.Command {
 	command := &cobra.Command{Use: "agent-window", Short: "Manage the designated same-profile agent window"}
-	for _, operation := range []string{"create", "status", "list", "clear"} {
+	create := &cobra.Command{
+		Use: "create", Short: "create agent window", Args: cobra.NoArgs,
+		Long: "Create a background agent window in the same profile.\n" +
+			"--ask first reuses a live registration; when the window is missing it sends a click-to-allow\n" +
+			"desktop notification and creates the window only after the click. No click within --timeout\n" +
+			"fails with AGENT_WINDOW_APPROVAL_TIMEOUT.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if ask, _ := cmd.Flags().GetBool("ask"); ask {
+				timeout, _ := cmd.Flags().GetDuration("timeout")
+				return askCreateAgentWindow(cmd, timeout)
+			}
+			return printAgentResponse(cmd, "agentWindow.create", nil)
+		},
+	}
+	create.Flags().Bool("ask", false, "ask the human to approve by notification click before creating")
+	create.Flags().Duration("timeout", defaultApprovalWait, "with --ask, how long to wait for approval")
+	command.AddCommand(create)
+	command.AddCommand(&cobra.Command{
+		Use: "approve <request-id>", Short: "Approve a pending create --ask (run by its notification click)",
+		Args: cobra.ExactArgs(1), Hidden: true,
+		RunE: func(_ *cobra.Command, args []string) error { return cli.ApproveWindow(args[0]) },
+	})
+	for _, operation := range []string{"status", "list", "clear"} {
 		command.AddCommand(&cobra.Command{
 			Use: operation, Short: operation + " agent window", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {

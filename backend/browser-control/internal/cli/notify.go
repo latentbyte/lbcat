@@ -29,7 +29,8 @@ func notifyMissingWindow(target string) {
 		return
 	}
 	_ = latch.Close()
-	if err := runNotify("Agent browser blocked", "Open or designate the agent browser window with browser-control agent-window create or designate."); err != nil {
+	if err := runNotify("Agent browser blocked", "Open or designate the agent browser window with browser-control agent-window create or designate.",
+		"--group", windowGroup(target)); err != nil {
 		fmt.Fprintf(os.Stderr, "browser-control: agent-window notification failed (%v); agent browser remains blocked\n", err)
 	}
 }
