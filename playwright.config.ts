@@ -15,9 +15,10 @@ export default defineConfig({
   workers: 1,
   reporter: process.env.CI ? [["html", { open: "never" }], ["list"]] : "list",
   outputDir: "test-results",
+  // Playwright's bundled Chromium (`pnpm run test:e2e:install`), not system Chrome: macOS
+  // force-quits a windowless Chrome.app ~30s after launch unless it may run in the background
   use: {
     actionTimeout: 10_000,
-    channel: "chrome",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
