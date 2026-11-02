@@ -9,3 +9,16 @@ yarn.lock
 # Docs & examples
 *.md
 example/
+
+# Kept as upstream ships them so upstream syncs stay conflict-free; see 33a7114d.
+# Reformatting these was reverted once already, so `fmt` skips them instead.
+.prettierrc
+tsconfig.json
+src/index.css
+src/pages/**/*.css
+src/pages/*.html
+src/locales
+src/assets/_locales
+.github/ISSUE_TEMPLATE/bug_report_en.yaml
+.github/workflows/build.yaml
+.github/workflows/packageRelease.yml
