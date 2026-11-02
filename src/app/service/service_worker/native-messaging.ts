@@ -16,6 +16,11 @@ import {
 } from "@App/pkg/browser-control/capture";
 import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-control/agent-window";
 import { BrowserControlError } from "@App/pkg/browser-control/errors";
+import {
+  consumeTabActivation,
+  markTabActivation,
+  type TabActivationSource,
+} from "@App/pkg/browser-control/activation-source";
 import { runPageContent } from "@App/pkg/browser-control/page-content";
 import { runPageExec, type PageExecResult } from "@App/pkg/browser-control/page-exec";
 import { runPageFetch, type PageFetchRequest } from "@App/pkg/browser-control/page-fetch";
@@ -170,7 +175,10 @@ function sendEvent(payload: unknown) {
 
 function tabEventHandler(eventName: string, switcher: boolean) {
   return (...eventArgs: unknown[]) => {
-    void normalizeNativeTabEvent(eventName, eventArgs)
+    const activeInfo = eventName === "onActivated" ? (eventArgs[0] as TabActiveInfo | undefined) : undefined;
+    // 扩展自己发起的聚焦不是用户切换，交给消费方按来源决定是否记入历史
+    const source = activeInfo ? (consumeTabActivation(activeInfo.tabId) ?? "user") : undefined;
+    void normalizeNativeTabEvent(eventName, eventArgs, source)
       .then((event) => {
         if (!event) return;
         if (switcher) {
@@ -289,8 +297,12 @@ export type BrowserControlTabID = {
   tabId: number;
 };
 
+export type BrowserControlEventSource = "user" | TabActivationSource;
+
 export type BrowserControlEvent = {
   type: "tab-focused" | "tab-removed" | "tab-updated" | "tab-created";
+  // tab-focused 才有：用户自己切换，或扩展代为执行的聚焦
+  source?: BrowserControlEventSource;
   browserId: string;
   tab?: BrowserControlTab;
   tabId?: BrowserControlTabID;
@@ -324,7 +336,8 @@ function tabIDFromTab(tab: BrowserControlTab): BrowserControlTabID {
 
 export async function normalizeNativeTabEvent(
   eventName: string,
-  eventArgs: unknown[]
+  eventArgs: unknown[],
+  source: BrowserControlEventSource = "user"
 ): Promise<BrowserControlEvent | null> {
   if (eventName === "onCreated") {
     const rawTab = eventArgs[0] as chrome.tabs.Tab | undefined;
@@ -361,10 +374,11 @@ export async function normalizeNativeTabEvent(
         await chrome.tabs.get(activeInfo.tabId),
         await resolveBrowserControlIdentity()
       );
-      return { type: "tab-focused", browserId: tab.browserId, tab, tabId: tabIDFromTab(tab) };
+      return { type: "tab-focused", source, browserId: tab.browserId, tab, tabId: tabIDFromTab(tab) };
     } catch {
       return {
         type: "tab-focused",
+        source,
         browserId: "",
         tabId: { browser: "", windowId: activeInfo.windowId, tabId: activeInfo.tabId },
       };
@@ -374,10 +388,17 @@ export async function normalizeNativeTabEvent(
   return null;
 }
 
-export async function focusNativeTab(tabId: number, requestedWindowId?: number, validateAccess?: () => Promise<void>) {
+export async function focusNativeTab(
+  tabId: number,
+  requestedWindowId: number | undefined,
+  validateAccess: (() => Promise<void>) | undefined,
+  source: TabActivationSource
+) {
   const existing = await chrome.tabs.get(tabId);
   return withNativeWindowOperation(existing.windowId, async () => {
     await validateAccess?.();
+    // 已在前台的标签不会触发 onActivated，留下标记会误归因下一次人工切换
+    if (!existing.active) markTabActivation(source, tabId);
     const tab = await chrome.tabs.update(tabId, { active: true });
     const windowId = typeof requestedWindowId === "number" ? requestedWindowId : tab?.windowId;
     if (typeof windowId === "number") {
@@ -395,7 +416,9 @@ async function bringGuideForward(tab: chrome.tabs.Tab, owner?: string): Promise<
     const [active] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
     if (active?.id === undefined || active.id === tabId) return;
     const { owner: holder } = await agentWindowService.tabAccess(active.id);
-    if (holder?.sessionId === owner) await chrome.tabs.update(tabId, { active: true });
+    if (holder?.sessionId !== owner) return;
+    markTabActivation("agent", tabId);
+    await chrome.tabs.update(tabId, { active: true });
   });
 }
 
@@ -684,9 +707,14 @@ const handlers: Record<string, Handler> = {
     let tab = await agentWindowService.createTab(sessionId(args), url);
     if (active && tab.id !== undefined) {
       const tabId = tab.id;
-      await focusNativeTab(tabId, undefined, async () => {
-        await assertNativeTab(args, tabId);
-      });
+      await focusNativeTab(
+        tabId,
+        undefined,
+        async () => {
+          await assertNativeTab(args, tabId);
+        },
+        "agent"
+      );
     }
     if (waitMode(args) === "load" && tab.id !== undefined)
       tab = await waitForTabComplete(tab.id, timeoutArg(args, DEFAULT_LOAD_TIMEOUT_MS));
@@ -706,9 +734,14 @@ const handlers: Record<string, Handler> = {
     if (requestedWindowId !== undefined && requestedWindowId !== tab.windowId)
       throw new Error("windowId does not match target tab");
     return {
-      data: await focusNativeTab(tabId, requestedWindowId, async () => {
-        await assertNativeTab(args, tabId);
-      }),
+      data: await focusNativeTab(
+        tabId,
+        requestedWindowId,
+        async () => {
+          await assertNativeTab(args, tabId);
+        },
+        "agent"
+      ),
     };
   },
 
@@ -737,10 +770,15 @@ const handlers: Record<string, Handler> = {
     if (args.windowId !== undefined && args.windowId !== tab.windowId)
       throw new Error("windowId does not match target tab");
     return {
-      data: await focusNativeTab(tabId, tab.windowId, async () => {
-        const current = await chrome.tabs.get(tabId);
-        if (current.windowId !== tab.windowId) throw new Error("windowId does not match target tab");
-      }),
+      data: await focusNativeTab(
+        tabId,
+        tab.windowId,
+        async () => {
+          const current = await chrome.tabs.get(tabId);
+          if (current.windowId !== tab.windowId) throw new Error("windowId does not match target tab");
+        },
+        "switcher"
+      ),
     };
   },
 

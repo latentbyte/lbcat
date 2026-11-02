@@ -1,6 +1,7 @@
 import { debuggerAvailable, withDebugger } from "@App/app/service/agent/service_worker/dom_cdp";
 import { BrowserControlScopeError } from "./agent-window";
 import { withNativeTabOperation } from "./tab-operation";
+import { markTabActivation } from "./activation-source";
 
 export { withNativeTabOperation } from "./tab-operation";
 
@@ -211,6 +212,8 @@ async function captureVisibleScreenshot(tabId: number, options: NativeScreenshot
     scroll = readCaptureResult<{ x: number; y: number }>(position);
   }
   try {
+    // 前台截图会抢占标签，标为扩展发起，避免被当成用户切换
+    if (!tab.active) markTabActivation("agent", tabId);
     await chrome.tabs.update(tabId, { active: true });
     await new Promise((resolve) => setTimeout(resolve, 150));
 

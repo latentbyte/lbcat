@@ -47,12 +47,27 @@ const (
 	EventTypeBrowserDisconnected EventType = "browser-disconnected"
 )
 
-// Event is the stable public event envelope
+// EventSource reports what caused a tab-focused event, so a consumer can tell a
+// user's own switch from a focus the browser-control client asked for.
+type EventSource string
+
+const (
+	// EventSourceUser is the default: the user switched tabs in the browser UI.
+	EventSourceUser EventSource = "user"
+	// EventSourceSwitcher marks a focus a human-operated switcher issued, which
+	// is still a human choice.
+	EventSourceSwitcher EventSource = "switcher"
+	// EventSourceAgent marks a focus an agent command issued.
+	EventSourceAgent EventSource = "agent"
+)
+
+// Event is the stable public event envelope. Source is set on tab-focused only.
 type Event struct {
-	Type        EventType `json:"type"`
-	BrowserID   BrowserID `json:"browserId,omitempty"`
-	BrowserName string    `json:"browserName,omitempty"`
-	AppName     string    `json:"appName,omitempty"`
-	Tab         *Tab      `json:"tab,omitempty"`
-	TabID       *TabID    `json:"tabId,omitempty"`
+	Type        EventType   `json:"type"`
+	Source      EventSource `json:"source,omitempty"`
+	BrowserID   BrowserID   `json:"browserId,omitempty"`
+	BrowserName string      `json:"browserName,omitempty"`
+	AppName     string      `json:"appName,omitempty"`
+	Tab         *Tab        `json:"tab,omitempty"`
+	TabID       *TabID      `json:"tabId,omitempty"`
 }

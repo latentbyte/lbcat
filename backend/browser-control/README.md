@@ -360,6 +360,11 @@ switcher subscription succeeded for that browser. Ordinary agent event streams r
 registered window. This is an explicit application API, not authentication of a human or a separate
 operating-system trust boundary; local clients can select it. Agents must keep using the scoped API.
 
+`tab-focused` events carry `source`: `user` for a switch the user made in the browser UI, `switcher` when the
+focus came from `switcher.tabs.focus`, and `agent` when the extension focused the tab for an agent command
+(`tabs focus`, `tabs create --active`, a foreground capture, a guide hand-off). A consumer recording a human's
+browsing history should treat `switcher` as a human choice and decide for itself whether `agent` counts.
+
 Deploy the matching extension and daemon before updating a consumer to `NewSwitcher`; older versions
 do not support the commands or isolated event routing. `NewSwitcher` checks the daemon's `switcher-tabs`
 capability and rejects older daemons before any switcher commands are sent. combo-switcher must refresh its vendored SDK

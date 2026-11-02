@@ -10,6 +10,7 @@ import {
 } from "./native-messaging";
 import type { ScriptService } from "./script";
 import { withNativeWindowOperation } from "@App/pkg/browser-control/capture";
+import { clearTabActivations, consumeTabActivation } from "@App/pkg/browser-control/activation-source";
 import { agentNotesService } from "@App/pkg/browser-control/agent-notes";
 import { guideService } from "@App/pkg/browser-control/guide";
 
@@ -48,6 +49,7 @@ describe("focusNativeTab", () => {
   beforeEach(() => {
     tabsUpdate.mockReset();
     windowsUpdate.mockReset();
+    clearTabActivations();
     vi.stubGlobal("chrome", {
       tabs: {
         get: vi.fn().mockResolvedValue({ id: 123, windowId: 42 }),
@@ -67,19 +69,31 @@ describe("focusNativeTab", () => {
     tabsUpdate.mockResolvedValue({ windowId: 42 });
     windowsUpdate.mockResolvedValue({ id: 42, focused: true });
 
-    await expect(focusNativeTab(123)).resolves.toEqual({ tabId: 123, windowId: 42 });
+    await expect(focusNativeTab(123, undefined, undefined, "agent")).resolves.toEqual({ tabId: 123, windowId: 42 });
 
     expect(tabsUpdate).toHaveBeenCalledWith(123, { active: true });
     expect(windowsUpdate).toHaveBeenCalledWith(42, { focused: true });
+    expect(consumeTabActivation(123)).toBe("agent");
   });
 
   it("uses requested window when provided", async () => {
     tabsUpdate.mockResolvedValue({ windowId: 42 });
     windowsUpdate.mockResolvedValue({ id: 7, focused: true });
 
-    await expect(focusNativeTab(123, 7)).resolves.toEqual({ tabId: 123, windowId: 7 });
+    await expect(focusNativeTab(123, 7, undefined, "switcher")).resolves.toEqual({ tabId: 123, windowId: 7 });
 
     expect(windowsUpdate).toHaveBeenCalledWith(7, { focused: true });
+    expect(consumeTabActivation(123)).toBe("switcher");
+  });
+
+  it("does not mark an already active tab", async () => {
+    chrome.tabs.get = vi.fn().mockResolvedValue({ id: 123, windowId: 42, active: true });
+    tabsUpdate.mockResolvedValue({ windowId: 42 });
+    windowsUpdate.mockResolvedValue({ id: 42, focused: true });
+
+    await focusNativeTab(123, undefined, undefined, "switcher");
+
+    expect(consumeTabActivation(123)).toBeUndefined();
   });
 });
 
@@ -260,6 +274,7 @@ describe("原生消息并发控制", () => {
     activations.clear();
     commits.clear();
     tabUpdates.clear();
+    clearTabActivations();
     tabsCreate.mockImplementation(async ({ active }: { active: boolean }) => {
       if (active) activeTab = 103;
       return { id: 103, windowId: 7 };
@@ -1427,6 +1442,40 @@ describe("原生消息并发控制", () => {
     ]);
     disconnect();
     expect(activations.size).toBe(0);
+  });
+
+  it("人工切换器的聚焦标为 switcher，用户自己的切换标为 user", async () => {
+    await request("switcher-source", "switcher.tabs.subscribe", { events: ["onActivated"] });
+    tabsGet.mockResolvedValue({ id: 102, windowId: 8, active: false });
+    await request("switcher-source-focus", "switcher.tabs.focus", { tabId: 102, windowId: 8 });
+
+    for (const handler of activations) handler({ tabId: 102, windowId: 8 });
+    for (const handler of activations) handler({ tabId: 101, windowId: 7 });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const sources = postMessage.mock.calls
+      .map(([message]) => message)
+      .filter((message) => message.type === "event")
+      .map((message) => message.payload.data.source);
+    expect(sources).toEqual(["switcher", "user"]);
+  });
+
+  it("代理聚焦的标签事件标为 agent", async () => {
+    await request("agent-source", "tabs.subscribe", { events: ["onActivated"] });
+    tabsGet.mockResolvedValue({ id: 101, windowId: 7, active: false });
+    await request("agent-source-focus", "tabs.focus", { tabId: 101, windowId: 7, allowFocus: true });
+
+    for (const handler of activations) handler({ tabId: 101, windowId: 7 });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          cmd: "tabs.event",
+          data: expect.objectContaining({ type: "tab-focused", source: "agent" }),
+        }),
+      })
+    );
   });
 
   it("新工作标签默认后台创建且限定专用窗口", async () => {

@@ -87,6 +87,30 @@ func TestEventJSONStability(t *testing.T) {
 	}
 }
 
+func TestFocusedEventCarriesSource(t *testing.T) {
+	t.Parallel()
+
+	evt := Event{
+		Type:   EventTypeTabFocused,
+		Source: EventSourceSwitcher,
+		TabID: &TabID{
+			Browser:  BrowserID("chrome-01"),
+			WindowID: 7,
+			TabID:    123,
+		},
+	}
+
+	got, err := json.Marshal(evt)
+	if err != nil {
+		t.Fatalf("Marshal(Event) error = %v", err)
+	}
+
+	want := `{"type":"tab-focused","source":"switcher","tabId":{"browser":"chrome-01","windowId":7,"tabId":123}}`
+	if string(got) != want {
+		t.Fatalf("Marshal(Event) = %s, want %s", got, want)
+	}
+}
+
 func TestBrowserEventJSONStability(t *testing.T) {
 	t.Parallel()
 
