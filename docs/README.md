@@ -6,7 +6,7 @@
 
 | 文档 | 说明 |
 | --- | --- |
-| [`../AGENTS.md`](../AGENTS.md) | 工程原则、架构速览、AI/贡献者约定的单一信息源(`CLAUDE.md` 仅导入它)。 |
+| [`../AGENTS.md`](../AGENTS.md) | 工程原则、架构速览、AI/贡献者约定的单一信息源。 |
 | [`DEVELOP.md`](./DEVELOP.md) | 开发规范:命令、目录结构、编码风格、UI/主题、测试机制、i18n、提交/PR 流程。**写代码前先读。** |
 | [`VERIFICATION.md`](./VERIFICATION.md) | 功能验证指南:用一次性 scratch 脚本驱动真实扩展做端到端验证(不跑全量 E2E、不加永久用例)。**验证改动是否真正跑通时读。** |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | 内部原理深入:多进程模型、消息传递、服务/数据层、GM API、脚本执行、构建管线。 |

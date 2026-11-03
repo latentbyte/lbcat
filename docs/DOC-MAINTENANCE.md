@@ -25,7 +25,7 @@ Aspirational / feature-branch content belongs in that branch's docs, or is clear
 
 | Doc | Owns |
 | --- | --- |
-| [`../AGENTS.md`](../AGENTS.md) | Engineering principles + architecture quick-map. Single source of truth; `CLAUDE.md` only `@import`s it. |
+| [`../AGENTS.md`](../AGENTS.md) | Engineering principles + architecture quick-map. Single source of truth for agent guidance. |
 | [`DEVELOP.md`](./DEVELOP.md) | The concrete "how": commands, structure, style, testing, i18n, commit/PR. |
 | [`VERIFICATION.md`](./VERIFICATION.md) | Lightweight end-to-end functional verification — throwaway scratch scripts driving the real built extension. |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | Deep internals: process model, message passing, service/data layers, GM API, execution, build. |

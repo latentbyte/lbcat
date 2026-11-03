@@ -29,7 +29,7 @@ The upstream guidance below still applies.
 
 This file provides guidance to AI coding agents (Claude Code, etc.) when working with code in this repository.
 
-> **Note:** This is the single source of truth. `CLAUDE.md` only contains `@AGENTS.md` and re-imports this file — do not add content to `CLAUDE.md`; put all guidance here in `AGENTS.md`.
+> **Note:** This is the single source of truth for agent guidance. There is no `CLAUDE.md`; Claude Code reads `AGENTS.md` directly.
 
 > **Before writing any code, read [`docs/DEVELOP.md`](docs/DEVELOP.md)** — the development spec (commands,
 > project structure, coding style, UI & theme rules, testing mechanics, i18n, and the commit/PR workflow). This
