@@ -1478,6 +1478,28 @@ describe("原生消息并发控制", () => {
     );
   });
 
+  it("代理流与切换器流同时订阅时，同一次聚焦在两条流上来源一致", async () => {
+    await request("both-agent", "tabs.subscribe", { events: ["onActivated"] });
+    await request("both-switcher", "switcher.tabs.subscribe", { events: ["onActivated"] });
+    tabsGet.mockResolvedValue({ id: 101, windowId: 7, active: false });
+    await request("both-focus", "tabs.focus", { tabId: 101, windowId: 7, allowFocus: true });
+
+    for (const handler of activations) handler({ tabId: 101, windowId: 7 });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const sources = postMessage.mock.calls
+      .map(([message]) => message)
+      .filter((message) => message.type === "event")
+      .map((message) => [message.payload.cmd, message.payload.data.source]);
+    expect(sources).toEqual(
+      expect.arrayContaining([
+        ["tabs.event", "agent"],
+        ["switcher.tabs.event", "agent"],
+      ])
+    );
+    expect(sources).toHaveLength(2);
+  });
+
   it("新工作标签默认后台创建且限定专用窗口", async () => {
     await request("create", "tabs.create", { url: "https://example.com" });
     expect(tabsCreate).toHaveBeenCalledWith({ url: "https://example.com", windowId: 7, active: false });

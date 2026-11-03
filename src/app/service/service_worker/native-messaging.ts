@@ -105,8 +105,9 @@ let connectionState: NativeMessagingConnectionState = "disconnected";
 let lastConnectionError = "";
 let statusListenerRegistered = false;
 
-// 按访问入口及浏览器事件名称保存监听器，断线时统一清理
-const tabSubscriptions: Record<string, { eventName: string; handler: (...args: unknown[]) => void }> = {};
+// 每个浏览器事件只挂一个监听器，再分发给已订阅的访问入口（switcher 为 true 表示人工切换器入口），断线时统一清理。
+// 共用监听器保证激活来源标记每次事件只取一次，两条流看到相同来源
+const tabSubscriptions = new Map<string, { streams: Set<boolean>; handler: (...args: unknown[]) => void }>();
 
 function getActionApi() {
   return chrome.action ?? (chrome as unknown as { browserAction?: typeof chrome.action }).browserAction;
@@ -173,26 +174,19 @@ function sendEvent(payload: unknown) {
   }
 }
 
-function tabEventHandler(eventName: string, switcher: boolean) {
+function tabEventHandler(eventName: string, streams: Set<boolean>) {
   return (...eventArgs: unknown[]) => {
     const activeInfo = eventName === "onActivated" ? (eventArgs[0] as TabActiveInfo | undefined) : undefined;
     // 扩展自己发起的聚焦不是用户切换，交给消费方按来源决定是否记入历史
     const source = activeInfo ? (consumeTabActivation(activeInfo.tabId) ?? "user") : undefined;
     void normalizeNativeTabEvent(eventName, eventArgs, source)
-      .then((event) => {
+      .then(async (event) => {
         if (!event) return;
-        if (switcher) {
-          sendEvent({ cmd: "switcher.tabs.event", data: event });
-          return;
+        if (streams.has(true)) sendEvent({ cmd: "switcher.tabs.event", data: event });
+        if (!streams.has(false) || !event.tabId) return;
+        if (await agentWindowService.allowsTabEvent(event.tabId.tabId, event.tabId.windowId, event.tab?.url)) {
+          sendEvent({ cmd: "tabs.event", data: event });
         }
-        if (!event.tabId) return;
-        return agentWindowService
-          .allowsTabEvent(event.tabId.tabId, event.tabId.windowId, event.tab?.url)
-          .then((allowed) => {
-            if (allowed) {
-              sendEvent({ cmd: "tabs.event", data: event });
-            }
-          });
       })
       .catch((err: unknown) => {
         if (!(err instanceof BrowserControlScopeError)) log.warn("tab event normalization failed", String(err));
@@ -201,33 +195,33 @@ function tabEventHandler(eventName: string, switcher: boolean) {
 }
 
 function clearTabSubscriptions() {
-  for (const [key, { eventName, handler }] of Object.entries(tabSubscriptions)) {
-    const tabsObj = chrome.tabs as unknown as Record<string, chrome.events.Event<(...args: unknown[]) => void>>;
-    const event = tabsObj[eventName];
-    if (event) {
-      event.removeListener(handler);
-    }
-    delete tabSubscriptions[key];
+  const tabsObj = chrome.tabs as unknown as Record<string, chrome.events.Event<(...args: unknown[]) => void>>;
+  for (const [eventName, { handler }] of tabSubscriptions) {
+    tabsObj[eventName]?.removeListener(handler);
   }
+  tabSubscriptions.clear();
 }
 
 function subscribeNativeTabs(args: Record<string, unknown>, switcher: boolean): HandlerResult {
   const events = (args.events as string[]) || ["onCreated", "onRemoved", "onUpdated", "onActivated"];
   const tabsObj = chrome.tabs as unknown as Record<string, chrome.events.Event<(...args: unknown[]) => void>>;
-  const prefix = switcher ? "switcher.tabs" : "tabs";
   for (const name of events) {
     const event = tabsObj[name];
-    const key = `${prefix}:${name}`;
-    if (!event || tabSubscriptions[key]) continue;
-    const handler = tabEventHandler(name, switcher);
-    tabSubscriptions[key] = { eventName: name, handler };
-    event.addListener(handler);
+    if (!event) continue;
+    let subscription = tabSubscriptions.get(name);
+    if (!subscription) {
+      const streams = new Set<boolean>();
+      subscription = { streams, handler: tabEventHandler(name, streams) };
+      tabSubscriptions.set(name, subscription);
+      event.addListener(subscription.handler);
+    }
+    subscription.streams.add(switcher);
   }
   return {
     data: {
-      subscribed: Object.entries(tabSubscriptions)
-        .filter(([key]) => key.startsWith(`${prefix}:`))
-        .map(([, subscription]) => subscription.eventName),
+      subscribed: [...tabSubscriptions]
+        .filter(([, subscription]) => subscription.streams.has(switcher))
+        .map(([eventName]) => eventName),
     },
   };
 }
