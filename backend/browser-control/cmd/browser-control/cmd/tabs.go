@@ -145,7 +145,7 @@ var tabsGetCmd = &cobra.Command{
 
 var tabsFocusCmd = &cobra.Command{
 	Use:   "focus <tab-id>",
-	Short: "Focus an existing tab",
+	Short: "Select a tab in the agent window (--foreground also focuses the window)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tabID, err := strconv.Atoi(args[0])
@@ -153,9 +153,6 @@ var tabsFocusCmd = &cobra.Command{
 			return fmt.Errorf("invalid tab ID: %w", err)
 		}
 		foreground, _ := cmd.Flags().GetBool("foreground")
-		if !foreground {
-			return fmt.Errorf("tabs focus requires --foreground")
-		}
 		windowID, _ := cmd.Flags().GetInt("window")
 
 		c, err := connectScoped()
@@ -169,7 +166,7 @@ var tabsFocusCmd = &cobra.Command{
 			return err
 		}
 
-		focusArgs := map[string]any{"tabId": tabID, "allowFocus": true}
+		focusArgs := map[string]any{"tabId": tabID, "allowFocus": foreground}
 		if windowID > 0 {
 			focusArgs["windowId"] = windowID
 		}
@@ -193,16 +190,21 @@ var tabsFocusCmd = &cobra.Command{
 				WindowID int `json:"windowId"`
 			} `json:"data"`
 		}
+		out := cmd.OutOrStdout()
 		if err := json.Unmarshal(resp, &result); err != nil {
-			fmt.Println(string(resp))
+			fmt.Fprintln(out, string(resp))
 			return nil
 		}
 
-		if result.Data.WindowID > 0 {
-			fmt.Printf("focused tab %d in window %d\n", result.Data.TabID, result.Data.WindowID)
+		if !foreground {
+			fmt.Fprintf(out, "selected tab %d in agent window %d (window not focused)\n", result.Data.TabID, result.Data.WindowID)
 			return nil
 		}
-		fmt.Printf("focused tab %d\n", result.Data.TabID)
+		if result.Data.WindowID > 0 {
+			fmt.Fprintf(out, "focused tab %d in window %d\n", result.Data.TabID, result.Data.WindowID)
+			return nil
+		}
+		fmt.Fprintf(out, "focused tab %d\n", result.Data.TabID)
 		return nil
 	},
 }
@@ -360,7 +362,7 @@ var tabsWatchCmd = &cobra.Command{
 func init() {
 	tabsFocusCmd.Flags().Int("window", 0, "browser window ID to focus after activating the tab")
 	tabsCreateCmd.Flags().Bool("active", false, "activate new tab within agent window")
-	tabsFocusCmd.Flags().Bool("foreground", false, "allow focusing the agent browser window")
+	tabsFocusCmd.Flags().Bool("foreground", false, "also focus the browser window (without it, only selects the tab inside the agent window)")
 
 	tabsCmd.AddCommand(tabsListCmd, tabsGetCmd, tabsFocusCmd, tabsCreateCmd, tabsCloseCmd, tabsWatchCmd)
 	rootCmd.AddCommand(tabsCmd)

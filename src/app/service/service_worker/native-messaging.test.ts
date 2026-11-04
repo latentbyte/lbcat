@@ -1099,6 +1099,24 @@ describe("原生消息并发控制", () => {
       });
     });
 
+    it("后台标签等待超时时提示浏览器暂停了渲染，已选中的标签不提示", async () => {
+      tabsGet.mockResolvedValue({ id: 101, windowId: 7, url: "https://a.test/", status: "complete", active: false });
+      const hidden = request("wait-bg", "page.wait", { tabId: 101, selector: ".never", timeoutMs: 500 });
+      await vi.advanceTimersByTimeAsync(600);
+      await hidden;
+      const { error } = responseOf("wait-bg");
+      expect(error.code).toBe("WAIT_TIMEOUT");
+      expect(error.message).toContain("tab 101 is not the selected tab");
+      expect(error.message).toContain("tabs focus 101");
+
+      tabsGet.mockResolvedValue({ id: 101, windowId: 7, url: "https://a.test/", status: "complete", active: true });
+      const shown = request("wait-fg", "page.wait", { tabId: 101, selector: ".never", timeoutMs: 500 });
+      await vi.advanceTimersByTimeAsync(600);
+      await shown;
+      expect(responseOf("wait-fg").error.code).toBe("WAIT_TIMEOUT");
+      expect(responseOf("wait-fg").error.message).not.toContain("selected tab");
+    });
+
     it("等待元素出现，超时返回 WAIT_TIMEOUT，缺少条件时拒绝", async () => {
       tabsGet.mockResolvedValue({ id: 101, windowId: 7, url: "https://a.test/done", status: "complete" });
       setTimeout(() => document.body.insertAdjacentHTML("beforeend", `<p class="ok">ok</p>`), 200);
@@ -1458,6 +1476,41 @@ describe("原生消息并发控制", () => {
       .filter((message) => message.type === "event")
       .map((message) => message.payload.data.source);
     expect(sources).toEqual(["switcher", "user"]);
+  });
+
+  describe("不聚焦窗口地选中标签", () => {
+    it("未授权前台时只在代理窗口内选中标签，不聚焦窗口", async () => {
+      tabsQuery.mockResolvedValue([{ id: 900, windowId: 7, active: true }]);
+      await request("select-own", "tabs.focus", { tabId: 101 });
+      expect(responseOf("select-own").data).toEqual({ tabId: 101, windowId: 7, windowFocused: false });
+      expect(tabsUpdate).toHaveBeenCalledWith(101, { active: true });
+      expect(windowsUpdate).not.toHaveBeenCalled();
+    });
+
+    it("代理窗口外的标签需要前台授权", async () => {
+      tabsGet.mockImplementation(async (id: number) => ({ id, windowId: 8, active: false }));
+      await request("select-outside", "tabs.focus", { tabId: 101, sessionId: "task", personalTabId: 101 });
+      expect(responseOf("select-outside").error.code).toBe("FOREGROUND_PERMISSION_REQUIRED");
+      expect(tabsUpdate).not.toHaveBeenCalled();
+    });
+
+    it("窗口正显示其他任务的标签时拒绝切换", async () => {
+      await request("other-open", "sessions.open", {});
+      const other = responseOf("other-open").data.sessionId;
+      await request("other-claim", "sessions.claim", { tabId: 102, sessionId: other });
+      tabsQuery.mockResolvedValue([{ id: 102, windowId: 7, active: true }]);
+      await request("select-busy", "tabs.focus", { tabId: 101 });
+      expect(responseOf("select-busy").error.code).toBe("TAB_BUSY");
+      expect(tabsUpdate).not.toHaveBeenCalled();
+    });
+
+    it("窗口显示本会话的标签时可以切换", async () => {
+      await request("own-claim", "sessions.claim", { tabId: 102 });
+      tabsQuery.mockResolvedValue([{ id: 102, windowId: 7, active: true }]);
+      await request("select-mine", "tabs.focus", { tabId: 101 });
+      expect(responseOf("select-mine").data).toMatchObject({ tabId: 101, windowFocused: false });
+      expect(tabsUpdate).toHaveBeenCalledWith(101, { active: true });
+    });
   });
 
   it("代理聚焦的标签事件标为 agent", async () => {

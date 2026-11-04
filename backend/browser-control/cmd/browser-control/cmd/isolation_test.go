@@ -246,3 +246,48 @@ func TestSessionList(t *testing.T) {
 		}
 	})
 }
+
+func TestTabsFocusSelectsWithoutForeground(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		foreground bool
+		response   string
+		output     string
+	}{
+		{"未授权前台时只在代理窗口内选中标签", false, `{"cmd":"tabs.focus","data":{"tabId":42,"windowId":7,"windowFocused":false}}`, "selected tab 42 in agent window 7 (window not focused)\n"},
+		{"授权前台时聚焦窗口", true, `{"cmd":"tabs.focus","data":{"tabId":42,"windowId":7}}`, "focused tab 42 in window 7\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := tabsFocusCmd.Flags().Set("foreground", strconv.FormatBool(test.foreground)); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = tabsFocusCmd.Flags().Set("foreground", "false") })
+			result := startPageCommandDaemon(t, map[string]json.RawMessage{"tabs.focus": json.RawMessage(test.response)})
+			var output bytes.Buffer
+			tabsFocusCmd.SetOut(&output)
+			t.Cleanup(func() { tabsFocusCmd.SetOut(nil) })
+			if err := tabsFocusCmd.RunE(tabsFocusCmd, []string{"42"}); err != nil {
+				t.Fatal(err)
+			}
+			var focus *pageCommandRequest
+			for _, request := range waitPageCommandRequests(t, result) {
+				if request.Cmd == "tabs.focus" {
+					focus = &request
+				}
+			}
+			if focus == nil {
+				t.Fatal("tabs.focus not sent")
+			}
+			var sentArgs map[string]any
+			if err := json.Unmarshal(focus.Args, &sentArgs); err != nil {
+				t.Fatal(err)
+			}
+			if sentArgs["allowFocus"] != test.foreground {
+				t.Fatalf("args = %#v", sentArgs)
+			}
+			if output.String() != test.output {
+				t.Fatalf("output = %q", output.String())
+			}
+		})
+	}
+}

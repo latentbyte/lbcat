@@ -159,8 +159,12 @@ code); hidden elements, scripts, and styles are dropped. `--max-chars N` truncat
 the script's `@match`/`@include` rules (waiting for load unless `--wait none`) and reports their IDs. `browsers --json` returns
 `{cmd: "browsers", data: [ids]}` like other commands.
 
-Tab creation defaults inactive. `tabs focus --foreground` and `tabs create --active=true` explicitly opt into foreground
-activation. Screenshot `--focus-on-error` additionally requires `--foreground` to enable caller capture recovery.
+Tab creation defaults inactive. Browsers pause rendering (`requestAnimationFrame`) in tabs that are not selected in their
+window and clamp their timers to about 1s, while the page may still report `visibilityState: "visible"`; canvas apps such
+as Flutter web never finish loading there. `tabs focus <id>` selects a work tab inside the agent window without focusing
+the window (`TAB_BUSY` if the window is showing another task's tab; tabs outside the agent window need `--foreground`).
+`WAIT_TIMEOUT` and `LOAD_TIMEOUT` on an unselected tab say so. `tabs focus --foreground` and `tabs create --active=true`
+explicitly opt into foreground activation. Screenshot `--focus-on-error` additionally requires `--foreground` to enable caller capture recovery.
 Screenshot `--timeout` defaults to `2m`. Dynamic `page exec` uses `MAIN`; `ISOLATED`
 dynamic evaluation is unavailable under Manifest V3 CSP and returns an error. Script exceptions and rejected promises fail
 with `SCRIPT_ERROR`, including in JSON mode. When page CSP or Trusted Types forbid eval, the code is injected as source

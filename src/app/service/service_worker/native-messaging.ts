@@ -402,18 +402,73 @@ export async function focusNativeTab(
   });
 }
 
+// 只在所在窗口内选中标签，不聚焦窗口；窗口正显示的标签由 mayReplace 决定是否让位，不让位时返回 false
+async function selectTabInWindow(
+  tab: chrome.tabs.Tab,
+  validateAccess: () => Promise<void>,
+  mayReplace: (holder: string | undefined) => boolean
+): Promise<boolean> {
+  const tabId = tab.id!;
+  return withNativeWindowOperation(tab.windowId, async () => {
+    await validateAccess();
+    const [active] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+    if (active?.id === tabId) return true;
+    if (active?.id !== undefined && !mayReplace((await agentWindowService.tabAccess(active.id)).owner?.sessionId))
+      return false;
+    markTabActivation("agent", tabId);
+    await chrome.tabs.update(tabId, { active: true });
+    return true;
+  });
+}
+
 // 窗口当前显示本会话的标签时，把引导所在标签切到前台；个人或其他任务的标签不让位，也不聚焦窗口
 async function bringGuideForward(tab: chrome.tabs.Tab, owner?: string): Promise<void> {
   if (tab.active || tab.id === undefined || !owner) return;
-  const tabId = tab.id;
-  await withNativeWindowOperation(tab.windowId, async () => {
-    const [active] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
-    if (active?.id === undefined || active.id === tabId) return;
-    const { owner: holder } = await agentWindowService.tabAccess(active.id);
-    if (holder?.sessionId !== owner) return;
-    markTabActivation("agent", tabId);
-    await chrome.tabs.update(tabId, { active: true });
-  });
+  await selectTabInWindow(
+    tab,
+    async () => {},
+    (holder) => holder === owner
+  );
+}
+
+// 未授权前台时只在代理窗口内选中标签：后台标签的渲染被浏览器暂停，选中后页面才能继续绘制
+async function selectAgentTab(args: Record<string, unknown>, tab: chrome.tabs.Tab) {
+  const tabId = tab.id!;
+  const { windowId } = await agentWindowService.status();
+  if (tab.windowId !== windowId)
+    throw new BrowserControlScopeError(
+      "FOREGROUND_PERMISSION_REQUIRED",
+      `tab ${tabId} is outside the agent window; selecting it requires --foreground`
+    );
+  const owner = sessionId(args);
+  const selected = await selectTabInWindow(
+    tab,
+    async () => {
+      await assertNativeTab(args, tabId);
+    },
+    (holder) => holder === undefined || holder === owner
+  );
+  if (!selected)
+    throw new BrowserControlScopeError(
+      "TAB_BUSY",
+      "the agent window is showing another task's tab; selecting this tab would pause that task's page"
+    );
+  return { tabId, windowId, windowFocused: false };
+}
+
+const INACTIVE_TAB_TIMEOUT_CODES = new Set(["WAIT_TIMEOUT", "LOAD_TIMEOUT"]);
+
+// 超时可能源于标签未被选中：浏览器暂停后台标签的 requestAnimationFrame，页面自报的 visibilityState 仍可能是 visible
+async function inactiveTabHint(error: unknown, args: Record<string, unknown>): Promise<string> {
+  if (!(error instanceof BrowserControlError) || !INACTIVE_TAB_TIMEOUT_CODES.has(error.code)) return "";
+  if (typeof args.tabId !== "number") return "";
+  const tab = await chrome.tabs.get(args.tabId).catch(() => undefined);
+  if (!tab || tab.active) return "";
+  return (
+    `; tab ${args.tabId} is not the selected tab in its window, and the browser pauses rendering ` +
+    `(requestAnimationFrame) in background tabs, so canvas apps such as Flutter stall. ` +
+    `Run \`tabs focus ${args.tabId}\` (selects it inside the agent window without focusing the window) and retry`
+  );
 }
 
 const DEFAULT_LOAD_TIMEOUT_MS = 30_000;
@@ -719,14 +774,10 @@ const handlers: Record<string, Handler> = {
     const tabId = args["tabId"] as number | undefined;
     const requestedWindowId = args["windowId"] as number | undefined;
     if (typeof tabId !== "number") throw new Error("tabId is required");
-    if (!args.allowFocus)
-      throw new BrowserControlScopeError(
-        "FOREGROUND_PERMISSION_REQUIRED",
-        "Focusing a browser window requires explicit permission"
-      );
     const tab = await assertNativeTab(args, tabId);
     if (requestedWindowId !== undefined && requestedWindowId !== tab.windowId)
       throw new Error("windowId does not match target tab");
+    if (!args.allowFocus) return { data: await selectAgentTab(args, tab) };
     return {
       data: await focusNativeTab(
         tabId,
@@ -1378,6 +1429,7 @@ async function onMessage(envelope: Envelope) {
       const result = await handler(payload?.args || {});
       response = { id, type: "response", payload: { cmd, ...result } };
     } catch (err: unknown) {
+      const hint = await inactiveTabHint(err, payload?.args || {});
       response = {
         id,
         type: "response",
@@ -1385,7 +1437,7 @@ async function onMessage(envelope: Envelope) {
           cmd: "error",
           error: {
             code: err instanceof BrowserControlError ? err.code : "HANDLER_ERROR",
-            message: err instanceof Error ? err.message : String(err),
+            message: (err instanceof Error ? err.message : String(err)) + hint,
           },
         },
       };
