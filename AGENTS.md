@@ -15,7 +15,8 @@ The upstream guidance below still applies.
 - Fork-only subsystems:
   - `backend/browser-control/` - Go: `browser-control` CLI (`bctl`), daemon (Unix socket), `lbcat-shim` Native
     Messaging host `com.latentbyte.browser_control`. Own justfile, `env.example`, README, `SMOKE-TEST.md`,
-    `ROADMAP.md` (agent-usability backlog from real usage).
+    `ROADMAP.md` (agent-usability backlog from real usage), `RELEASE-PLAN.md` (public release, licensing, and
+    pricing decisions; draft).
   - `src/app/service/service_worker/native-messaging.ts` - extension end of that bridge.
   - `src/pkg/browser-control/` - agent window, tab ops/access, capture, agent notes, tab indicator.
   - `src/app/service/agent/` - in-extension LLM agent: `core/` (providers, tools, MCP client, skills, scheduler),
