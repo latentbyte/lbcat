@@ -373,6 +373,10 @@ focus came from `switcher.tabs.focus`, and `agent` when the extension focused th
 (`tabs focus`, `tabs create --active`, a foreground capture, a guide hand-off). A consumer recording a human's
 browsing history should treat `switcher` as a human choice and decide for itself whether `agent` counts.
 
+Subscribing to `tab-focused` also reports browser window switches: when a window gains focus, its active tab is
+reported as `tab-focused`, because no tab was activated and the browser raises no activation of its own. The
+`source` rules above apply. Returning to the browser from another app reports the same tab again.
+
 Deploy the matching extension and daemon before updating a consumer to `NewSwitcher`; older versions
 do not support the commands or isolated event routing. `NewSwitcher` checks the daemon's `switcher-tabs`
 capability and rejects older daemons before any switcher commands are sent. combo-switcher must refresh its vendored SDK

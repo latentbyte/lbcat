@@ -45,10 +45,13 @@ describe("原生消息大小限制", () => {
 describe("focusNativeTab", () => {
   const tabsUpdate = vi.fn();
   const windowsUpdate = vi.fn();
+  const windowsGet = vi.fn();
 
   beforeEach(() => {
     tabsUpdate.mockReset();
     windowsUpdate.mockReset();
+    windowsGet.mockReset();
+    windowsGet.mockImplementation(async (id: number) => ({ id, focused: true }));
     clearTabActivations();
     vi.stubGlobal("chrome", {
       tabs: {
@@ -56,6 +59,7 @@ describe("focusNativeTab", () => {
         update: tabsUpdate,
       },
       windows: {
+        get: windowsGet,
         update: windowsUpdate,
       },
     });
@@ -93,6 +97,28 @@ describe("focusNativeTab", () => {
 
     await focusNativeTab(123, undefined, undefined, "switcher");
 
+    expect(consumeTabActivation(123)).toBeUndefined();
+  });
+
+  it("窗口不在前台时为窗口聚焦再留一个标记，已选中的标签也一样", async () => {
+    chrome.tabs.get = vi.fn().mockResolvedValue({ id: 123, windowId: 42, active: true });
+    windowsGet.mockResolvedValue({ id: 42, focused: false });
+    tabsUpdate.mockResolvedValue({ windowId: 42 });
+
+    await focusNativeTab(123, undefined, undefined, "switcher");
+
+    expect(consumeTabActivation(123)).toBe("switcher");
+    expect(consumeTabActivation(123)).toBeUndefined();
+  });
+
+  it("标签未选中且窗口不在前台时，标签激活与窗口聚焦各留一个标记", async () => {
+    windowsGet.mockResolvedValue({ id: 42, focused: false });
+    tabsUpdate.mockResolvedValue({ windowId: 42 });
+
+    await focusNativeTab(123, undefined, undefined, "agent");
+
+    expect(consumeTabActivation(123)).toBe("agent");
+    expect(consumeTabActivation(123)).toBe("agent");
     expect(consumeTabActivation(123)).toBeUndefined();
   });
 });
@@ -249,6 +275,7 @@ describe("原生消息并发控制", () => {
   };
   const tabUpdates = new Set<(tabId: number, change: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => void>();
   const activations = new Set<(info: { tabId: number; windowId: number }) => void>();
+  const windowFocuses = new Set<(windowId: number) => void>();
   const windowsUpdate = vi.fn();
   const windowsGet = vi.fn();
   const captureTab = vi.fn();
@@ -272,6 +299,8 @@ describe("原生消息并发控制", () => {
       { id: 102, windowId: 8 },
     ]);
     activations.clear();
+    windowFocuses.clear();
+    windowsGet.mockImplementation(async (id: number) => ({ id, focused: true }));
     commits.clear();
     tabUpdates.clear();
     clearTabActivations();
@@ -364,7 +393,16 @@ describe("原生消息并发控制", () => {
         goBack: vi.fn(async () => {}),
         goForward: vi.fn(async () => {}),
       },
-      windows: { get: windowsGet, update: windowsUpdate, getCurrent: vi.fn().mockResolvedValue({ id: 7 }) },
+      windows: {
+        get: windowsGet,
+        update: windowsUpdate,
+        getCurrent: vi.fn().mockResolvedValue({ id: 7 }),
+        WINDOW_ID_NONE: -1,
+        onFocusChanged: {
+          addListener: (fn: (windowId: number) => void) => windowFocuses.add(fn),
+          removeListener: (fn: (windowId: number) => void) => windowFocuses.delete(fn),
+        },
+      },
       scripting: { executeScript },
       webRequest: Object.fromEntries(
         Object.entries(requestEvents).map(([name, listeners]) => [
@@ -1476,6 +1514,66 @@ describe("原生消息并发控制", () => {
       .filter((message) => message.type === "event")
       .map((message) => message.payload.data.source);
     expect(sources).toEqual(["switcher", "user"]);
+  });
+
+  describe("切换浏览器窗口", () => {
+    function focusedEvents() {
+      return postMessage.mock.calls
+        .map(([message]) => message)
+        .filter((message) => message.type === "event")
+        .map((message) => message.payload.data);
+    }
+
+    it("切到另一个窗口时报告该窗口活动标签的聚焦", async () => {
+      await request("window-focus", "switcher.tabs.subscribe", { events: ["onActivated"] });
+      tabsQuery.mockResolvedValue([{ id: 102, windowId: 8, active: true }]);
+      tabsGet.mockResolvedValue({ id: 102, windowId: 8, active: true });
+
+      for (const handler of windowFocuses) handler(8);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(tabsQuery).toHaveBeenCalledWith({ active: true, windowId: 8 });
+      expect(focusedEvents()).toEqual([
+        expect.objectContaining({
+          type: "tab-focused",
+          source: "user",
+          tabId: expect.objectContaining({ tabId: 102, windowId: 8 }),
+        }),
+      ]);
+    });
+
+    it("浏览器失去焦点时不报告", async () => {
+      await request("window-blur", "switcher.tabs.subscribe", { events: ["onActivated"] });
+
+      for (const handler of windowFocuses) handler(-1);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(focusedEvents()).toEqual([]);
+    });
+
+    it("切换器聚焦另一个窗口里已选中的标签时，事件来源为 switcher", async () => {
+      await request("window-switcher", "switcher.tabs.subscribe", { events: ["onActivated"] });
+      tabsGet.mockResolvedValue({ id: 102, windowId: 8, active: true });
+      tabsUpdate.mockResolvedValue({ id: 102, windowId: 8, active: true });
+      windowsGet.mockResolvedValue({ id: 8, focused: false });
+      tabsQuery.mockResolvedValue([{ id: 102, windowId: 8, active: true }]);
+      await request("window-switcher-focus", "switcher.tabs.focus", { tabId: 102, windowId: 8 });
+
+      for (const handler of windowFocuses) handler(8);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(focusedEvents().map((event) => event.source)).toEqual(["switcher"]);
+    });
+
+    it("只订阅其他事件时不监听窗口聚焦，断开后移除监听", async () => {
+      await request("window-other", "switcher.tabs.subscribe", { events: ["onRemoved"] });
+      expect(windowFocuses.size).toBe(0);
+      await request("window-activated", "switcher.tabs.subscribe", { events: ["onActivated"] });
+      await request("window-activated-agent", "tabs.subscribe", { events: ["onActivated"] });
+      expect(windowFocuses.size).toBe(1);
+      disconnect();
+      expect(windowFocuses.size).toBe(0);
+    });
   });
 
   describe("不聚焦窗口地选中标签", () => {

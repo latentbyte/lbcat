@@ -109,6 +109,9 @@ let statusListenerRegistered = false;
 // 共用监听器保证激活来源标记每次事件只取一次，两条流看到相同来源
 const tabSubscriptions = new Map<string, { streams: Set<boolean>; handler: (...args: unknown[]) => void }>();
 
+// 窗口聚焦监听跟随 onActivated 订阅存在
+let windowFocusListener: ((windowId: number) => void) | null = null;
+
 function getActionApi() {
   return chrome.action ?? (chrome as unknown as { browserAction?: typeof chrome.action }).browserAction;
 }
@@ -194,12 +197,30 @@ function tabEventHandler(eventName: string, streams: Set<boolean>) {
   };
 }
 
+// 切换浏览器窗口不触发 onActivated：每个窗口的活动标签都没变。把窗口聚焦折算成该窗口活动标签的聚焦，
+// 否则订阅方不知道用户已经换到另一个标签
+function windowFocusHandler(onActivated: (...args: unknown[]) => void) {
+  return (windowId: number) => {
+    if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+    chrome.tabs
+      .query({ active: true, windowId })
+      .then(([tab]) => {
+        if (typeof tab?.id === "number") onActivated({ tabId: tab.id, windowId });
+      })
+      .catch((err: unknown) => log.warn("window focus tab lookup failed", String(err)));
+  };
+}
+
 function clearTabSubscriptions() {
   const tabsObj = chrome.tabs as unknown as Record<string, chrome.events.Event<(...args: unknown[]) => void>>;
   for (const [eventName, { handler }] of tabSubscriptions) {
     tabsObj[eventName]?.removeListener(handler);
   }
   tabSubscriptions.clear();
+  if (windowFocusListener) {
+    chrome.windows.onFocusChanged.removeListener(windowFocusListener);
+    windowFocusListener = null;
+  }
 }
 
 function subscribeNativeTabs(args: Record<string, unknown>, switcher: boolean): HandlerResult {
@@ -214,6 +235,10 @@ function subscribeNativeTabs(args: Record<string, unknown>, switcher: boolean): 
       subscription = { streams, handler: tabEventHandler(name, streams) };
       tabSubscriptions.set(name, subscription);
       event.addListener(subscription.handler);
+      if (name === "onActivated") {
+        windowFocusListener = windowFocusHandler(subscription.handler);
+        chrome.windows.onFocusChanged.addListener(windowFocusListener);
+      }
     }
     subscription.streams.add(switcher);
   }
@@ -396,6 +421,8 @@ export async function focusNativeTab(
     const tab = await chrome.tabs.update(tabId, { active: true });
     const windowId = typeof requestedWindowId === "number" ? requestedWindowId : tab?.windowId;
     if (typeof windowId === "number") {
+      // 窗口聚焦会再报告一次该标签的聚焦，同样要标注来源；已在前台的窗口不会触发 onFocusChanged
+      if (!(await chrome.windows.get(windowId)).focused) markTabActivation(source, tabId);
       await chrome.windows.update(windowId, { focused: true });
     }
     return { tabId, windowId };

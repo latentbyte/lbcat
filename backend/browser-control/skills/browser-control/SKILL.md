@@ -166,7 +166,8 @@ position, or whichever tab is active. Existing eligible tabs can be claimed with
 `session claim <tab-id>`; tab access also claims ownership. `tabs list --json`
 shows granted tabs eligible for the task. `tabs watch --json` receives events for
 granted work tabs, including tabs leased by other tasks; an event
-does not grant access to that tab. Plain `session end` releases leases without closing
+does not grant access to that tab. A `tab-focused` event also arrives when the window gains focus, for its
+active tab, so it does not always mean a tab switch. Plain `session end` releases leases without closing
 work tabs; end with `--close-tabs` unless the user wants the tabs left open. Close tabs the task created with `tabs close <tab-id>...` once they
 are no longer needed. It refuses personal tabs (even when granted), other tasks'
 tabs, and the marker; never close those via `human tabs close`.
