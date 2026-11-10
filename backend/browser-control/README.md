@@ -3,7 +3,7 @@
 Browser Control is a Latent Byte LLC local browser automation backend. LBCat is the browser-side companion that connects
 through Native Messaging.
 
-Licensed under MIT (see `LICENSE`). The agent skill that teaches coding agents this CLI is in
+Licensed under Apache-2.0 (see `LICENSE` and `NOTICE`). The agent skill that teaches coding agents this CLI is in
 `skills/browser-control/`; copy that directory into your agent's skills path.
 
 ## Binaries

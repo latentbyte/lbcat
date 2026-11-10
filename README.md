@@ -103,4 +103,4 @@ The extension is licensed under [GPLv3](./LICENSE), the same as ScriptCat, which
 ScriptCat authors and contributors for the userscript engine.
 
 The Go CLI, daemon, and SDK in `backend/browser-control/` are original work licensed under
-[MIT](./backend/browser-control/LICENSE).
+[Apache-2.0](./backend/browser-control/LICENSE).

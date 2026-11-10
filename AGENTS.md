@@ -15,7 +15,7 @@ The upstream guidance below still applies.
 - Fork-only subsystems:
   - `backend/browser-control/` - Go: `browser-control` CLI (`bctl`), daemon (Unix socket), `lbcat-shim` Native
     Messaging host `com.latentbyte.browser_control`. Own justfile, `env.example`, README, `SMOKE-TEST.md`,
-    MIT `LICENSE`. `ROADMAP.md` and `RELEASE-PLAN.md` there are private planning notes: local only, never commit
+    Apache-2.0 `LICENSE` and `NOTICE`. `ROADMAP.md` and `RELEASE-PLAN.md` there are private planning notes: local only, never commit
     them once the public history is cut.
   - `src/app/service/service_worker/native-messaging.ts` - extension end of that bridge.
   - `src/pkg/browser-control/` - agent window, tab ops/access, capture, agent notes, tab indicator.
@@ -25,7 +25,7 @@ The upstream guidance below still applies.
   Update it when `backend/browser-control/`, `src/pkg/browser-control/`, or agent browser tools change CLI commands,
   window registration, task leases, personal-tab overrides, notification behavior, or capture capabilities. A
   personal variant with extra local routing lives outside this repo; keep the two in step.
-- Licensing: the extension is GPLv3 (ScriptCat). `backend/browser-control/` is MIT (`backend/browser-control/LICENSE`);
+- Licensing: the extension is GPLv3 (ScriptCat). `backend/browser-control/` is Apache-2.0 (`backend/browser-control/LICENSE`);
   keep it free of imports from the GPL tree.
 
 # Repository Guidelines
