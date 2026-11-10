@@ -12,9 +12,9 @@ import (
 	"strings"
 	"sync"
 
-	internalcli "github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
-	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
+	internalcli "github.com/latentbyte/lbcat/backend/browser-control/internal/cli"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/pkg/browsercontrol/model"
 )
 
 // Client is the stable public Browser Control API

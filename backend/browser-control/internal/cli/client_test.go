@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
 )
 
 type notifyingConn struct {

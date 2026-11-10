@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
 )
 
 // Conn wraps a socket connection with identity metadata.

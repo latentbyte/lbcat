@@ -21,10 +21,12 @@ The upstream guidance below still applies.
   - `src/pkg/browser-control/` - agent window, tab ops/access, capture, agent notes, tab indicator.
   - `src/app/service/agent/` - in-extension LLM agent: `core/` (providers, tools, MCP client, skills, scheduler),
     `service_worker/` (chat, LLM client, MCP, skill, sub-agent services).
-- Browser Control integration skill: canonical source is `$HOME/dotfiles/templates/agents/skills/browser-control/SKILL.md`
-  ([GitHub source](https://github.com/hamidzr/dotfiles/blob/main/templates/agents/skills/browser-control/SKILL.md)).
+- Browser Control agent skill: the public copy ships in `backend/browser-control/skills/browser-control/SKILL.md`.
   Update it when `backend/browser-control/`, `src/pkg/browser-control/`, or agent browser tools change CLI commands,
-  window registration, task leases, personal-tab overrides, notification behavior, or capture capabilities.
+  window registration, task leases, personal-tab overrides, notification behavior, or capture capabilities. A
+  personal variant with extra local routing lives outside this repo; keep the two in step.
+- Licensing: the extension is GPLv3 (ScriptCat). `backend/browser-control/` is MIT (`backend/browser-control/LICENSE`);
+  keep it free of imports from the GPL tree.
 
 # Repository Guidelines
 

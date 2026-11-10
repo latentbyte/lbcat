@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
 	"github.com/spf13/cobra"
 )
 

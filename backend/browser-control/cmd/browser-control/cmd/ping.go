@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/cli"
 	"github.com/spf13/cobra"
 )
 

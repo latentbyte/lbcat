@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
+	"github.com/latentbyte/lbcat/backend/browser-control/pkg/browsercontrol/model"
 )
 
 func TestParseEventTypes(t *testing.T) {

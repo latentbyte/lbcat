@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/daemon"
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
-	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/daemon"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/pkg/browsercontrol/model"
 )
 
 func newSubscriptionTestBrowser(t *testing.T, respond ...func(json.RawMessage) json.RawMessage) (Client, func(model.EventType)) {

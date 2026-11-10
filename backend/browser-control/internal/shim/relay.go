@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
 )
 
 // Config holds shim startup parameters, typically from env or args.

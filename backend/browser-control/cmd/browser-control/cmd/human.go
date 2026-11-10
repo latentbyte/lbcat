@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol"
-	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
+	"github.com/latentbyte/lbcat/backend/browser-control/pkg/browsercontrol"
+	"github.com/latentbyte/lbcat/backend/browser-control/pkg/browsercontrol/model"
 	"github.com/spf13/cobra"
 )
 

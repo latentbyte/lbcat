@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
 )
 
 // windowGroup lets the approval ping replace the earlier missing-window ping

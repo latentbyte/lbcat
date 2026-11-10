@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/cli"
 	"github.com/spf13/cobra"
 )
 

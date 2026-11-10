@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/daemon"
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
-	"github.com/scriptscat/scriptcat/backend/browser-control/pkg/browsercontrol/model"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/daemon"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/pkg/browsercontrol/model"
 )
 
 func startTabListBrowsers(t *testing.T, count int, response json.RawMessage) <-chan pageCommandRequest {

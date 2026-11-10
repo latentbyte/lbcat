@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
 )
 
 func TestExtensionCommandFailure(t *testing.T) {

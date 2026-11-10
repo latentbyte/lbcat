@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/cli"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/cli"
 )
 
 // viewportDeferredNote follows the size when the window was resized but the browser has not laid the page out yet,

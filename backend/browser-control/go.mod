@@ -1,4 +1,4 @@
-module github.com/scriptscat/scriptcat/backend/browser-control
+module github.com/latentbyte/lbcat/backend/browser-control
 
 go 1.25.0
 

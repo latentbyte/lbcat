@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/scriptscat/scriptcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
 )
 
 func nowTimestamp() string {
