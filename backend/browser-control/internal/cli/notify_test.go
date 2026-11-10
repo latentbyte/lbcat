@@ -133,3 +133,40 @@ func TestNotificationFailurePreservesBrowserError(t *testing.T) {
 		}
 	})
 }
+
+func TestNotifyWithoutNotifyScript(t *testing.T) {
+	// stubTool installs a recording executable as the only thing on PATH, with no notify.sh under HOME
+	stubTool := func(t *testing.T, name string) string {
+		t.Helper()
+		dir := t.TempDir()
+		output := filepath.Join(dir, "calls")
+		if name != "" {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$BC_TEST_NOTIFY_FILE\"\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Setenv("PATH", dir)
+		t.Setenv("HOME", dir)
+		t.Setenv("BC_TEST_NOTIFY_FILE", output)
+		return output
+	}
+
+	t.Run("没有notify.sh时改用terminal-notifier并转换点击与分组参数", func(t *testing.T) {
+		output := stubTool(t, "terminal-notifier")
+		if err := runNotify("Title", "Body", "--on-click", "echo hi", "--group", "g1"); err != nil {
+			t.Fatal(err)
+		}
+		data, _ := os.ReadFile(output)
+		if strings.TrimSpace(string(data)) != "-title Title -message Body -execute echo hi -group g1" {
+			t.Fatalf("terminal-notifier args = %q", data)
+		}
+	})
+
+	t.Run("两者都没有时报错并说明需要安装terminal-notifier", func(t *testing.T) {
+		stubTool(t, "")
+		err := runNotify("Title", "Body")
+		if err == nil || !strings.Contains(err.Error(), "terminal-notifier") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}

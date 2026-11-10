@@ -45,7 +45,8 @@ Registration validates the marker's saved tab ID, window ID, and unique extensio
 moving, or navigating the marker makes scope unavailable; stale numeric IDs never select a replacement window.
 Browser restoration may require explicit designation again. Missing scope fails with `AGENT_WINDOW_MISSING`; the message names the cause
 (never registered, marker closed or moved, or marker gone after an extension reload/update or browser restart). The
-CLI invokes `notify.sh` once per outage to request operator setup. Successful scope validation clears the notification
+CLI sends one desktop notification per outage to request operator setup (`notify.sh` when installed, otherwise
+`terminal-notifier`). Successful scope validation clears the notification
 latch. `agent-window create --ask` lets an agent recover with approval: it returns a live registration unchanged,
 otherwise sends a click-to-allow notification (clicks need `terminal-notifier`) and creates the window only after the
 click; no click within `--timeout` (default 9m) fails with `AGENT_WINDOW_APPROVAL_TIMEOUT`. No command falls back to the current personal window. SDK callers receive the error without desktop notification.
@@ -327,7 +328,7 @@ the popup), the human turns off agent access to the tab (Stop or the popup), or 
 session shows one guide at a time: a `guide step` on another tab ends the session's guide on its earlier tabs, and
 their cards point to the new tab with a "Go to that tab" button. When the step's window is showing one of the session's own tabs,
 `guide step` also switches that window to the step's tab; it never takes over a personal or other task's tab and never
-focuses the window. Every `guide step` makes the CLI send a `notify.sh` ping
+focuses the window. Every `guide step` makes the CLI send a desktop notification
 with the card title and the step's first line, so the human knows a new instruction is waiting. The step that opens a
 session's guide returns `started: true` and pings "Agent guide started"; later steps ping "Agent guide: new step". Clicking the notification runs
 `bctl --browser <id> human tabs focus <tab-id>` to bring the guided tab forward.

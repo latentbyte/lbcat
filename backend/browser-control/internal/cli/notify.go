@@ -64,21 +64,46 @@ func shellJoin(words ...string) string {
 	return strings.Join(quoted, " ")
 }
 
+// runNotify sends a desktop notification. options use notify.sh flags (--on-click <cmd>, --group <id>); without
+// notify.sh they are translated for terminal-notifier
 func runNotify(title, body string, options ...string) error {
-	executable, err := exec.LookPath("notify.sh")
+	tool, args, err := notifyCommand(title, body, options)
 	if err != nil {
-		home, homeErr := os.UserHomeDir()
-		if homeErr != nil {
-			return fmt.Errorf("cannot locate notify.sh")
-		}
-		executable = filepath.Join(home, "scripts", "compat", "notify.sh")
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := exec.CommandContext(ctx, executable, append(options, title, body)...).Run(); err != nil {
-		return fmt.Errorf("verify notify.sh is installed and executable: %w", err)
+	if err := exec.CommandContext(ctx, tool, args...).Run(); err != nil {
+		return fmt.Errorf("running %s: %w", filepath.Base(tool), err)
 	}
 	return nil
+}
+
+func notifyCommand(title, body string, options []string) (string, []string, error) {
+	if script, err := exec.LookPath("notify.sh"); err == nil {
+		return script, append(options, title, body), nil
+	}
+	// browsers launch the shim with a minimal PATH, so also check the conventional install location
+	if home, err := os.UserHomeDir(); err == nil {
+		script := filepath.Join(home, "scripts", "compat", "notify.sh")
+		if _, err := os.Stat(script); err == nil {
+			return script, append(options, title, body), nil
+		}
+	}
+	notifier, err := exec.LookPath("terminal-notifier")
+	if err != nil {
+		return "", nil, fmt.Errorf("no notifier found: install terminal-notifier (brew install terminal-notifier)")
+	}
+	args := []string{"-title", title, "-message", body}
+	for i := 0; i+1 < len(options); i += 2 {
+		switch options[i] {
+		case "--on-click":
+			args = append(args, "-execute", options[i+1])
+		case "--group":
+			args = append(args, "-group", options[i+1])
+		}
+	}
+	return notifier, args, nil
 }
 
 func clearMissingWindow(target string) { _ = os.Remove(missingWindowLatch(target)) }
