@@ -48,7 +48,15 @@ You need two parts: the extension and the local tools.
 
 ### 2. CLI, daemon, and native host
 
-Requires Go 1.25 or newer and [just](https://github.com/casey/just).
+```sh
+brew install latentbyte/tap/lbcat
+browser-control install
+```
+
+The first command installs `browser-control` (also linked as `bctl`), `browser-control-daemon`, and `lbcat-shim`. The
+second registers the Native Messaging host for every browser it finds. Restart the browser afterwards.
+
+To build from source instead you need Go 1.25 or newer and [just](https://github.com/casey/just):
 
 ```sh
 git clone https://github.com/latentbyte/lbcat
@@ -56,9 +64,6 @@ cd lbcat
 just browser-control-install
 brew install terminal-notifier   # click-to-approve notifications
 ```
-
-This builds `browser-control` (also linked as `bctl`), `browser-control-daemon`, and `lbcat-shim` into `~/.local/bin`
-and registers the Native Messaging host for every browser it finds. Restart the browser afterwards.
 
 ## Quick start
 

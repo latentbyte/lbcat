@@ -1,0 +1,41 @@
+class Lbcat < Formula
+  desc "Let coding agents drive your signed-in browser through the LBcat extension"
+  homepage "https://github.com/latentbyte/lbcat"
+  version "@VERSION@"
+  license "Apache-2.0"
+
+  depends_on :macos
+  depends_on "terminal-notifier"
+
+  on_arm do
+    url "@URL_ARM64@"
+    sha256 "@SHA256_ARM64@"
+  end
+  on_intel do
+    url "@URL_AMD64@"
+    sha256 "@SHA256_AMD64@"
+  end
+
+  def install
+    bin.install "browser-control", "browser-control-daemon", "lbcat-shim"
+    bin.install_symlink "browser-control" => "bctl"
+    pkgshare.install "skills"
+  end
+
+  def caveats
+    <<~EOS
+      Register the Native Messaging host for your browsers, then restart them:
+        #{HOMEBREW_PREFIX}/bin/browser-control install
+
+      Install the LBcat extension: https://github.com/latentbyte/lbcat#install
+
+      Agent skill for coding agents:
+        #{opt_pkgshare}/skills/browser-control
+    EOS
+  end
+
+  test do
+    assert_match "agent-window", shell_output("#{bin}/browser-control --help")
+    assert_path_exists bin/"lbcat-shim"
+  end
+end

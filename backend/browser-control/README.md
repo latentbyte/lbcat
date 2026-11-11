@@ -381,3 +381,14 @@ Deploy the matching extension and daemon before updating a consumer to `NewSwitc
 do not support the commands or isolated event routing. `NewSwitcher` checks the daemon's `switcher-tabs`
 capability and rejects older daemons before any switcher commands are sent. combo-switcher must refresh its vendored SDK
 and use `NewSwitcher` for both tab loading and its event/focus clients.
+
+## Releasing the CLI
+
+`just dist <url-base>` (from this directory) builds `lbcat-<version>-darwin-{arm64,amd64}.tar.gz` and a rendered
+Homebrew formula into `bin/dist/`, using the version in the root `package.json`. Publish in this order:
+
+1. Tag `v<version>` and create a GitHub release on `latentbyte/lbcat` with both tarballs.
+2. Copy `bin/dist/lbcat.rb` to `Formula/lbcat.rb` in `latentbyte/homebrew-tap`.
+
+`<url-base>` is the release download URL, `https://github.com/latentbyte/lbcat/releases/download/v<version>`. Without
+it the formula points at local `file://` tarballs for testing in a throwaway tap.
