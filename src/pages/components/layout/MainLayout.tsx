@@ -378,9 +378,9 @@ const MainLayout: React.FC<{
               />
             </Modal>
             <div className="tw-flex tw-flex-row tw-items-center">
-              <img style={{ height: "40px" }} src="/assets/logo.png" alt="ScriptCat" />
+              <img style={{ height: "40px" }} src="/assets/logo.png" alt="LBcat" />
               <Typography.Title heading={4} className="!tw-m-0">
-                {"ScriptCat"}
+                {"LBcat"}
               </Typography.Title>
             </div>
             <Space size="small" className="action-tools">

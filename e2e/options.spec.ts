@@ -2,15 +2,15 @@ import { test, expect } from "./fixtures";
 import { openOptionsPage } from "./utils";
 
 test.describe("Options Page", () => {
-  test("should load and display ScriptCat title and logo", async ({ context, extensionId }) => {
+  test("should load and display LBcat title and logo", async ({ context, extensionId }) => {
     const page = await openOptionsPage(context, extensionId);
 
     // Check logo is visible
-    const logo = page.locator('img[alt="ScriptCat"]');
+    const logo = page.locator('img[alt="LBcat"]');
     await expect(logo).toBeVisible();
 
     // Check title text
-    await expect(page.getByText("ScriptCat", { exact: true })).toBeVisible();
+    await expect(page.getByText("LBcat", { exact: true })).toBeVisible();
   });
 
   test("should navigate via sidebar menu items", async ({ context, extensionId }) => {

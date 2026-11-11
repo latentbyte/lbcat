@@ -480,7 +480,7 @@ function App() {
         title={
           <div className="tw-flex tw-justify-between">
             <div className="tw-text-xl tw-inline-flex tw-flex-row tw-items-center tw-gap-x-1">
-              <span>{"ScriptCat"}</span>
+              <span>{"LBcat"}</span>
               <ConnectionStatusDot status={nativeStatus} />
             </div>
             <div className="tw-flex tw-flex-row tw-items-center">

@@ -10,7 +10,7 @@ test.describe("Install Page", () => {
     const page = await openInstallPage(context, extensionId, testScriptUrl);
 
     // The page should load without errors
-    await expect(page).toHaveTitle(/Install.*ScriptCat|ScriptCat/i);
+    await expect(page).toHaveTitle(/Install.*LBcat|LBcat/i);
   });
 
   test("should display script metadata when loading a script", async ({ context, extensionId }) => {
