@@ -1,4 +1,4 @@
-import { DocumentationSite, ExtServer, ExtVersion } from "@App/app/const";
+import { DocumentationSite, ExtVersion } from "@App/app/const";
 import { type Server } from "@Packages/message/server";
 import { type IMessageQueue } from "@Packages/message/message_queue";
 import { ScriptService } from "./script";
@@ -142,22 +142,6 @@ export default class ServiceWorkerManager {
       pendingOpen = res.checktime;
     };
 
-    const regularExtensionUpdateCheck = () => {
-      fetch(`${ExtServer}api/v1/system/version?version=${ExtVersion}`)
-        .then((resp) => resp.json())
-        .then((resp: { data: { [key: string]: any; notice: string; version: string } }) => {
-          const data = resp.data;
-          systemConfig
-            .getCheckUpdate()
-            .then((items) => {
-              const isRead = items.notice !== data.notice ? false : items.isRead;
-              systemConfig.setCheckUpdate({ ...data, isRead: isRead });
-            })
-            .catch((e) => console.error("regularExtensionUpdateCheck: Check Error", e));
-        })
-        .catch((e) => console.error("regularExtensionUpdateCheck: Network Error", e));
-    };
-
     this.mq.subscribe<any>("msgUpdatePageOpened", () => {
       pendingOpen = 0;
     });
@@ -186,10 +170,6 @@ export default class ServiceWorkerManager {
             });
           });
           break;
-        case "checkUpdate":
-          // 检查扩展更新
-          regularExtensionUpdateCheck();
-          break;
         case "agentTaskScheduler":
           agent.onSchedulerTick();
           break;
@@ -199,29 +179,11 @@ export default class ServiceWorkerManager {
           break;
       }
     });
-    // 12小时检查一次扩展更新
-    chrome.alarms.get("checkUpdate", (alarm) => {
+    // 清除旧版本遗留的扩展更新检查定时器
+    chrome.alarms.clear("checkUpdate", () => {
       const lastError = chrome.runtime.lastError;
       if (lastError) {
-        console.error("chrome.runtime.lastError in chrome.alarms.get:", lastError);
-        // 非预期的异常API错误，停止处理
-      }
-      if (!alarm) {
-        chrome.alarms.create(
-          "checkUpdate",
-          {
-            delayInMinutes: 0,
-            periodInMinutes: 12 * 60,
-          },
-          () => {
-            const lastError = chrome.runtime.lastError;
-            if (lastError) {
-              console.error("chrome.runtime.lastError in chrome.alarms.create:", lastError);
-              // Starting in Chrome 117, the number of active alarms is limited to 500. Once this limit is reached, chrome.alarms.create() will fail.
-              console.error("Chrome alarm is unable to create. Please check whether limit is reached.");
-            }
-          }
-        );
+        console.error("chrome.runtime.lastError in chrome.alarms.clear:", lastError);
       }
     });
 

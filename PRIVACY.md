@@ -1,6 +1,6 @@
 # LBcat privacy policy
 
-Last updated: 2026-11-11
+Last updated: 2026-11-11 (version 4.33.1)
 
 LBcat is a browser extension published by Latent Byte LLC. It is a fork of the open source
 [ScriptCat](https://github.com/scriptscat/scriptcat) userscript manager with added local browser control for coding
@@ -31,11 +31,13 @@ The extension sends data over the network only in these cases:
 - **Scripts you install** can make network requests to the sites they declare. You see and approve those permissions
   when installing a script. Scripts are third-party code; review them before installing.
 - **Script and subscription updates.** The extension checks the update URL of each installed script.
-- **ScriptCat services.** LBcat inherits a few requests to servers run by the ScriptCat project, not by Latent Byte: a
-  version and notice check (sends the extension version), a site icon lookup for the script list (sends the domain
-  names your scripts match), the sign-in relay used when you connect a cloud drive for sync, and links to the
-  ScriptCat script store and documentation. Those servers see your IP
-  address as with any web request.
+- **ScriptCat services.** LBcat does not contact ScriptCat's servers on its own: the upstream version check and
+  site icon service are removed. Two things still reach servers run by the ScriptCat project, not by Latent Byte,
+  and only when you use them: the sign-in relay for connecting a cloud drive (OneDrive and similar) to sync, which
+  LBcat keeps because those sign-ins do not work without it, and links you open to the ScriptCat script store and
+  documentation.
+- **Site icons.** Icons in the script list are fetched from the sites your scripts match. If you pick Google,
+  DuckDuckGo, or Icon Horse as the icon service in settings, the matched domain names go to that service instead.
 - **Cloud sync and backup**, if you turn it on, sends your scripts to the storage provider you configure (for example
   WebDAV or a cloud drive) using credentials you supply.
 - **The built-in AI agent**, if you configure it, sends your prompts and the page content it works on to the model

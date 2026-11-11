@@ -201,18 +201,6 @@ export async function fetchIconByDomain(domain: string): Promise<string[]> {
  */
 export async function fetchIconByService(domain: string, service: FaviconService): Promise<string[]> {
   switch (service) {
-    case "scriptcat":
-      /**
-       * ScriptCat 图标服务
-       * - 尺寸：支持 sz 参数（如 16 / 32 / 64 / 128）
-       * - 限制：暂无公开限流说明，小规模使用稳定
-       * - 收费：免费
-       * - 中国访问：✅ 国内可正常访问（国内服务）
-       * - 缓存：可长期缓存（返回稳定）
-       * - 特点：适合国内项目，速度快
-       */
-      return [`https://ext.scriptcat.org/api/v1/open/favicons?domain=${encodeURIComponent(domain)}&sz=64`];
-
     case "google":
       /**
        * Google S2 Favicon 服务
@@ -265,10 +253,7 @@ export async function fetchIconByService(domain: string, service: FaviconService
 }
 
 // 获取脚本的favicon
-export const getScriptFavicon = async (
-  uuid: string,
-  service: FaviconService = "scriptcat"
-): Promise<FaviconRecord[]> => {
+export const getScriptFavicon = async (uuid: string, service: FaviconService = "local"): Promise<FaviconRecord[]> => {
   scriptDAO ||= new ScriptDAO();
   faviconDAO ||= new FaviconDAO();
   const script = await scriptDAO.get(uuid);
@@ -349,7 +334,7 @@ const getFileFromOPFS = async (opfsRet: FaviconFile): Promise<File> => {
 };
 
 // 处理单个脚本的favicon
-const processScriptFavicon = async (script: Script, service: FaviconService = "scriptcat") => {
+const processScriptFavicon = async (script: Script, service: FaviconService = "local") => {
   const favFnAsync = async () => {
     const icons = await getScriptFavicon(script.uuid, service); // 恒久。不会因SW重启而失效
     if (icons.length === 0) return [];
@@ -398,7 +383,7 @@ type FavIconResult = {
 type TFaviconStack = { chunkResults: FavIconResult[]; pendingCount: number };
 
 // 处理favicon加载，以批次方式处理
-export const loadScriptFavicons = async function* (scripts: Script[], service: FaviconService = "scriptcat") {
+export const loadScriptFavicons = async function* (scripts: Script[], service: FaviconService = "local") {
   const stack: TFaviconStack[] = [];
   const asyncWaiter: { promise?: any; resolve?: any } = {};
   const createPromise = () => {

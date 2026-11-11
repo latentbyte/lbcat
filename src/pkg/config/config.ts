@@ -4,7 +4,6 @@ import { defaultConfig as editorDefaultConfig } from "@App/pkg/utils/monaco-edit
 import type { FileSystemType } from "@Packages/filesystem/factory";
 import type { IMessageQueue, TKeyValue } from "@Packages/message/message_queue";
 import { matchLanguage } from "@App/locales/locales";
-import { ExtVersion } from "@App/app/const";
 import defaultTypeDefinition from "@App/template/scriptcat.d.tpl";
 import { toCamelCase } from "../utils/utils";
 import EventEmitter from "eventemitter3";
@@ -20,7 +19,7 @@ export type CloudSyncConfig = {
   params: { [key: string]: any };
 };
 
-export type FaviconService = "scriptcat" | "google" | "duckduckgo" | "icon-horse" | "local";
+export type FaviconService = "google" | "duckduckgo" | "icon-horse" | "local";
 
 export type CATFileStorage = {
   filesystem: FileSystemType;
@@ -422,24 +421,6 @@ export class SystemConfig {
     }
   }
 
-  setCheckUpdate(data: { notice: string; version: string; isRead: boolean }) {
-    this._set("check_update", {
-      notice: data.notice,
-      version: data.version,
-      isRead: data.isRead,
-    });
-  }
-
-  async getCheckUpdate(opts?: { sanitizeHTML?: (html: string) => string }) {
-    const result = await this._get<Parameters<typeof this.setCheckUpdate>[0]>("check_update", {
-      notice: "",
-      isRead: false,
-      version: ExtVersion,
-    });
-    if (typeof opts?.sanitizeHTML === "function") result.notice = opts.sanitizeHTML(result.notice);
-    return result;
-  }
-
   setEnableScript(enable: boolean) {
     if (chrome.extension.inIncognitoContext) {
       this._set("enable_script_incognito", enable);
@@ -513,7 +494,7 @@ export class SystemConfig {
   }
 
   getFaviconService() {
-    return this._get<FaviconService>("favicon_service", "scriptcat");
+    return this._get<FaviconService>("favicon_service", "local");
   }
 
   setFaviconService(val: FaviconService) {

@@ -6,6 +6,7 @@ import {
   fetchIconByDomain,
   timeoutAbortSignal,
 } from "@App/pages/store/favicons";
+import type { FaviconService } from "@App/pkg/config/config";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 describe("extractFaviconsDomain", () => {
@@ -156,9 +157,17 @@ describe("fetchIconByService", () => {
     vi.restoreAllMocks();
   });
 
-  it("scriptcat服务应返回scriptcat API URL", async () => {
-    const result = await fetchIconByService("example.com", "scriptcat");
-    expect(result).toEqual(["https://ext.scriptcat.org/api/v1/open/favicons?domain=example.com&sz=64"]);
+  it("已保存的旧scriptcat服务值应改用本地解析，不请求ext.scriptcat.org", async () => {
+    vi.mocked(fetch).mockResolvedValue(mockHtmlResponse("https://example.com/", "") as unknown as Response);
+    const result = await fetchIconByService("example.com", "scriptcat" as FaviconService);
+    expect(result.join()).not.toContain("ext.scriptcat.org");
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.map(([url]) => String(url))
+        .join()
+    ).not.toContain("ext.scriptcat.org");
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith("https://example.com", expect.anything());
   });
 
   it("google服务应返回Google favicon URL", async () => {
@@ -167,10 +176,8 @@ describe("fetchIconByService", () => {
   });
 
   it("应该对域名进行URL编码", async () => {
-    const result = await fetchIconByService("例え.jp", "scriptcat");
-    expect(result).toEqual([
-      `https://ext.scriptcat.org/api/v1/open/favicons?domain=${encodeURIComponent("例え.jp")}&sz=64`,
-    ]);
+    const result = await fetchIconByService("例え.jp", "google");
+    expect(result).toEqual([`https://www.google.com/s2/favicons?domain=${encodeURIComponent("例え.jp")}&sz=64`]);
   });
 
   // local 服务的具体行为已在 fetchIconByDomain 测试中充分覆盖

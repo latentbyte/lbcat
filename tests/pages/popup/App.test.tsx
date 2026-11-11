@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { render, setupGlobalMocks } from "@Tests/test-utils";
 import App from "@App/pages/popup/App";
 import { ExtVersion } from "@App/app/const";
@@ -132,6 +132,17 @@ describe("Popup App Component", () => {
 
     // 应用应该成功渲染
     expect(document.body).toBeInTheDocument();
+  });
+
+  it("点击版本号不应向上游服务器检查扩展更新", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}"));
+    render(<App />);
+
+    const version = await screen.findByText("v" + ExtVersion);
+    fireEvent.click(version);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(fetchSpy.mock.calls.map(([url]) => String(url)).join()).not.toContain("ext.scriptcat.org");
   });
 
   it("should render basic UI elements", async () => {

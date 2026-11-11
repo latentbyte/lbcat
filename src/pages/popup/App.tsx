@@ -1,12 +1,10 @@
-import { Discord, DocumentationSite, ExtVersion, ExtServer } from "@App/app/const";
-import { sanitizeHTML } from "@App/pkg/utils/sanitize";
-import { Alert, Badge, Button, Card, Collapse, Dropdown, Menu, Switch, Tooltip } from "@arco-design/web-react";
+import { Discord, DocumentationSite, ExtVersion } from "@App/app/const";
+import { Button, Card, Collapse, Dropdown, Menu, Switch } from "@arco-design/web-react";
 import {
   IconBook,
   IconBug,
   IconGithub,
   IconMoreVertical,
-  IconNotification,
   IconPlus,
   IconSearch,
   IconSettings,
@@ -14,7 +12,6 @@ import {
 } from "@arco-design/web-react/icon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RiMessage2Line } from "react-icons/ri";
-import { VersionCompare, versionCompare } from "@App/pkg/utils/semver";
 import { useTranslation } from "react-i18next";
 import ScriptMenuList from "../components/ScriptMenuList";
 import PopupWarnings, { type NativeMessagingStatusResponse } from "../components/PopupWarnings";
@@ -114,13 +111,6 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [scriptList, setScriptList] = useState<(ScriptMenu & { menuUpdated?: number })[]>([]);
   const [backScriptList, setBackScriptList] = useState<ScriptMenu[]>([]);
-  const [showAlert, setShowAlert] = useState(false);
-  const [checkUpdate, setCheckUpdate] = useState<Parameters<typeof systemConfig.setCheckUpdate>[0]>({
-    version: ExtVersion,
-    notice: "",
-    isRead: false,
-  });
-  const [checkUpdateStatus, setCheckUpdateStatus] = useState(0);
   const [currentUrl, setCurrentUrl] = useState("");
   const [isEnableScript, setIsEnableScript] = useState(true);
   const [isBlacklist, setIsBlacklist] = useState(false);
@@ -335,16 +325,9 @@ function App() {
     };
 
     const checkScriptEnableAndUpdate = async () => {
-      const [isEnableScript, checkUpdate] = await Promise.all([
-        systemConfig.getEnableScript(),
-        systemConfig.getCheckUpdate(),
-      ]);
+      const isEnableScript = await systemConfig.getEnableScript();
       if (!hookMgr.isMounted) return;
-      if (typeof checkUpdate.notice === "string") {
-        checkUpdate.notice = sanitizeHTML(checkUpdate.notice);
-      }
       setIsEnableScript(isEnableScript);
-      setCheckUpdate(checkUpdate);
     };
     const queryTabInfo = async () => {
       // 仅在挂载时读取一次页签信息；不绑定 currentUrl 以避免重复查询
@@ -369,7 +352,7 @@ function App() {
     return hookMgr.unhook;
   }, []);
 
-  const { handleEnableScriptChange, handleSettingsClick, handleNotificationClick } = {
+  const { handleEnableScriptChange, handleSettingsClick } = {
     handleEnableScriptChange: (val: boolean) => {
       setIsEnableScript(val);
       systemConfig.setEnableScript(val);
@@ -378,14 +361,6 @@ function App() {
       // 经由扩展 API 打开（而非 window.open / <a>）：既避免 Vivaldi 偶发崩溃，
       // 也兼容 Edge Android —— 移动端 window.open 打不开 chrome-extension:// 内部页（#686）
       openInCurrentTab("/src/options.html");
-    },
-    handleNotificationClick: () => {
-      setShowAlert((prev) => !prev);
-      setCheckUpdate((checkUpdate) => {
-        const updatedCheckUpdate = { ...checkUpdate, isRead: true };
-        systemConfig.setCheckUpdate(updatedCheckUpdate);
-        return updatedCheckUpdate;
-      });
     },
   };
 
@@ -440,36 +415,6 @@ function App() {
     return 5;
   });
 
-  useEffect(() => {
-    if (checkUpdateStatus === 1) {
-      Promise.all([
-        fetch(`${ExtServer}api/v1/system/version?version=${ExtVersion}`)
-          .then((resp) => resp.json())
-          .catch(console.warn), // 加 catch 避免 网络请求失败或API返回错误
-        // 加 800ms delay 避免过快显示
-        new Promise((resolve) => setTimeout(resolve, 800)),
-      ]).then(([resp]: [{ data: { notice: string; version: string } } | null | undefined, any]) => {
-        let newCheckUpdateState = 0;
-        if (resp?.data) {
-          let notice = "";
-          if (typeof resp.data.notice === "string") notice = sanitizeHTML(resp.data.notice);
-          const version = resp.data.version;
-          setCheckUpdate((items) => {
-            if (version === items.version) {
-              newCheckUpdateState = 2;
-              return items;
-            }
-            const isRead = items.notice !== notice ? false : items.isRead;
-            const newCheckUpdate = { version, notice, isRead };
-            systemConfig.setCheckUpdate(newCheckUpdate);
-            return newCheckUpdate;
-          });
-        }
-        setCheckUpdateStatus(() => newCheckUpdateState);
-      });
-    }
-  }, [checkUpdateStatus]);
-
   return (
     <>
       <PopupWarnings isBlacklist={isBlacklist} nativeStatus={nativeStatus} />
@@ -486,9 +431,6 @@ function App() {
             <div className="tw-flex tw-flex-row tw-items-center">
               <Switch size="small" className="tw-mr-1" checked={isEnableScript} onChange={handleEnableScriptChange} />
               <Button type="text" icon={<IconSettings />} iconOnly onClick={handleSettingsClick} />
-              <Badge count={checkUpdate.isRead ? 0 : 1} dot offset={[-8, 6]}>
-                <Button type="text" icon={<IconNotification />} iconOnly onClick={handleNotificationClick} />
-              </Badge>
               <Dropdown
                 onVisibleChange={(visible) => {
                   if (!visible) return;
@@ -574,15 +516,6 @@ function App() {
         }
         bodyStyle={{ padding: 0 }}
       >
-        <Alert
-          style={{ display: showAlert ? "flex" : "none" }}
-          type="info"
-          content={
-            <div
-              dangerouslySetInnerHTML={{ __html: checkUpdate.notice /* notice is already sanitized by dompurify */ }}
-            />
-          }
-        />
         <Collapse
           bordered={false}
           activeKey={collapseActiveKey}
@@ -624,40 +557,7 @@ function App() {
           </CollapseItem>
         </Collapse>
         <div className="tw-flex tw-flex-row arco-card-header !tw-h-6">
-          {versionCompare(ExtVersion, checkUpdate.version) === VersionCompare.LESS ? (
-            <Tooltip content={`${t("popup.new_version_available")} (v${checkUpdate.version})`}>
-              <span
-                onClick={() => {
-                  window.open(`https://github.com/scriptscat/scriptcat/releases/tag/v${checkUpdate.version}`);
-                }}
-                className={`tw-text-[12px] tw-font-500 tw-cursor-pointer tw-underline tw-underline-offset-2 tw-text-blue-500 dark:tw-text-blue-400`}
-              >{`v${ExtVersion}`}</span>
-            </Tooltip>
-          ) : checkUpdateStatus === 0 ? (
-            <Tooltip content={t("check_update")}>
-              <span
-                onClick={() => {
-                  setCheckUpdateStatus(1);
-                }}
-                className="tw-text-[12px] tw-font-500 tw-cursor-pointer hover:tw-underline hover:tw-underline-offset-2"
-              >{`v${ExtVersion}`}</span>
-            </Tooltip>
-          ) : checkUpdateStatus === 1 ? (
-            <Tooltip content={t("checking_for_updates")}>
-              <span className="tw-text-[12px] tw-font-500">{`${t("checking_for_updates")}`}</span>
-            </Tooltip>
-          ) : checkUpdateStatus === 2 ? (
-            <Tooltip content={t("latest_version")}>
-              <span
-                onClick={() => {
-                  setCheckUpdateStatus(1);
-                }}
-                className="tw-text-[12px] tw-font-500 tw-cursor-pointer hover:tw-underline hover:tw-underline-offset-2"
-              >{`${t("latest_version")}`}</span>
-            </Tooltip>
-          ) : (
-            <></>
-          )}
+          <span className="tw-text-[12px] tw-font-500">{`v${ExtVersion}`}</span>
         </div>
       </Card>
     </>

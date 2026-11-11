@@ -333,7 +333,6 @@ function Setting() {
                   Message.success(t("save_success")!);
                 }}
               >
-                <Select.Option value="scriptcat">{t("favicon_service_scriptcat")}</Select.Option>
                 <Select.Option value="google">{t("favicon_service_google")}</Select.Option>
                 <Select.Option value="duckduckgo">{t("favicon_service_duckduckgo")}</Select.Option>
                 <Select.Option value="icon-horse">{t("favicon_service_icon-horse")}</Select.Option>
