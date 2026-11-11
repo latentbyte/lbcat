@@ -149,7 +149,7 @@ describe("Options MainLayout Component", () => {
       </MainLayout>
     );
 
-    expect(screen.getByText("ScriptCat")).toBeInTheDocument();
+    expect(screen.getByText("LBcat")).toBeInTheDocument();
     expect(screen.getByText("Test Content")).toBeInTheDocument();
   });
 

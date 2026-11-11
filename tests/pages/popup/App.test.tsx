@@ -138,8 +138,8 @@ describe("Popup App Component", () => {
     render(<App />);
 
     await waitFor(() => {
-      // 检查是否有ScriptCat标题
-      expect(screen.getByText("ScriptCat")).toBeInTheDocument();
+      // 检查是否有LBcat标题
+      expect(screen.getByText("LBcat")).toBeInTheDocument();
     });
   });
 
@@ -196,7 +196,7 @@ describe("Popup App Component", () => {
     // 验证UI渲染正常，说明组件初始化成功
     await waitFor(
       () => {
-        expect(screen.getByText("ScriptCat")).toBeInTheDocument();
+        expect(screen.getByText("LBcat")).toBeInTheDocument();
         expect(screen.getByText("current_page_scripts (0/0)")).toBeInTheDocument();
         expect(screen.getByText("enabled_background_scripts (0/0)")).toBeInTheDocument();
         expect(screen.getByText("v" + ExtVersion)).toBeInTheDocument();
