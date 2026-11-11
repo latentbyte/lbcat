@@ -56,6 +56,9 @@ browser-control install
 The first command installs `browser-control` (also linked as `bctl`), `browser-control-daemon`, and `lbcat-shim`. The
 second registers the Native Messaging host for every browser it finds. Restart the browser afterwards.
 
+With an unpacked Chromium build, pass its ID from `chrome://extensions` so the host accepts it:
+`browser-control install --extension-id <id>`.
+
 To build from source instead you need Go 1.25 or newer and [just](https://github.com/casey/just):
 
 ```sh
