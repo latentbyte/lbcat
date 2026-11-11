@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -129,5 +130,32 @@ func TestBrowserEventJSONStability(t *testing.T) {
 	want := `{"type":"browser-connected","browserId":"chrome-01","browserName":"chrome","appName":"Google Chrome"}`
 	if string(got) != want {
 		t.Fatalf("Marshal(Event) = %s, want %s", got, want)
+	}
+}
+
+func TestAgentTabJSONRoundTrip(t *testing.T) {
+	for _, agent := range []string{`{"role":"marker"}`, `{"role":"work","label":"codex","paused":true}`, `{"role":"granted"}`} {
+		var tab Tab
+		if err := json.Unmarshal([]byte(`{"id":1,"agent":`+agent+`}`), &tab); err != nil {
+			t.Fatal(err)
+		}
+		if tab.Agent == nil {
+			t.Fatalf("agent %s was dropped", agent)
+		}
+		data, err := json.Marshal(tab.Agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != agent {
+			t.Fatalf("agent = %s, want %s", data, agent)
+		}
+	}
+
+	data, err := json.Marshal(Tab{ID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "agent") {
+		t.Fatalf("unmanaged tab encodes agent: %s", data)
 	}
 }

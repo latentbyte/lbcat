@@ -1357,6 +1357,38 @@ describe("原生消息并发控制", () => {
     );
   });
 
+  it("人工切换器列表与事件标出代理管理的标签", async () => {
+    // 本次浏览器运行内已确认过标记
+    vi.mocked(chrome.storage.session.get).mockImplementation(async () => ({
+      "browserControl.verifiedMarkerUrl": "chrome-extension://test/src/agent-window.html?registration=test",
+    }));
+    await request("switcher-agent-list", "switcher.tabs.list", {});
+    const listed = postMessage.mock.calls
+      .map(([message]) => message)
+      .find((message) => message.id === "switcher-agent-list");
+    expect(listed.payload.data).toEqual([
+      expect.objectContaining({ id: 101, agent: { role: "work" } }),
+      expect.not.objectContaining({ agent: expect.anything() }),
+    ]);
+
+    await request("agent-events", "tabs.subscribe", { events: ["onActivated"] });
+    await request("switcher-events", "switcher.tabs.subscribe", { events: ["onActivated"] });
+    tabsGet.mockResolvedValue({ id: 101, windowId: 7 });
+    for (const handler of activations) handler({ tabId: 101, windowId: 7 });
+    await vi.advanceTimersByTimeAsync(0);
+    const events = postMessage.mock.calls
+      .map(([message]) => message)
+      .filter((message) => message.type === "event")
+      .map((message) => [message.payload.cmd, message.payload.data.tab.agent]);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        ["switcher.tabs.event", { role: "work" }],
+        ["tabs.event", undefined],
+      ])
+    );
+    expect(events).toHaveLength(2);
+  });
+
   it("代理关闭工作标签而不能关闭个人或标记标签", async () => {
     await request("close-work", "tabs.close", { tabId: 101 });
     expect(tabsRemove).toHaveBeenCalledWith(101);

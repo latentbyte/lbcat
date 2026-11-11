@@ -661,6 +661,34 @@ describe("代理专用窗口与标签租约", () => {
     expect((await service.tabAccess(tab.id!)).owner).toBeUndefined();
   });
 
+  it("人工切换器视图标出标记、工作标签与获授权的个人标签", async () => {
+    tabs.set(2, mockTab({ id: 2, windowId: 7 }));
+    tabs.set(3, mockTab({ id: 3, windowId: 8 }));
+    tabs.set(4, mockTab({ id: 4, windowId: 8 }));
+    tabs.set(5, mockTab({ id: 5, windowId: 7 }));
+    const { markerTabId } = await service.designate(7);
+    const sessionId = (await service.openSession(undefined, "codex")).sessionId;
+    const owned = await service.createTab(sessionId, "https://example.com");
+    await service.pauseSession(sessionId);
+    await service.setTabGrant(3, { mode: "all" });
+    await service.setTabGrant(5, { mode: "off" });
+    const views = await service.agentTabs([...tabs.values()]);
+    expect(Object.fromEntries(views)).toEqual({
+      [markerTabId]: { role: "marker" },
+      2: { role: "work" },
+      [owned.id!]: { role: "work", label: "codex", paused: true },
+      3: { role: "granted" },
+    });
+  });
+
+  it("浏览器重启后未确认登记前不标出任何标签", async () => {
+    tabs.set(2, mockTab({ id: 2, windowId: 7 }));
+    await service.designate(7);
+    restartBrowser();
+    tabs.set(2, mockTab({ id: 2, windowId: 7 }));
+    expect((await service.agentTabs([...tabs.values()])).size).toBe(0);
+  });
+
   it("标签关闭后清除授权与租约记录", async () => {
     await service.designate(7);
     const sessionId = (await service.openSession()).sessionId;

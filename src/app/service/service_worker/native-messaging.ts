@@ -14,7 +14,7 @@ import {
   withNativeTabOperation,
   withNativeWindowOperation,
 } from "@App/pkg/browser-control/capture";
-import { agentWindowService, BrowserControlScopeError } from "@App/pkg/browser-control/agent-window";
+import { agentWindowService, BrowserControlScopeError, type AgentTabView } from "@App/pkg/browser-control/agent-window";
 import { BrowserControlError } from "@App/pkg/browser-control/errors";
 import {
   consumeTabActivation,
@@ -177,6 +177,14 @@ function sendEvent(payload: unknown) {
   }
 }
 
+async function withAgentTab(event: BrowserControlEvent): Promise<BrowserControlEvent> {
+  if (!event.tab) return event;
+  const agent = (await agentWindowService.agentTabs([{ id: event.tab.id, windowId: event.tab.windowId }])).get(
+    event.tab.id
+  );
+  return agent ? { ...event, tab: { ...event.tab, agent } } : event;
+}
+
 function tabEventHandler(eventName: string, streams: Set<boolean>) {
   return (...eventArgs: unknown[]) => {
     const activeInfo = eventName === "onActivated" ? (eventArgs[0] as TabActiveInfo | undefined) : undefined;
@@ -185,7 +193,7 @@ function tabEventHandler(eventName: string, streams: Set<boolean>) {
     void normalizeNativeTabEvent(eventName, eventArgs, source)
       .then(async (event) => {
         if (!event) return;
-        if (streams.has(true)) sendEvent({ cmd: "switcher.tabs.event", data: event });
+        if (streams.has(true)) sendEvent({ cmd: "switcher.tabs.event", data: await withAgentTab(event) });
         if (!streams.has(false) || !event.tabId) return;
         if (await agentWindowService.allowsTabEvent(event.tabId.tabId, event.tabId.windowId, event.tab?.url)) {
           sendEvent({ cmd: "tabs.event", data: event });
@@ -299,6 +307,8 @@ export type BrowserControlTab = {
   status?: string;
   favIconUrl?: string;
   sharingState?: BrowserControlSharingState;
+  // 仅人工切换器的列表与事件携带
+  agent?: AgentTabView;
 };
 
 // inline data: favicons ride along with every tab list; drop outliers so one
@@ -831,8 +841,16 @@ const handlers: Record<string, Handler> = {
   // 人工切换器仅提供标签元数据、聚焦、关闭及事件，不授予页面操作权限
   async "switcher.tabs.list"() {
     const tabs = await chrome.tabs.query({});
-    const identity = await resolveBrowserControlIdentity();
-    return { data: tabs.map((tab) => tabToBrowserControlTab(tab, identity)) };
+    const [identity, agentTabs] = await Promise.all([
+      resolveBrowserControlIdentity(),
+      agentWindowService.agentTabs(tabs),
+    ]);
+    return {
+      data: tabs.map((tab) => {
+        const agent = tab.id === undefined ? undefined : agentTabs.get(tab.id);
+        return { ...tabToBrowserControlTab(tab, identity), ...(agent ? { agent } : {}) };
+      }),
+    };
   },
 
   async "switcher.tabs.focus"(args) {

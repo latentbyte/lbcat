@@ -26,6 +26,23 @@ type Tab struct {
 	Audible      bool          `json:"audible"`
 	FavIconURL   string        `json:"favIconUrl,omitempty"` // http(s) or data: URL; empty when unknown
 	SharingState *SharingState `json:"sharingState,omitempty"`
+	Agent        *AgentTab     `json:"agent,omitempty"` // switcher listings and events only; nil when not agent-managed
+}
+
+// AgentRole says why Browser Control manages a tab
+type AgentRole string
+
+const (
+	AgentRoleMarker  AgentRole = "marker"  // the agent window's pinned marker tab
+	AgentRoleWork    AgentRole = "work"    // work tab in the registered agent window
+	AgentRoleGranted AgentRole = "granted" // personal tab the user granted to agents
+)
+
+// AgentTab reports a tab's Browser Control state; Label and Paused come from the task that owns it
+type AgentTab struct {
+	Role   AgentRole `json:"role"`
+	Label  string    `json:"label,omitempty"`
+	Paused bool      `json:"paused,omitempty"`
 }
 
 // SharingState reports browser-provided capture status; nil means unavailable

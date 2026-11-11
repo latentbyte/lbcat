@@ -41,6 +41,8 @@ export type TabAccessView = {
 export type TabIndicator =
   | { kind: "owned"; sessionId: string; label?: string; paused: boolean; expiresAt: number }
   | { kind: "off" };
+// 人工切换器看到的代理管理状态：标记、专用窗口工作标签或获授权的个人标签
+export type AgentTabView = { role: "marker" | "work" | "granted"; label?: string; paused?: boolean };
 export type TabIndicatorListener = (indicators: Map<number, TabIndicator>) => void;
 
 export interface AgentWindowScope {
@@ -569,6 +571,31 @@ export class AgentWindowService implements AgentWindowScope {
           .filter((item) => item.paused || item.expiresAt > this.deps.now())
           .map((item) => sessionView(item)),
       };
+    });
+  }
+
+  // 只读分类，不恢复登记；标签 ID 在本次浏览器运行内确认过标记后才可信
+  async agentTabs(tabs: Array<Pick<chrome.tabs.Tab, "id" | "windowId">>): Promise<Map<number, AgentTabView>> {
+    return this.withState(async (state) => {
+      const views = new Map<number, AgentTabView>();
+      const registration = state.registration?.markerUrl === state.verifiedMarkerUrl ? state.registration : undefined;
+      for (const tab of tabs) {
+        if (tab.id === undefined) continue;
+        if (registration?.markerTabId === tab.id) {
+          views.set(tab.id, { role: "marker" });
+          continue;
+        }
+        const grant = this.grant(state, tab.id);
+        const inWindow = registration?.windowId === tab.windowId && !!registration.eligibleTabIds?.includes(tab.id);
+        if (grant?.mode === "off" || (!grant && !inWindow)) continue;
+        const owner = this.owner(state, tab.id);
+        views.set(tab.id, {
+          role: inWindow ? "work" : "granted",
+          ...(owner?.label ? { label: owner.label } : {}),
+          ...(owner?.paused ? { paused: true } : {}),
+        });
+      }
+      return views;
     });
   }
 

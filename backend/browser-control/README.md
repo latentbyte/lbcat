@@ -362,6 +362,14 @@ The switcher client uses `switcher.tabs.list`, `switcher.tabs.focus`, `switcher.
 (`CloseTab`), and receive tab events without an agent
 window or task session. Tab listing includes private tabs only when the browser grants the extension access.
 
+Switcher tab listings and `switcher.tabs.event` tabs carry `agent` (`model.Tab.Agent`) when Browser Control
+manages the tab, so a switcher can filter or badge those tabs without anything visible to the page:
+`{"role": "marker" | "work" | "granted", "label"?, "paused"?}`. `marker` is the agent window's pinned marker,
+`work` a work tab in the registered agent window, `granted` a personal tab the user allowed agents to use.
+`label` and `paused` come from the live task that owns the tab. Tabs with agent access switched off, and every
+tab after a browser restart until the agent window is confirmed again, have no `agent`. Agent-scoped `tabs`
+listings and events never carry it. Available since LBcat 4.33.0.
+
 Switcher access provides tab metadata, focus, and close only; there are no switcher page-execution, content,
 capture, or userscript commands. `switcher.tabs.event` messages are routed only to connections whose
 switcher subscription succeeded for that browser. Ordinary agent event streams remain scoped to the
