@@ -20,5 +20,3 @@ src/pages/*.html
 src/locales
 src/assets/_locales
 .github/ISSUE_TEMPLATE/bug_report_en.yaml
-.github/workflows/build.yaml
-.github/workflows/packageRelease.yml
