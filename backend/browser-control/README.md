@@ -189,6 +189,24 @@ Daemon event queues hold at most 32 pending events per client; overflow or a soc
 that client so a stalled event reader cannot block unrelated responses. Event streams end on disconnection; reconnect and
 subscribe again when continuous observation is needed.
 
+### Tab links for the human operator
+
+```sh
+bctl --session zen:ab12cd34 tabs link 123   # prints lbcat://tab/zen-01/123
+```
+
+Agents put these links in chat so the human can jump to a tab instead of hunting through browsers, windows, and
+workspaces. Opening one runs `bctl human tabs focus <link>`: the browser focuses the tab, then the OS raises its
+window. On macOS, `browser-control install` registers `~/Applications/LBcat Links.app` as the `lbcat://` handler;
+`uninstall` removes it. A link carries the browser's connection ID. If that browser has since reconnected under a new
+ID, the link goes to the connected browser of the same name that has the tab. Tab IDs do not survive a browser
+restart.
+
+Window raising lives in `internal/raise`. Each `Raiser` tries to bring the tab's OS window forward and the first one
+that succeeds wins: AeroSpace (`aerospace focus --window-id`, matching the window by app and active tab title, which
+also switches workspace), then macOS `open -a <browser>`. To support another OS or window manager, add a `Raiser`
+and list it in `raise.Default`. With none available, only the browser's own window focus happens.
+
 ## Page actions and waiting
 
 Prefer these over `page exec` + `sleep`; each returns what happened instead of `null`:
@@ -345,6 +363,7 @@ bctl human tabs list                             # all windows in the sole conne
 bctl --browser zen-01 human tabs list --json      # one browser, structured metadata
 bctl human tabs list --all-browsers --json        # all windows in all connected browsers
 bctl human tabs focus 123                         # focus a tab and raise its window
+bctl human tabs focus lbcat://tab/zen-01/123      # same, from a tab link
 bctl human tabs close 123 456                     # close tabs in any window
 ```
 

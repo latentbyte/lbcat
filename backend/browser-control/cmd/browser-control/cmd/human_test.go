@@ -15,6 +15,7 @@ import (
 
 	"github.com/latentbyte/lbcat/backend/browser-control/internal/daemon"
 	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/raise"
 	"github.com/latentbyte/lbcat/backend/browser-control/pkg/browsercontrol/model"
 )
 
@@ -320,7 +321,8 @@ func TestHumanTabsFocus(t *testing.T) {
 		flagBrowser, flagSession = oldBrowser, oldSession
 		command.SetOut(nil)
 	})
-	requests := startTabListBrowsers(t, 2, json.RawMessage(`{"cmd":"switcher.tabs.focus","data":{"tabId":42,"windowId":3}}`))
+	useRecordingRaiser(t)
+	requests := focusBrowsers(t, 2)
 	var output bytes.Buffer
 	command.SetOut(&output)
 	if err := command.RunE(command, []string{"42"}); err != nil {
@@ -342,4 +344,120 @@ func TestHumanTabsFocus(t *testing.T) {
 	if output.String() != "focused tab 42 in window 3\n" {
 		t.Fatalf("output = %q", output.String())
 	}
+}
+
+// recordingRaiser stands in for the OS window raisers so tests never move real windows
+type recordingRaiser struct{ raised *[]model.Tab }
+
+func (recordingRaiser) Name() string { return "recording" }
+
+func (r recordingRaiser) Raise(_ context.Context, tab model.Tab, _ []model.Tab) error {
+	*r.raised = append(*r.raised, tab)
+	return nil
+}
+
+func useRecordingRaiser(t *testing.T) *[]model.Tab {
+	t.Helper()
+	var raised []model.Tab
+	old := windowRaisers
+	windowRaisers = func() []raise.Raiser { return []raise.Raiser{recordingRaiser{raised: &raised}} }
+	t.Cleanup(func() { windowRaisers = old })
+	return &raised
+}
+
+// focusBrowsers answers focus and tab listing for tab 42 in window 3
+func focusBrowsers(t *testing.T, count int) <-chan pageCommandRequest {
+	t.Helper()
+	return startBrowsers(t, count, func(command string) json.RawMessage {
+		switch command {
+		case "switcher.tabs.focus":
+			return json.RawMessage(`{"cmd":"switcher.tabs.focus","data":{"tabId":42,"windowId":3}}`)
+		case "switcher.tabs.list":
+			return json.RawMessage(`{"cmd":"switcher.tabs.list","data":[{"id":42,"windowId":3,"title":"Create app","active":true},{"id":43,"windowId":3,"title":"Other"}]}`)
+		}
+		return json.RawMessage(`{"cmd":"error","error":{"code":"UNEXPECTED","message":"unexpected command"}}`)
+	})
+}
+
+func TestHumanTabsFocusLink(t *testing.T) {
+	command, _, err := rootCmd.Find([]string{"human", "tabs", "focus"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldBrowser := flagBrowser
+	flagBrowser = ""
+	t.Cleanup(func() {
+		flagBrowser = oldBrowser
+		command.SetOut(nil)
+	})
+
+	t.Run("链接指定的浏览器聚焦后抬起其窗口", func(t *testing.T) {
+		raised := useRecordingRaiser(t)
+		requests := focusBrowsers(t, 2)
+		var output bytes.Buffer
+		command.SetOut(&output)
+		if err := command.RunE(command, []string{"lbcat://tab/zen-02/42"}); err != nil {
+			t.Fatal(err)
+		}
+		if request := <-requests; request.Cmd != "switcher.tabs.focus" {
+			t.Fatalf("first request = %s", request.Cmd)
+		}
+		if output.String() != "focused tab 42 in window 3\n" {
+			t.Fatalf("output = %q", output.String())
+		}
+		if len(*raised) != 1 || (*raised)[0].BrowserID != "zen-02" || (*raised)[0].ID != 42 || (*raised)[0].Title != "Create app" {
+			t.Fatalf("raised = %+v", *raised)
+		}
+	})
+
+	t.Run("浏览器 ID 失效时按名称找到持有该标签的浏览器", func(t *testing.T) {
+		raised := useRecordingRaiser(t)
+		focusBrowsers(t, 1)
+		command.SetOut(&bytes.Buffer{})
+		if err := command.RunE(command, []string{"lbcat://tab/zen-07/42"}); err != nil {
+			t.Fatal(err)
+		}
+		if len(*raised) != 1 || (*raised)[0].BrowserID != "zen-01" {
+			t.Fatalf("raised = %+v", *raised)
+		}
+	})
+
+	t.Run("失效 ID 对应多个同名浏览器都有该标签时报错", func(t *testing.T) {
+		raised := useRecordingRaiser(t)
+		focusBrowsers(t, 2)
+		command.SetOut(&bytes.Buffer{})
+		err := command.RunE(command, []string{"lbcat://tab/zen-07/42"})
+		if err == nil || !strings.Contains(err.Error(), "several zen browsers") || len(*raised) != 0 {
+			t.Fatalf("err = %v, raised = %+v", err, *raised)
+		}
+	})
+
+	t.Run("失效 ID 对应的同名浏览器都没有该标签时报错", func(t *testing.T) {
+		useRecordingRaiser(t)
+		focusBrowsers(t, 1)
+		err := command.RunE(command, []string{"lbcat://tab/zen-07/99"})
+		if err == nil || !strings.Contains(err.Error(), "tab 99 not found") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+}
+
+func TestTabsLink(t *testing.T) {
+	t.Run("输出当前浏览器中该标签的链接", func(t *testing.T) {
+		oldBrowser, oldSession := flagBrowser, flagSession
+		flagBrowser, flagSession = "zen-02", ""
+		t.Cleanup(func() {
+			flagBrowser, flagSession = oldBrowser, oldSession
+			tabsLinkCmd.SetOut(nil)
+		})
+		focusBrowsers(t, 2)
+		var output bytes.Buffer
+		tabsLinkCmd.SetOut(&output)
+		if err := tabsLinkCmd.RunE(tabsLinkCmd, []string{"116"}); err != nil {
+			t.Fatal(err)
+		}
+		if output.String() != "lbcat://tab/zen-02/116\n" {
+			t.Fatalf("output = %q", output.String())
+		}
+	})
 }

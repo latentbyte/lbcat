@@ -9,6 +9,7 @@ import (
 
 	"github.com/latentbyte/lbcat/backend/browser-control/internal/cli"
 	"github.com/latentbyte/lbcat/backend/browser-control/pkg/browsercontrol"
+	"github.com/latentbyte/lbcat/backend/browser-control/pkg/browsercontrol/model"
 	"github.com/spf13/cobra"
 )
 
@@ -359,11 +360,40 @@ var tabsWatchCmd = &cobra.Command{
 	},
 }
 
+// tabsLinkCmd prints a link the human can click to bring the tab forward, for agents pointing at a tab in chat
+var tabsLinkCmd = &cobra.Command{
+	Use:   "link <tab-id>",
+	Short: "Print a link that focuses the tab and raises its window when the human opens it",
+	Long: `Print a link such as lbcat://tab/zen-01/116 that the human can click in chat to bring the tab forward,
+across browsers, windows, and workspaces. It runs "human tabs focus" through the URL handler "install" sets up on macOS.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tabID, err := parseTabArg(args[0])
+		if err != nil {
+			return err
+		}
+		if tabID <= 0 {
+			return fmt.Errorf("tab ID must be a positive integer")
+		}
+		c, err := connectScoped()
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		target, err := resolveBrowser(c.Peers())
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), browsercontrol.TabLink(model.BrowserID(target), int64(tabID)))
+		return err
+	},
+}
+
 func init() {
 	tabsFocusCmd.Flags().Int("window", 0, "browser window ID to focus after activating the tab")
 	tabsCreateCmd.Flags().Bool("active", false, "activate new tab within agent window")
 	tabsFocusCmd.Flags().Bool("foreground", false, "also focus the browser window (without it, only selects the tab inside the agent window)")
 
-	tabsCmd.AddCommand(tabsListCmd, tabsGetCmd, tabsFocusCmd, tabsCreateCmd, tabsCloseCmd, tabsWatchCmd)
+	tabsCmd.AddCommand(tabsListCmd, tabsGetCmd, tabsFocusCmd, tabsCreateCmd, tabsCloseCmd, tabsWatchCmd, tabsLinkCmd)
 	rootCmd.AddCommand(tabsCmd)
 }

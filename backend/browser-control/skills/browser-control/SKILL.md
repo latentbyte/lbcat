@@ -216,6 +216,21 @@ bctl --session <s> note resolve "$NOTE"
 - `note list [--status open]` shows your session's notes; `note get <id>` works
   by ID after the session ends.
 
+## Pointing the human at a tab
+
+Whenever your chat reply asks the human to look at or act on a tab (a
+`needs-human` note, a guide, a filled form, a result page), give a link they
+can click. Don't describe the window, workspace, or slot instead:
+
+```bash
+bctl --session <s> tabs link <tab-id>   # prints lbcat://tab/zen-01/116
+```
+
+Write it as a markdown link with a short label, eg
+`[Create app form](lbcat://tab/zen-01/116)`. Clicking it focuses the tab and
+raises its window across browsers, windows, and workspaces. Links stop working
+when the tab closes or the browser restarts.
+
 ## Walkthrough mode
 
 When the user asks to be walked through a task instead of having it done, coach
@@ -263,8 +278,8 @@ bctl --session <s> guide clear <tab-id>          # when the walkthrough ends
 - One guide per session: a `guide step` on another tab ends the earlier tab's
   guide, and its card points the human to the new tab. If the window is showing
   one of your session's tabs, the step's tab is switched to the front (never a
-  personal or other task's tab, never window focus). Otherwise say in chat
-  which tab the walkthrough is on.
+  personal or other task's tab, never window focus). Otherwise give the
+  tab's link in chat.
 - Every `guide step` makes the CLI send a desktop notification to the human with
   the title and the step's first line; clicking it focuses the step's tab via
   `bctl human tabs focus`. Don't send your own, and don't run `human` commands

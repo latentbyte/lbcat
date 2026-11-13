@@ -170,7 +170,8 @@ var installCmd = &cobra.Command{
 	Short: "Register native host manifests for detected browsers",
 	Long: `Detects installed browsers and writes native messaging host manifests
 that point to the lbcat-shim binary. This allows LBCat to communicate
-with Browser Control via the shared daemon.
+with Browser Control via the shared daemon. On macOS it also installs
+~/Applications/LBcat Links.app, which opens lbcat:// tab links.
 
 LBcat has no Chrome Web Store listing yet, so Chromium browsers need the
 unpacked extension's ID: pass --extension-id, or --dev to read the IDs of
@@ -234,6 +235,16 @@ are skipped.`,
 					fmt.Printf("installed: %s [%s] -> %s\n", browser, reg.hostName, manifestFile)
 					installed++
 				}
+			}
+		}
+
+		if runtime.GOOS == "darwin" {
+			if cliPath, err := os.Executable(); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: tab link handler not installed: %v\n", err)
+			} else if app, err := installLinkHandler(home, cliPath); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: tab link handler not installed: %v\n", err)
+			} else {
+				fmt.Printf("installed: lbcat:// tab link handler -> %s\n", app)
 			}
 		}
 
@@ -689,6 +700,11 @@ var uninstallCmd = &cobra.Command{
 
 		if removed == 0 {
 			fmt.Println("no manifests found to remove")
+		}
+		if found, err := uninstallLinkHandler(home); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: cannot remove tab link handler: %v\n", err)
+		} else if found {
+			fmt.Printf("removed: lbcat:// tab link handler (%s)\n", linkHandlerPath(home))
 		}
 		return nil
 	},
