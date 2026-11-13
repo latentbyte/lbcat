@@ -240,10 +240,16 @@ describe("tabToBrowserControlTab", () => {
     const tab = { id: 1, windowId: 2, favIconUrl: "https://example.com/favicon.ico" } as chrome.tabs.Tab;
     expect(tabToBrowserControlTab(tab)).toMatchObject({ favIconUrl: "https://example.com/favicon.ico" });
 
+    // Firefox inlines declared icons; Gemini's 512px PNG is about 82K chars
+    const large = "data:image/png;base64," + "A".repeat(82 * 1024);
+    expect(tabToBrowserControlTab({ id: 1, windowId: 2, favIconUrl: large } as chrome.tabs.Tab)).toMatchObject({
+      favIconUrl: large,
+    });
+
     const huge = {
       id: 1,
       windowId: 2,
-      favIconUrl: "data:image/png;base64," + "A".repeat(64 * 1024),
+      favIconUrl: "data:image/png;base64," + "A".repeat(128 * 1024),
     } as chrome.tabs.Tab;
     expect(tabToBrowserControlTab(huge)).not.toHaveProperty("favIconUrl");
   });

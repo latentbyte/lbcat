@@ -312,8 +312,9 @@ export type BrowserControlTab = {
 };
 
 // inline data: favicons ride along with every tab list; drop outliers so one
-// huge icon cannot bloat native messages
-const MAX_FAVICON_URL_LENGTH = 64 * 1024;
+// huge icon cannot bloat native messages. Firefox inlines declared icons as
+// data: URLs, so a 512px PNG (Gemini's is about 82K chars) must still fit
+const MAX_FAVICON_URL_LENGTH = 128 * 1024;
 
 function publicFavIconUrl(url: string | undefined): string | undefined {
   if (!url || url.length > MAX_FAVICON_URL_LENGTH) return undefined;
