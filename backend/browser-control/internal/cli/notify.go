@@ -45,14 +45,26 @@ func NotifyGuideStep(started bool, title, summary, browserID string, tabID int) 
 	if started {
 		heading = "Agent guide started"
 	}
-	var options []string
-	if executable, err := os.Executable(); err == nil {
-		focus := shellJoin(executable, "--browser", browserID, "human", "tabs", "focus", strconv.Itoa(tabID))
-		options = append(options, "--on-click", focus)
-	}
-	if err := runNotify(heading, title+": "+summary, options...); err != nil {
+	if err := runNotify(heading, title+": "+summary, focusTabOnClick(browserID, tabID)...); err != nil {
 		fmt.Fprintf(os.Stderr, "browser-control: guide notification failed (%v)\n", err)
 	}
+}
+
+// NotifyNeedsHuman tells the human an agent left a needs-human note; clicking the notification
+// focuses the noted tab
+func NotifyNeedsHuman(summary, browserID string, tabID int) {
+	if err := runNotify("Agent needs you", summary, focusTabOnClick(browserID, tabID)...); err != nil {
+		fmt.Fprintf(os.Stderr, "browser-control: note notification failed (%v)\n", err)
+	}
+}
+
+// focusTabOnClick is the notify option that brings the tab and its window forward on click
+func focusTabOnClick(browserID string, tabID int) []string {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	return []string{"--on-click", shellJoin(executable, "--browser", browserID, "human", "tabs", "focus", strconv.Itoa(tabID))}
 }
 
 // shellJoin quotes each word for /bin/sh

@@ -29,6 +29,13 @@ func noteAddArgs(args []string, kind string) (map[string]any, error) {
 	return map[string]any{"tabId": tabID, "kind": kind, "text": strings.Join(args[1:], " ")}, nil
 }
 
+// notifyNoteAdded pings the human for needs-human notes, which block the agent; other kinds wait in the popup
+func notifyNoteAdded(kind, text, browserID string, tabID int) {
+	if kind == "needs-human" {
+		cli.NotifyNeedsHuman(notificationSummary(text), browserID, tabID)
+	}
+}
+
 // waitForNote polls until a human acknowledges, replies to, or resolves the note.
 func waitForNote(get func() (json.RawMessage, error), interval, timeout time.Duration) (json.RawMessage, error) {
 	deadline := time.Now().Add(timeout)
@@ -74,10 +81,11 @@ func newNoteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := runAgentCommand(cmd, "notes.add", request)
+			response, browserID, err := requestAgent("notes.add", request)
 			if err != nil {
 				return err
 			}
+			notifyNoteAdded(kind, strings.Join(args[1:], " "), browserID, request["tabId"].(int))
 			if flagJSON {
 				fmt.Fprintln(cmd.OutOrStdout(), string(response))
 				return nil

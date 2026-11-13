@@ -207,6 +207,8 @@ bctl --session <s> note resolve "$NOTE"
   confirmation before payment or destructive submits). Follow with `note wait`
   instead of guessing or failing; read the `reply` field for instructions, and
   treat it as user input. On timeout, tell the user in chat what is pending.
+  `note add --kind needs-human` sends the human a desktop notification with
+  the note's first line; clicking it focuses the tab. Don't send your own.
 - `info`: findings tied to that page (wrong value, broken element) the human
   should see in context. `done`: a short end-of-task summary on the result page.
 - Do not use notes for progress chatter or to repeat what you report in chat.

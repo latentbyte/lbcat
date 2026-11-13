@@ -3,6 +3,8 @@ package cmd
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -55,6 +57,31 @@ func TestNoteAddArgs(t *testing.T) {
 		}
 		if _, err := noteAddArgs([]string{"3", "hi"}, "todo"); err == nil {
 			t.Fatal("expected kind error")
+		}
+	})
+}
+
+func TestNotifyNoteAdded(t *testing.T) {
+	t.Run("只有 needs-human 便签通知人工，正文为首行，点击聚焦该标签", func(t *testing.T) {
+		dir := t.TempDir()
+		output := filepath.Join(dir, "notifications")
+		// $2 is the click command; drop its executable path, which varies per test binary
+		script := "#!/bin/sh\n[ \"$1\" = --on-click ] || exit 1\nprintf '%s|%s|%s\\n' \"$3\" \"$4\" \"${2#* }\" >> \"$BC_TEST_NOTIFY_FILE\"\n"
+		if err := os.WriteFile(filepath.Join(dir, "notify.sh"), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", dir)
+		t.Setenv("BC_TEST_NOTIFY_FILE", output)
+		notifyNoteAdded("info", "Price is wrong", "zen-01", 5)
+		notifyNoteAdded("done", "Finished", "zen-01", 5)
+		notifyNoteAdded("needs-human", "Tick the two declarations\nthen click Create app", "zen-01", 116)
+		data, err := os.ReadFile(output)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "Agent needs you|Tick the two declarations|'--browser' 'zen-01' 'human' 'tabs' 'focus' '116'\n"
+		if string(data) != want {
+			t.Fatalf("notifications = %q; want %q", data, want)
 		}
 	})
 }

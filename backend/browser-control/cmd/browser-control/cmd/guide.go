@@ -92,11 +92,11 @@ func notifyGuideStep(resp json.RawMessage, title, text, browserID string, tabID 
 	if json.Unmarshal(resp, &result) != nil {
 		return
 	}
-	cli.NotifyGuideStep(result.Data.Started, strings.TrimSpace(title), guideStepSummary(text), browserID, tabID)
+	cli.NotifyGuideStep(result.Data.Started, strings.TrimSpace(title), notificationSummary(text), browserID, tabID)
 }
 
-// guideStepSummary is the step text's first non-empty line, cut to fit a notification
-func guideStepSummary(text string) string {
+// notificationSummary is the text's first non-empty line, cut to fit a notification
+func notificationSummary(text string) string {
 	const limit = 100
 	for _, line := range strings.Split(text, "\n") {
 		if line = strings.TrimSpace(line); line == "" {

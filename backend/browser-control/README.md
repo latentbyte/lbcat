@@ -116,7 +116,8 @@ bctl --browser zen-01 note resolve "$NOTE"
 bctl --browser zen-01 note list --status open
 ```
 
-Kinds are `info`, `needs-human`, and `done`. Status starts `open`; the human can acknowledge, reply (which also
+Kinds are `info`, `needs-human`, and `done`. Adding a `needs-human` note sends a desktop notification with the note's first line;
+clicking it runs `bctl human tabs focus` for the noted tab. Status starts `open`; the human can acknowledge, reply (which also
 acknowledges), resolve, or delete from the popup, which lists the current page's notes. Open notes show their count on
 the tab's toolbar badge. `note list` returns the current session's notes, or all notes without a session; `note get`
 and `note wait` work by note ID after the session ends. Notes are plain text up to 2000 characters, visible to
