@@ -375,7 +375,6 @@
   "get_script": "スクリプトを取得",
   "report_issue": "バグ報告 / 問題のフィードバック",
   "project_docs": "プロジェクトドキュメント",
-  "community": "コミュニティ",
   "popup": {
     "new_version_available": "新しいバージョンが利用可能です"
   },

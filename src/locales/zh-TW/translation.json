@@ -375,7 +375,6 @@
   "get_script": "取得腳本",
   "report_issue": "BUG / 問題回報",
   "project_docs": "專案文件",
-  "community": "交流社群",
   "popup": {
     "new_version_available": "有新版本可用"
   },

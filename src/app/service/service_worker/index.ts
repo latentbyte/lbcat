@@ -1,4 +1,4 @@
-import { DocumentationSite, ExtVersion } from "@App/app/const";
+import { ExtVersion, ProjectRepo } from "@App/app/const";
 import { type Server } from "@Packages/message/server";
 import { type IMessageQueue } from "@Packages/message/message_queue";
 import { ScriptService } from "./script";
@@ -13,7 +13,7 @@ import { SubscribeService } from "./subscribe";
 import { ScriptDAO } from "@App/app/repo/scripts";
 import { SystemService } from "./system";
 import { type Logger, LoggerDAO } from "@App/app/repo/logger";
-import { initLocales, initLocalesPromise, localePath, t, watchLanguageChange } from "@App/locales/locales";
+import { initLocales, initLocalesPromise, t } from "@App/locales/locales";
 import { onTabRemoved, onUrlNavigated, setOnUserActionDomainChanged } from "./url_monitor";
 import { LocalStorageDAO } from "@App/app/repo/localStorage";
 import { FaviconDAO } from "@App/app/repo/favicon";
@@ -237,21 +237,18 @@ export default class ServiceWorkerManager {
         // 安装或更新时不自动打开页面，更新只弹出通知
         initLocalesPromise.then(() => {
           if (details.reason === "update") {
-            const url = `${DocumentationSite}${localePath}/docs/change/${ExtVersion.includes("-") ? "beta-changelog/" : ""}#${ExtVersion}`;
             InfoNotification(t("ext_update_notification"), t("ext_update_notification_desc", { version: ExtVersion }), {
-              url,
+              url: `${ProjectRepo}/releases`,
             });
           }
         });
 
-        // 监听扩展卸载事件
-        watchLanguageChange(() => {
-          chrome.runtime.setUninstallURL(`${DocumentationSite}${localePath}/uninstall`, () => {
-            const lastError = chrome.runtime.lastError;
-            if (lastError) {
-              console.error("chrome.runtime.lastError in chrome.runtime.setUninstallURL:", lastError);
-            }
-          });
+        // 清除旧版本设置的上游 ScriptCat 卸载页
+        chrome.runtime.setUninstallURL("", () => {
+          const lastError = chrome.runtime.lastError;
+          if (lastError) {
+            console.error("chrome.runtime.lastError in chrome.runtime.setUninstallURL:", lastError);
+          }
         });
       });
     }

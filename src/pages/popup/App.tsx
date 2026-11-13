@@ -1,4 +1,4 @@
-import { Discord, DocumentationSite, ExtVersion } from "@App/app/const";
+import { ExtVersion, ProjectRepo } from "@App/app/const";
 import { Button, Card, Collapse, Dropdown, Menu, Switch } from "@arco-design/web-react";
 import {
   IconBook,
@@ -11,7 +11,6 @@ import {
   IconSync,
 } from "@arco-design/web-react/icon";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { RiMessage2Line } from "react-icons/ri";
 import { useTranslation } from "react-i18next";
 import ScriptMenuList from "../components/ScriptMenuList";
 import PopupWarnings, { type NativeMessagingStatusResponse } from "../components/PopupWarnings";
@@ -21,7 +20,7 @@ import AgentNotesCard from "@App/pages/components/AgentNotesCard";
 import { popupClient, requestOpenBatchUpdatePage } from "@App/pages/store/features/script";
 import type { ScriptMenu, TPopupScript } from "@App/app/service/service_worker/types";
 import { systemConfig } from "@App/pages/store/global";
-import { isChineseUser, localePath } from "@App/locales/locales";
+import { isChineseUser } from "@App/locales/locales";
 import { getCurrentTab, openInCurrentTab } from "@App/pkg/utils/utils";
 import { subscribeMessage } from "@App/pages/store/global";
 import type { TDeleteScript, TEnableScript, TScriptRunStatus } from "@App/app/service/queue";
@@ -397,7 +396,7 @@ function App() {
       case "report_issue": {
         const browserInfo = `${navigator.userAgent}`;
         const issueUrl =
-          `https://github.com/scriptscat/scriptcat/issues/new?` +
+          `${ProjectRepo}/issues/new?` +
           `template=bug_report${isChineseUser() ? "" : "_en"}.yaml&scriptcat-version=${ExtVersion}&` +
           `browser-version=${encodeURIComponent(browserInfo)}`;
         window.open(issueUrl, "_blank");
@@ -484,24 +483,11 @@ function App() {
                       <IconBug style={iconStyle} />
                       {t("report_issue")}
                     </Menu.Item>
-                    <Menu.Item
-                      key={`${DocumentationSite}${localePath}`}
-                      className="tw-flex tw-flex-row tw-items-center"
-                    >
+                    <Menu.Item key={`${ProjectRepo}#readme`} className="tw-flex tw-flex-row tw-items-center">
                       <IconBook style={iconStyle} />
                       {t("project_docs")}
                     </Menu.Item>
-                    <Menu.Item
-                      key={isChineseUser() ? "https://bbs.tampermonkey.net.cn/" : Discord}
-                      className="tw-flex tw-flex-row tw-items-center"
-                    >
-                      <RiMessage2Line style={iconStyle} />
-                      {t("community")}
-                    </Menu.Item>
-                    <Menu.Item
-                      key="https://github.com/scriptscat/scriptcat"
-                      className="tw-flex tw-flex-row tw-items-center"
-                    >
+                    <Menu.Item key={ProjectRepo} className="tw-flex tw-flex-row tw-items-center">
                       <IconGithub style={iconStyle} />
                       {"GitHub"}
                     </Menu.Item>

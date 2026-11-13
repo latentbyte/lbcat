@@ -375,7 +375,6 @@
   "get_script": "Получить скрипт",
   "report_issue": "Отзыв об ошибке / проблеме",
   "project_docs": "Документация проекта",
-  "community": "Сообщество",
   "popup": {
     "new_version_available": "Доступна новая версия"
   },

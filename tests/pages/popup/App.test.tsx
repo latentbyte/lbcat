@@ -145,6 +145,26 @@ describe("Popup App Component", () => {
     expect(fetchSpy.mock.calls.map(([url]) => String(url)).join()).not.toContain("ext.scriptcat.org");
   });
 
+  it("更多菜单的项目链接应指向 LBcat 而非上游 ScriptCat", async () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<App />);
+
+    const more = document.querySelector(".arco-icon-more-vertical")?.closest("button");
+    expect(more).toBeTruthy();
+    fireEvent.click(more!);
+
+    for (const label of ["report_issue", "project_docs", "GitHub"]) {
+      fireEvent.click(await screen.findByText(label));
+    }
+    const opened = openSpy.mock.calls.map(([url]) => String(url));
+    expect(opened).toHaveLength(3);
+    for (const url of opened) {
+      expect(url.startsWith("https://github.com/latentbyte/lbcat")).toBe(true);
+    }
+    expect(opened[0]).toContain("/issues/new?");
+    expect(screen.queryByText("community")).toBeNull();
+  });
+
   it("should render basic UI elements", async () => {
     render(<App />);
 
