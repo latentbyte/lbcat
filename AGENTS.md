@@ -1,7 +1,8 @@
 ## LBcat fork notes
 
-Fork of `scriptscat/scriptcat` (remote `upstream`); `origin` is the fork, work lands on `dev`. Ships as **LBcat**
-(`package.json` name `lbcat`); keep upstream identifiers and the add-on ID (see `docs/DEVELOP.md` -> LBcat releases).
+Fork of `scriptscat/scriptcat` (remote `upstream`, tracked locally as `upstream-main`); `origin` is the fork, work
+lands on `main`. Ships as **LBcat** (`package.json` name `lbcat`); keep upstream identifiers and the add-on ID (see
+`docs/DEVELOP.md` -> LBcat releases).
 The upstream guidance below still applies.
 
 - Bump the version with every change, plain semver `x.y.z`: `just set-version x.y.z` (writes `package.json` and
