@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -113,11 +114,14 @@ var browserRegistry = map[string]browserInfo{
 	},
 }
 
+// errNoChromeOrigins means no LBcat extension ID is known for a Chromium browser, so a manifest would trust nothing
+var errNoChromeOrigins = errors.New("no LBcat extension ID for this Chromium browser")
+
 // extensionRegistry holds known published extension IDs per extension, keyed by manifest style.
 type extensionRegistry struct {
 	hostName    string            // native messaging host name
 	description string            // human-readable description
-	knownIDs    map[string]string // "chrome" or "firefox" -> store extension ID
+	knownIDs    map[string]string // "chrome" or "firefox" -> published extension ID
 }
 
 var extensions = []extensionRegistry{
@@ -125,7 +129,7 @@ var extensions = []extensionRegistry{
 		hostName:    protocol.HostName,
 		description: "Browser Control bridge",
 		knownIDs: map[string]string{
-			"chrome":  "ndcooeababalnlpkfedmmbbbgkljhpjf",
+			// no chrome entry until LBcat has its own Chrome Web Store ID
 			"firefox": "scriptcat@latentbyte.com",
 		},
 	},
@@ -168,8 +172,10 @@ var installCmd = &cobra.Command{
 that point to the lbcat-shim binary. This allows LBCat to communicate
 with Browser Control via the shared daemon.
 
-For dev builds (unpacked extensions), use --dev to also allow the extension ID
-found in dist/manifest.json, or pass --extension-id explicitly.`,
+LBcat has no Chrome Web Store listing yet, so Chromium browsers need the
+unpacked extension's ID: pass --extension-id, or --dev to read the IDs of
+profiles that load dist/ from this checkout. Chromium browsers without an ID
+are skipped.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		shimPath, err := findShimBinary()
 		if err != nil {
@@ -205,6 +211,10 @@ found in dist/manifest.json, or pass --extension-id explicitly.`,
 
 			for _, reg := range extensions {
 				data, err := buildManifestData(info, browser, shimPath, extID, devMode, devFirefoxID, devChromeIDs, reg)
+				if errors.Is(err, errNoChromeOrigins) {
+					fmt.Fprintf(os.Stderr, "skipped: %s [%s]: no LBcat extension ID, pass --extension-id <id> or --dev\n", browser, reg.hostName)
+					continue
+				}
 				if err != nil {
 					return err
 				}
@@ -245,14 +255,12 @@ found in dist/manifest.json, or pass --extension-id explicitly.`,
 	},
 }
 
-// buildChromeOrigins returns the allowed_origins list for a Chrome manifest.
-// In dev mode, we include a wildcard-style match by not restricting to a
-// specific ID (Chrome doesn't support wildcards, so we include both the known
-// store ID and the user-provided one).
+// buildChromeOrigins returns the allowed_origins list for a Chrome manifest: the
+// published ID when one exists, the explicit --extension-id, and in dev mode the
+// unpacked IDs found in browser profiles. Chrome has no wildcard origins.
 func buildChromeOrigins(extID string, devMode bool, browser string, devChromeIDs []string, reg extensionRegistry) []string {
 	var origins []string
 
-	// always include the known store ID
 	storeID := extIDForBrowser(browser, reg)
 	if storeID != "" {
 		origins = append(origins, "chrome-extension://"+storeID+"/")
@@ -293,6 +301,9 @@ func buildManifestData(info browserInfo, browser, shimPath, extID string, devMod
 	}
 
 	origins := buildChromeOrigins(extID, devMode, browser, devChromeIDs, reg)
+	if len(origins) == 0 {
+		return nil, errNoChromeOrigins
+	}
 	m := chromeManifest{
 		Name:           reg.hostName,
 		Description:    reg.description,

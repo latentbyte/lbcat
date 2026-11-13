@@ -26,6 +26,8 @@ class Lbcat < Formula
     <<~EOS
       Register the Native Messaging host for your browsers, then restart them:
         #{HOMEBREW_PREFIX}/bin/browser-control install
+      For Chromium browsers, add the unpacked LBcat ID from chrome://extensions:
+        #{HOMEBREW_PREFIX}/bin/browser-control install --extension-id <id>
 
       Install the LBcat extension: https://github.com/latentbyte/lbcat#install
 

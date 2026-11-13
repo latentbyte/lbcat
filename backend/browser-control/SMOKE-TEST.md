@@ -60,7 +60,7 @@ This single command:
 1. Builds the Go binaries
 2. Copies them to `~/.local/bin/`
 3. Writes native host manifests for every detected browser
-4. Uses `--dev` flag, so it accepts both the store extension ID and any unpacked/dev extension ID (reads Firefox addon
+4. Uses `--dev` flag, so it accepts the unpacked/dev extension IDs found in browser profiles (reads Firefox addon
    ID from `dist/manifest.json` or `dist/ext/manifest.json` if it exists)
 
 No need to re-register when you reload an unpacked extension in Chrome, because Chrome unpacked extensions keep the same

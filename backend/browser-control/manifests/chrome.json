@@ -3,5 +3,5 @@
   "description": "Browser Control bridge",
   "path": "/absolute/path/to/lbcat-shim",
   "type": "stdio",
-  "allowed_origins": ["chrome-extension://ndcooeababalnlpkfedmmbbbgkljhpjf/"]
+  "allowed_origins": ["chrome-extension://YOUR_LBCAT_EXTENSION_ID/"]
 }

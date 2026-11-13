@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -160,5 +162,44 @@ func TestFindDevChromeIDsInPreferences(t *testing.T) {
 	want := []string{"jpdgdnbodkkeokfekmmabgecbgnjhgkj", "ngcphajdpkmefkapppmmmlghdpgcfoan"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("findDevChromeIDsInPreferences() = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildChromeOriginsOnlyTrustsLBcatIDs(t *testing.T) {
+	t.Parallel()
+
+	reg := extensions[0]
+	for _, browser := range []string{"chrome", "brave", "comet", "edge"} {
+		if got := buildChromeOrigins("", false, browser, nil, reg); len(got) != 0 {
+			t.Fatalf("%s without LBcat IDs: buildChromeOrigins() = %#v, want none", browser, got)
+		}
+	}
+
+	got := buildChromeOrigins("explicitid", true, "chrome", []string{"devid", "explicitid"}, reg)
+	want := []string{"chrome-extension://explicitid/", "chrome-extension://devid/"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildChromeOrigins() = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildManifestDataSkipsChromeWithoutOrigins(t *testing.T) {
+	t.Parallel()
+
+	reg := extensions[0]
+	_, err := buildManifestData(browserRegistry["chrome"], "chrome", "/bin/lbcat-shim", "", false, "", nil, reg)
+	if !errors.Is(err, errNoChromeOrigins) {
+		t.Fatalf("buildManifestData() error = %v, want errNoChromeOrigins", err)
+	}
+
+	data, err := buildManifestData(browserRegistry["zen"], "zen", "/bin/lbcat-shim", "", false, "", nil, reg)
+	if err != nil {
+		t.Fatalf("buildManifestData(zen) error = %v", err)
+	}
+	var m firefoxManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("Unmarshal(zen manifest) failed: %v", err)
+	}
+	if !reflect.DeepEqual(m.AllowedExtensions, []string{"scriptcat@latentbyte.com"}) {
+		t.Fatalf("zen allowed_extensions = %#v", m.AllowedExtensions)
 	}
 }
