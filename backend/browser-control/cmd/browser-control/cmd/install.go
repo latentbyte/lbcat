@@ -129,7 +129,7 @@ var extensions = []extensionRegistry{
 		hostName:    protocol.HostName,
 		description: "Browser Control bridge",
 		knownIDs: map[string]string{
-			// no chrome entry until LBcat has its own Chrome Web Store ID
+			"chrome":  "kahoajflpencacfboacdkmhldlehmbpa", // Chrome Web Store
 			"firefox": "scriptcat@latentbyte.com",
 		},
 	},
@@ -173,10 +173,9 @@ that point to the lbcat-shim binary. This allows LBCat to communicate
 with Browser Control via the shared daemon. On macOS it also installs
 ~/Applications/LBcat Links.app, which opens lbcat:// tab links.
 
-LBcat has no Chrome Web Store listing yet, so Chromium browsers need the
-unpacked extension's ID: pass --extension-id, or --dev to read the IDs of
-profiles that load dist/ from this checkout. Chromium browsers without an ID
-are skipped.`,
+Chromium browsers trust LBcat's Chrome Web Store ID. For an unpacked build,
+pass its ID with --extension-id, or --dev to read the IDs of profiles that
+load dist/ from this checkout.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		shimPath, err := findShimBinary()
 		if err != nil {

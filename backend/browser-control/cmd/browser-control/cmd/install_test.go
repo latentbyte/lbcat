@@ -169,14 +169,15 @@ func TestBuildChromeOriginsOnlyTrustsLBcatIDs(t *testing.T) {
 	t.Parallel()
 
 	reg := extensions[0]
+	store := []string{"chrome-extension://kahoajflpencacfboacdkmhldlehmbpa/"}
 	for _, browser := range []string{"chrome", "brave", "comet", "edge"} {
-		if got := buildChromeOrigins("", false, browser, nil, reg); len(got) != 0 {
-			t.Fatalf("%s without LBcat IDs: buildChromeOrigins() = %#v, want none", browser, got)
+		if got := buildChromeOrigins("", false, browser, nil, reg); !reflect.DeepEqual(got, store) {
+			t.Fatalf("%s: buildChromeOrigins() = %#v, want the LBcat store ID %#v", browser, got, store)
 		}
 	}
 
 	got := buildChromeOrigins("explicitid", true, "chrome", []string{"devid", "explicitid"}, reg)
-	want := []string{"chrome-extension://explicitid/", "chrome-extension://devid/"}
+	want := []string{"chrome-extension://kahoajflpencacfboacdkmhldlehmbpa/", "chrome-extension://explicitid/", "chrome-extension://devid/"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildChromeOrigins() = %#v, want %#v", got, want)
 	}
@@ -185,12 +186,13 @@ func TestBuildChromeOriginsOnlyTrustsLBcatIDs(t *testing.T) {
 func TestBuildManifestDataSkipsChromeWithoutOrigins(t *testing.T) {
 	t.Parallel()
 
-	reg := extensions[0]
-	_, err := buildManifestData(browserRegistry["chrome"], "chrome", "/bin/lbcat-shim", "", false, "", nil, reg)
+	noChrome := extensionRegistry{hostName: extensions[0].hostName, knownIDs: map[string]string{"firefox": "scriptcat@latentbyte.com"}}
+	_, err := buildManifestData(browserRegistry["chrome"], "chrome", "/bin/lbcat-shim", "", false, "", nil, noChrome)
 	if !errors.Is(err, errNoChromeOrigins) {
 		t.Fatalf("buildManifestData() error = %v, want errNoChromeOrigins", err)
 	}
 
+	reg := extensions[0]
 	data, err := buildManifestData(browserRegistry["zen"], "zen", "/bin/lbcat-shim", "", false, "", nil, reg)
 	if err != nil {
 		t.Fatalf("buildManifestData(zen) error = %v", err)
