@@ -8,6 +8,7 @@ describe("浏览器控制连接状态指示器", () => {
     ["connecting", "warning"],
     ["disconnected", "error"],
     ["error", "error"],
+    ["not_installed", "default"],
   ] as const)("%s 状态应显示对应颜色", (status, color) => {
     const { container } = render(
       <ConnectionStatusDot status={{ status, hostName: "com.latentbyte.browser_control" }} />

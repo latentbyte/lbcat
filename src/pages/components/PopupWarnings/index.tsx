@@ -5,7 +5,9 @@ import { checkUserScriptsAvailable, getBrowserType, BrowserType, isPermissionOk 
 import edgeMobileQrCode from "@App/assets/images/edge_mobile_qrcode.png";
 import BrowserControlCard from "../BrowserControlCard";
 
-export type NativeMessagingStatus = "connected" | "connecting" | "disconnected" | "error";
+export type NativeMessagingStatus = "connected" | "connecting" | "disconnected" | "error" | "not_installed";
+
+const AGENT_TOOLS_SETUP_URL = "https://github.com/latentbyte/lbcat#install";
 
 export interface NativeMessagingStatusResponse {
   status: NativeMessagingStatus;
@@ -133,7 +135,22 @@ function PopupWarnings({ isBlacklist, nativeStatus }: PopupWarningsProps) {
   return (
     <>
       <BrowserControlCard />
-      {nativeStatus.status !== "connected" && (
+      {nativeStatus.status === "not_installed" && (
+        <Alert
+          type="info"
+          showIcon={false}
+          content={
+            <div>
+              {"Userscripts work now. To let coding agents use this browser, "}
+              <a href={AGENT_TOOLS_SETUP_URL} target="_blank" rel="noreferrer">
+                {"set up agent control"}
+              </a>
+              {"."}
+            </div>
+          }
+        />
+      )}
+      {nativeStatus.status !== "connected" && nativeStatus.status !== "not_installed" && (
         <Alert
           type={nativeStatus.status === "connecting" ? "info" : "warning"}
           content={

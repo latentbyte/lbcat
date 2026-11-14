@@ -10,6 +10,7 @@ const badgeStatusByConnection = {
   connecting: "warning",
   disconnected: "error",
   error: "error",
+  not_installed: "default",
 } as const;
 
 function ConnectionStatusDot({ status }: ConnectionStatusDotProps) {

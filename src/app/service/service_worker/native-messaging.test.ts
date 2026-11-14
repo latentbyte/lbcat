@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   browserIdentityFromUserAgent,
+  connectionStateForError,
   disconnect,
   initNativeMessaging,
   focusNativeTab,
@@ -13,6 +14,22 @@ import { withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 import { clearTabActivations, consumeTabActivation } from "@App/pkg/browser-control/activation-source";
 import { agentNotesService } from "@App/pkg/browser-control/agent-notes";
 import { guideService } from "@App/pkg/browser-control/guide";
+
+describe("原生主机连接错误分类", () => {
+  it.each([
+    ["Specified native messaging host not found."],
+    ["No such native application com.latentbyte.browser_control"],
+  ])("未安装配套工具（%s）归为 not_installed", (message) => {
+    expect(connectionStateForError(message)).toBe("not_installed");
+  });
+
+  it.each([["Access to the specified native messaging host is forbidden."], ["Native host has exited."], [""]])(
+    "其他错误（%s）仍归为 error",
+    (message) => {
+      expect(connectionStateForError(message)).toBe("error");
+    }
+  );
+});
 
 describe("原生消息大小限制", () => {
   it.each([1n, { nested: 1n }])("JSON 不兼容结果应返回结构化错误", (data) => {

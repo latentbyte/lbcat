@@ -52,6 +52,8 @@ export { browserIdentityFromUserAgent } from "@App/pkg/browser-control/identity"
 
 const HOST_NAME = "com.latentbyte.browser_control";
 const RECONNECT_DELAY = 5000;
+// companion tools absent: check rarely, they only appear when the user installs them
+const NOT_INSTALLED_RECONNECT_DELAY = 60_000;
 const MAX_NATIVE_MESSAGE_BYTES = 32 * 1024 * 1024;
 
 type NativeResponse = { id: string; type: "response"; payload: Record<string, unknown> };
@@ -83,7 +85,14 @@ export function limitNativeResponse(response: NativeResponse, maxBytes = MAX_NAT
   };
 }
 
-type NativeMessagingConnectionState = "connected" | "connecting" | "disconnected" | "error";
+type NativeMessagingConnectionState = "connected" | "connecting" | "disconnected" | "error" | "not_installed";
+
+// Chrome and Firefox wording for a host whose manifest is not registered, i.e. bctl is not installed
+const HOST_MISSING_PATTERNS = [/native messaging host not found/i, /no such native application/i];
+
+export function connectionStateForError(message: string): "not_installed" | "error" {
+  return HOST_MISSING_PATTERNS.some((pattern) => pattern.test(message)) ? "not_installed" : "error";
+}
 
 export interface NativeMessagingStatus {
   status: NativeMessagingConnectionState;
@@ -126,6 +135,7 @@ function setNativeBadge(state: NativeMessagingConnectionState) {
     connecting: { text: "○", color: "#FF9800", title: "LBCat Browser Control connecting" },
     disconnected: { text: "×", color: "#F44336", title: "LBCat Browser Control disconnected" },
     error: { text: "!", color: "#9C27B0", title: "LBCat Browser Control connection error" },
+    not_installed: { text: "", color: "#9E9E9E", title: "LBcat (agent tools not installed)" },
   };
   const badge = badgeByState[state];
   actionApi.setBadgeText({ text: badge.text });
@@ -1407,13 +1417,14 @@ const handlers: Record<string, Handler> = {
 function connect() {
   if (port) return;
   shouldReconnect = true;
-  setConnectionState("connecting");
+  // a quiet retry while the tools are absent; the badge would otherwise flash "connecting"
+  if (connectionState !== "not_installed") setConnectionState("connecting");
   try {
     port = chrome.runtime.connectNative(HOST_NAME);
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     log.error("connectNative failed", message);
-    setConnectionState("error", message);
+    setConnectionState(connectionStateForError(message), message);
     scheduleReconnect();
     return;
   }
@@ -1440,10 +1451,13 @@ export function disconnect() {
 
 function scheduleReconnect() {
   if (!shouldReconnect || reconnectTimer) return;
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    connect();
-  }, RECONNECT_DELAY);
+  reconnectTimer = setTimeout(
+    () => {
+      reconnectTimer = null;
+      connect();
+    },
+    connectionState === "not_installed" ? NOT_INSTALLED_RECONNECT_DELAY : RECONNECT_DELAY
+  );
 }
 
 function onDisconnect() {
@@ -1452,7 +1466,7 @@ function onDisconnect() {
   log.warn("disconnected: " + message);
   port = null;
   clearTabSubscriptions();
-  setConnectionState(err ? "error" : "disconnected", err?.message || "");
+  setConnectionState(err ? connectionStateForError(err.message || "") : "disconnected", err?.message || "");
   if (shouldReconnect) scheduleReconnect();
 }
 
