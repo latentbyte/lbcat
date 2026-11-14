@@ -79,9 +79,9 @@ func TestWindow(t *testing.T) {
 func TestMatchWindow(t *testing.T) {
 	target := model.Tab{BrowserID: "zen-01", AppName: "Zen", ID: 116, WindowID: 631, Title: "Create app"}
 	shown := model.Tab{BrowserID: "zen-01", AppName: "Zen", ID: 78, WindowID: 631, Title: "LBCat Agent Window", Active: true}
-	other := model.Tab{BrowserID: "zen-01", AppName: "Zen", ID: 7, WindowID: 19, Title: "Posts 2021", Active: true}
+	other := model.Tab{BrowserID: "zen-01", AppName: "Zen", ID: 7, WindowID: 19, Title: "Weather report", Active: true}
 	windows := []osWindow{
-		{ID: 1, App: "Zen", Title: "Posts 2021"},
+		{ID: 1, App: "Zen", Title: "Weather report"},
 		{ID: 2, App: "Zen", Title: "LBCat Agent Window"},
 		{ID: 3, App: "Google Chrome", Title: "Create app - Google Chrome"},
 	}
@@ -133,7 +133,7 @@ func TestAerospace(t *testing.T) {
 		body := `#!/bin/sh
 echo "$*" >> "` + calls + `"
 if [ "$1" = list-windows ]; then
-  echo '[{"window-id":5,"app-name":"Zen","window-title":"Posts"},{"window-id":9,"app-name":"Zen","window-title":"Create app"}]'
+  echo '[{"window-id":5,"app-name":"Zen","window-title":"Weather report"},{"window-id":9,"app-name":"Zen","window-title":"Create app"}]'
 fi
 `
 		if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
