@@ -13,6 +13,7 @@ import (
 	"github.com/latentbyte/lbcat/backend/browser-control/internal/cli"
 	"github.com/latentbyte/lbcat/backend/browser-control/internal/daemon"
 	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/tablink"
 	"github.com/spf13/cobra"
 )
 
@@ -50,6 +51,7 @@ var daemonStartCmd = &cobra.Command{
 
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer cancel()
+		go tablink.Run(ctx)
 
 		fmt.Fprintf(os.Stderr, "daemon started (pid %d, socket %s)\n", os.Getpid(), protocol.SocketPath())
 		return srv.Serve(ctx)

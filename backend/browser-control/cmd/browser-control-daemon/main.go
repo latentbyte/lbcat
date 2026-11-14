@@ -13,6 +13,7 @@ import (
 
 	"github.com/latentbyte/lbcat/backend/browser-control/internal/daemon"
 	"github.com/latentbyte/lbcat/backend/browser-control/internal/protocol"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/tablink"
 )
 
 func main() {
@@ -36,6 +37,7 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	go tablink.Run(ctx)
 
 	if err := srv.Serve(ctx); err != nil && err != context.Canceled {
 		log.Printf("serve error: %v", err)

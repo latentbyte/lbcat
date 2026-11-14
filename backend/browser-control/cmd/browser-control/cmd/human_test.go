@@ -328,12 +328,12 @@ func TestHumanTabsFocus(t *testing.T) {
 	if err := command.RunE(command, []string{"42"}); err != nil {
 		t.Fatal(err)
 	}
-	request := <-requests
+	request := focusRequest(t, requests)
 	var args map[string]any
 	if err := json.Unmarshal(request.Args, &args); err != nil {
 		t.Fatal(err)
 	}
-	if request.Cmd != "switcher.tabs.focus" || args["tabId"] != float64(42) {
+	if args["tabId"] != float64(42) {
 		t.Fatalf("request = %s %#v", request.Cmd, args)
 	}
 	for _, field := range []string{"sessionId", "allowFocus"} {
@@ -351,9 +351,11 @@ type recordingRaiser struct{ raised *[]model.Tab }
 
 func (recordingRaiser) Name() string { return "recording" }
 
-func (r recordingRaiser) Raise(_ context.Context, tab model.Tab, _ []model.Tab) error {
-	*r.raised = append(*r.raised, tab)
-	return nil
+func (r recordingRaiser) Locate(_ context.Context, tab model.Tab, _ []model.Tab) (func(context.Context) error, error) {
+	return func(context.Context) error {
+		*r.raised = append(*r.raised, tab)
+		return nil
+	}, nil
 }
 
 func useRecordingRaiser(t *testing.T) *[]model.Tab {
@@ -363,6 +365,21 @@ func useRecordingRaiser(t *testing.T) *[]model.Tab {
 	windowRaisers = func() []raise.Raiser { return []raise.Raiser{recordingRaiser{raised: &raised}} }
 	t.Cleanup(func() { windowRaisers = old })
 	return &raised
+}
+
+// focusRequest skips the tab listing that locates the window and returns the focus request
+func focusRequest(t *testing.T, requests <-chan pageCommandRequest) pageCommandRequest {
+	t.Helper()
+	for {
+		select {
+		case request := <-requests:
+			if request.Cmd == "switcher.tabs.focus" {
+				return request
+			}
+		default:
+			t.Fatal("no switcher.tabs.focus request")
+		}
+	}
 }
 
 // focusBrowsers answers focus and tab listing for tab 42 in window 3
@@ -396,12 +413,10 @@ func TestHumanTabsFocusLink(t *testing.T) {
 		requests := focusBrowsers(t, 2)
 		var output bytes.Buffer
 		command.SetOut(&output)
-		if err := command.RunE(command, []string{"lbcat://tab/zen-02/42"}); err != nil {
+		if err := command.RunE(command, []string{"http://127.0.0.1:47823/tab/zen-02/42"}); err != nil {
 			t.Fatal(err)
 		}
-		if request := <-requests; request.Cmd != "switcher.tabs.focus" {
-			t.Fatalf("first request = %s", request.Cmd)
-		}
+		focusRequest(t, requests)
 		if output.String() != "focused tab 42 in window 3\n" {
 			t.Fatalf("output = %q", output.String())
 		}
@@ -456,7 +471,7 @@ func TestTabsLink(t *testing.T) {
 		if err := tabsLinkCmd.RunE(tabsLinkCmd, []string{"116"}); err != nil {
 			t.Fatal(err)
 		}
-		if output.String() != "lbcat://tab/zen-02/116\n" {
+		if output.String() != "http://127.0.0.1:47823/tab/zen-02/116\n" {
 			t.Fatalf("output = %q", output.String())
 		}
 	})

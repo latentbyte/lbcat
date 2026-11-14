@@ -15,12 +15,14 @@ type MacOpen struct{}
 
 func (MacOpen) Name() string { return "open" }
 
-func (MacOpen) Raise(ctx context.Context, tab model.Tab, _ []model.Tab) error {
+func (MacOpen) Locate(_ context.Context, tab model.Tab, _ []model.Tab) (func(context.Context) error, error) {
 	if tab.AppName == "" {
-		return ErrNoWindow
+		return nil, ErrNoWindow
 	}
-	if output, err := exec.CommandContext(ctx, "/usr/bin/open", "-a", tab.AppName).CombinedOutput(); err != nil {
-		return fmt.Errorf("activating %s: %w: %s", tab.AppName, err, strings.TrimSpace(string(output)))
-	}
-	return nil
+	return func(ctx context.Context) error {
+		if output, err := exec.CommandContext(ctx, "/usr/bin/open", "-a", tab.AppName).CombinedOutput(); err != nil {
+			return fmt.Errorf("activating %s: %w: %s", tab.AppName, err, strings.TrimSpace(string(output)))
+		}
+		return nil
+	}, nil
 }

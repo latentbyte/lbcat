@@ -23,8 +23,11 @@ var ErrNoWindow = errors.New("window not found")
 // Raiser brings the OS window showing a tab to the front, switching workspace or desktop when needed
 type Raiser interface {
 	Name() string
-	// Raise runs after the browser activated tab in its window; tabs lists every connected browser's tabs after that
-	Raise(ctx context.Context, tab model.Tab, tabs []model.Tab) error
+	// Locate finds the tab's OS window before the browser focuses the tab: raising a window on another workspace
+	// stalls window managers such as AeroSpace, which then list windows without titles for a moment. tabs lists
+	// every connected browser's tabs. It returns ErrNoWindow when it cannot tell the window apart, else a func
+	// that raises the window
+	Locate(ctx context.Context, tab model.Tab, tabs []model.Tab) (func(context.Context) error, error)
 }
 
 // Default lists the raisers usable on this machine, most precise first
@@ -39,18 +42,30 @@ func Default() []Raiser {
 	return append(raisers, MacOpen{})
 }
 
-// Window tries each raiser in order and returns the name of the one that raised the tab's window. With no raisers
-// it does nothing; the browser's own window focus is all there is
-func Window(ctx context.Context, raisers []Raiser, tab model.Tab, tabs []model.Tab) (string, error) {
+// Window locates the tab's window with the first raiser that can, runs focus (the browser focusing the tab), then
+// raises the window and returns the raiser's name. With no raisers it only runs focus
+func Window(ctx context.Context, raisers []Raiser, tab model.Tab, tabs []model.Tab, focus func() error) (string, error) {
 	var failures []error
+	var name string
+	var raiseWindow func(context.Context) error
 	for _, raiser := range raisers {
-		err := raiser.Raise(ctx, tab, tabs)
+		located, err := raiser.Locate(ctx, tab, tabs)
 		if err == nil {
-			return raiser.Name(), nil
+			name, raiseWindow = raiser.Name(), located
+			break
 		}
 		failures = append(failures, fmt.Errorf("%s: %w", raiser.Name(), err))
 	}
-	return "", errors.Join(failures...)
+	if err := focus(); err != nil {
+		return "", err
+	}
+	if raiseWindow == nil {
+		return "", errors.Join(failures...)
+	}
+	if err := raiseWindow(ctx); err != nil {
+		return "", fmt.Errorf("%s: %w", name, err)
+	}
+	return name, nil
 }
 
 // findTool looks on PATH, then in Homebrew's prefixes: URL handlers and notification clicks run with a minimal PATH

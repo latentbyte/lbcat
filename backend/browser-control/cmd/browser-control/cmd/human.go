@@ -3,11 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"slices"
-	"strings"
-	"time"
 
 	"github.com/latentbyte/lbcat/backend/browser-control/internal/raise"
+	"github.com/latentbyte/lbcat/backend/browser-control/internal/tablink"
 	"github.com/latentbyte/lbcat/backend/browser-control/pkg/browsercontrol"
 	"github.com/latentbyte/lbcat/backend/browser-control/pkg/browsercontrol/model"
 	"github.com/spf13/cobra"
@@ -34,8 +32,9 @@ func newHumanTabsFocusCmd() *cobra.Command {
 		Use:   "focus <tab-id|tab-link>",
 		Short: "Focus a tab in any window and raise that window",
 		Long: `Focus a tab in any window and raise that window. Takes a tab ID, or a link from "tabs link" such as
-lbcat://tab/zen-01/116, which names its own browser. After the browser focuses the tab, the OS window is raised
-through the first raiser that finds it: AeroSpace (switching workspace), then macOS "open -a".`,
+http://127.0.0.1:47823/tab/zen-01/116 (or lbcat://tab/zen-01/116), which names its own browser. After the browser
+focuses the tab, the OS window is raised through the first raiser that finds it: AeroSpace (switching workspace),
+then macOS "open -a".`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
@@ -44,34 +43,28 @@ through the first raiser that finds it: AeroSpace (switching workspace), then ma
 				return err
 			}
 			defer client.Close()
-			status, err := client.Status(ctx)
+			connected, err := tablink.Connected(ctx, client)
 			if err != nil {
 				return err
 			}
-			ids := make([]string, 0, len(status.Browsers))
-			for _, browser := range status.Browsers {
-				ids = append(ids, string(browser.ID))
-			}
-			browserID, tabID, err := focusTarget(ctx, client, args[0], ids)
+			browserID, tabID, err := focusTarget(ctx, client, args[0], connected)
 			if err != nil {
 				return err
 			}
-			focused, err := client.FocusTab(ctx, browsercontrol.FocusTabRequest{BrowserID: browserID, TabID: tabID})
-			if err != nil {
-				return fmt.Errorf("focusing tab %d: %w", tabID, err)
+			focused, err := tablink.Focus(ctx, client, browserID, tabID, windowRaisers())
+			if focused.TabID != 0 {
+				if _, printErr := fmt.Fprintf(cmd.OutOrStdout(), "focused tab %d in window %d\n", focused.TabID, focused.WindowID); printErr != nil {
+					return printErr
+				}
 			}
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "focused tab %d in window %d\n", focused.TabID, focused.WindowID); err != nil {
-				return err
-			}
-			return raiseTabWindow(ctx, client, browserID, focused.TabID)
+			return err
 		},
 	}
 }
 
-// focusTarget reads a tab ID or tab link. A link whose browser ID went stale (the extension reconnected) falls back
-// to the connected browser of the same name that has the tab
+// focusTarget reads a tab ID for the selected browser, or a tab link naming its own
 func focusTarget(ctx context.Context, client browsercontrol.Client, arg string, connected []string) (model.BrowserID, int64, error) {
-	if !strings.HasPrefix(arg, browsercontrol.LinkScheme+":") {
+	if !browsercontrol.IsTabLink(arg) {
 		tabID, err := parseTabArg(arg)
 		if err != nil {
 			return "", 0, err
@@ -83,53 +76,8 @@ func focusTarget(ctx context.Context, client browsercontrol.Client, arg string, 
 	if err != nil {
 		return "", 0, err
 	}
-	if slices.Contains(connected, string(browserID)) {
-		return browserID, tabID, nil
-	}
-	name := browsercontrol.BrowserNameFromID(string(browserID))
-	var holders []string
-	for _, id := range connected {
-		if browsercontrol.BrowserNameFromID(id) != name {
-			continue
-		}
-		tabs, err := client.ListTabs(ctx, browsercontrol.ListTabsOptions{BrowserID: model.BrowserID(id)})
-		if err != nil {
-			return "", 0, fmt.Errorf("listing %s tabs: %w", id, err)
-		}
-		if slices.ContainsFunc(tabs, func(tab model.Tab) bool { return tab.ID == tabID }) {
-			holders = append(holders, id)
-		}
-	}
-	switch len(holders) {
-	case 0:
-		return "", 0, fmt.Errorf("tab %d not found: %s is no longer connected and no connected %s browser has that tab", tabID, browserID, name)
-	case 1:
-		return model.BrowserID(holders[0]), tabID, nil
-	default:
-		return "", 0, fmt.Errorf("tab %d is in several %s browsers (%s); focus it with --browser", tabID, name, strings.Join(holders, ", "))
-	}
-}
-
-// raiseTabWindow asks the OS to bring the focused tab's window forward
-func raiseTabWindow(ctx context.Context, client browsercontrol.Client, browserID model.BrowserID, tabID int64) error {
-	raisers := windowRaisers()
-	if len(raisers) == 0 {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	tabs, err := client.ListTabs(ctx, browsercontrol.ListTabsOptions{AllBrowsers: true})
-	if err != nil {
-		return fmt.Errorf("listing tabs to raise the window: %w", err)
-	}
-	index := slices.IndexFunc(tabs, func(tab model.Tab) bool { return tab.BrowserID == browserID && tab.ID == tabID })
-	if index < 0 {
-		return fmt.Errorf("tab %d disappeared before its window was raised", tabID)
-	}
-	if _, err := raise.Window(ctx, raisers, tabs[index], tabs); err != nil {
-		return fmt.Errorf("raising the window of tab %d: %w", tabID, err)
-	}
-	return nil
+	browserID, err = tablink.Resolve(ctx, client, browserID, tabID, connected)
+	return browserID, tabID, err
 }
 
 func newHumanTabsCloseCmd() *cobra.Command {

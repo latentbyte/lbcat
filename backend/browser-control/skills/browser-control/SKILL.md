@@ -225,11 +225,11 @@ Whenever your chat reply asks the human to look at or act on a tab (a
 can click. Don't describe the window, workspace, or slot instead:
 
 ```bash
-bctl --session <s> tabs link <tab-id>   # prints lbcat://tab/zen-01/116
+bctl --session <s> tabs link <tab-id>   # prints http://127.0.0.1:47823/tab/zen-01/116
 ```
 
 Write it as a markdown link with a short label, eg
-`[Create app form](lbcat://tab/zen-01/116)`. Clicking it focuses the tab and
+`[Create app form](http://127.0.0.1:47823/tab/zen-01/116)`. Clicking it focuses the tab and
 raises its window across browsers, windows, and workspaces. Links stop working
 when the tab closes or the browser restarts.
 

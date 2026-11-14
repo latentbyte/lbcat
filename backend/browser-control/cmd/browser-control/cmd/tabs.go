@@ -364,8 +364,9 @@ var tabsWatchCmd = &cobra.Command{
 var tabsLinkCmd = &cobra.Command{
 	Use:   "link <tab-id>",
 	Short: "Print a link that focuses the tab and raises its window when the human opens it",
-	Long: `Print a link such as lbcat://tab/zen-01/116 that the human can click in chat to bring the tab forward,
-across browsers, windows, and workspaces. It runs "human tabs focus" through the URL handler "install" sets up on macOS.`,
+	Long: `Print a link such as http://127.0.0.1:47823/tab/zen-01/116 that the human can click in chat to bring the tab
+forward, across browsers, windows, and workspaces. The daemon answers it: it focuses the tab, raises its window, and
+closes the browser tab the link opened in. "human tabs focus" also takes the link.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tabID, err := parseTabArg(args[0])

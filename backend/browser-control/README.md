@@ -193,20 +193,28 @@ subscribe again when continuous observation is needed.
 ### Tab links for the human operator
 
 ```sh
-bctl --session zen:ab12cd34 tabs link 123   # prints lbcat://tab/zen-01/123
+bctl --session zen:ab12cd34 tabs link 123   # prints http://127.0.0.1:47823/tab/zen-01/123
 ```
 
 Agents put these links in chat so the human can jump to a tab instead of hunting through browsers, windows, and
-workspaces. Opening one runs `bctl human tabs focus <link>`: the browser focuses the tab, then the OS raises its
-window. On macOS, `browser-control install` registers `~/Applications/LBcat Links.app` as the `lbcat://` handler;
-`uninstall` removes it. A link carries the browser's connection ID. If that browser has since reconnected under a new
-ID, the link goes to the connected browser of the same name that has the tab. Tab IDs do not survive a browser
-restart.
+workspaces. The daemon serves them on `127.0.0.1:47823`: opening one in any browser focuses the linked tab, raises its
+window, and closes the tab the link opened in when that browser runs LBcat (otherwise it shows a short result page).
+Plain http works in chat apps that refuse custom URL schemes, such as T3. The daemon answers only GET page
+navigations started outside a web page (`Sec-Fetch-Site: none`, or no Sec-Fetch headers from local tools) with that
+exact Host, so other sites cannot trigger it. The endpoint only focuses tabs; it returns no tab data.
 
-Window raising lives in `internal/raise`. Each `Raiser` tries to bring the tab's OS window forward and the first one
-that succeeds wins: AeroSpace (`aerospace focus --window-id`, matching the window by app and active tab title, which
-also switches workspace), then macOS `open -a <browser>`. To support another OS or window manager, add a `Raiser`
-and list it in `raise.Default`. With none available, only the browser's own window focus happens.
+`bctl human tabs focus <link>` does the same from a shell, and also takes the `lbcat://tab/<browser-id>/<tab-id>`
+form. On macOS, `browser-control install` registers `~/Applications/LBcat Links.app` as the `lbcat://` handler for
+apps that pass custom schemes through; `uninstall` removes it. A link carries the browser's connection ID. If that
+browser has since reconnected under a new ID, the link goes to the connected browser of the same name that has the
+tab. Tab IDs do not survive a browser restart.
+
+Window raising lives in `internal/raise`. Each `Raiser` first locates the tab's OS window, before the browser moves
+anything (raising a window on another workspace stalls AeroSpace, which then lists windows without titles for a
+moment); the first one that finds it raises it once the browser has focused the tab. Built in: AeroSpace
+(`aerospace focus --window-id`, matching the window by app and its current active tab title, which also switches
+workspace), then macOS `open -a <browser>`. To support another OS or window manager, add a `Raiser` and list it in
+`raise.Default`. With none available, only the browser's own window focus happens.
 
 ## Page actions and waiting
 
@@ -364,7 +372,7 @@ bctl human tabs list                             # all windows in the sole conne
 bctl --browser zen-01 human tabs list --json      # one browser, structured metadata
 bctl human tabs list --all-browsers --json        # all windows in all connected browsers
 bctl human tabs focus 123                         # focus a tab and raise its window
-bctl human tabs focus lbcat://tab/zen-01/123      # same, from a tab link
+bctl human tabs focus http://127.0.0.1:47823/tab/zen-01/123  # same, from a tab link
 bctl human tabs close 123 456                     # close tabs in any window
 ```
 
