@@ -16,6 +16,7 @@ import {
 } from "@App/pkg/browser-control/capture";
 import { agentWindowService, BrowserControlScopeError, type AgentTabView } from "@App/pkg/browser-control/agent-window";
 import { BrowserControlError } from "@App/pkg/browser-control/errors";
+import { dropZenPinnedMirrors } from "@App/pkg/browser-control/zen-pinned";
 import {
   consumeTabActivation,
   markTabActivation,
@@ -841,11 +842,13 @@ const handlers: Record<string, Handler> = {
 
   // 人工切换器仅提供标签元数据、聚焦、关闭及事件，不授予页面操作权限
   async "switcher.tabs.list"() {
-    const tabs = await chrome.tabs.query({});
+    const allTabs = await chrome.tabs.query({});
     const [identity, agentTabs] = await Promise.all([
       resolveBrowserControlIdentity(),
-      agentWindowService.agentTabs(tabs),
+      agentWindowService.agentTabs(allTabs),
     ]);
+    const marker = allTabs.find((tab) => tab.id !== undefined && agentTabs.get(tab.id)?.role === "marker");
+    const tabs = identity.browserName === "zen" ? dropZenPinnedMirrors(allTabs, marker?.windowId) : allTabs;
     return {
       data: tabs.map((tab) => {
         const agent = tab.id === undefined ? undefined : agentTabs.get(tab.id);

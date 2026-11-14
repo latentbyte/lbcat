@@ -378,6 +378,10 @@ bctl human tabs close 123 456                     # close tabs in any window
 
 `human tabs list`, `human tabs focus`, and `human tabs close` use the switcher SDK below, without an agent window or task session.
 `human tabs close` refuses only the agent window marker.
+Zen syncs Essentials and space-pinned tabs into every window as separate tabs, so on Zen the listing keeps those
+pinned tabs only in the base window (the oldest window that is not the agent window) and drops a pinned tab in another
+window when the base window has a pinned tab from the same origin. Pinned tabs with no counterpart in the base window
+still show. Available since LBcat 4.35.2.
 `--browser` takes precedence over `--all-browsers`; with multiple browsers, select one or use
 `--all-browsers`. JSON responses use `cmd: "switcher.tabs.list"`. These CLI entrypoints give no page
 access; ordinary `tabs` and `page` commands keep their agent restrictions. Session and

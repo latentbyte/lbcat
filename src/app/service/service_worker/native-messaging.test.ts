@@ -1363,6 +1363,28 @@ describe("原生消息并发控制", () => {
     );
   });
 
+  it("Zen 人工切换器列表只保留非代理基准窗口的固定标签", async () => {
+    vi.mocked(chrome.storage.session.get).mockImplementation(async () => ({
+      "browserControl.verifiedMarkerUrl": "chrome-extension://test/src/agent-window.html?registration=test",
+    }));
+    tabsQuery.mockResolvedValue([
+      { id: 201, windowId: 7, url: "https://calendar.example/", pinned: true },
+      { id: 900, windowId: 7, url: "chrome-extension://test/src/agent-window.html?registration=test" },
+      { id: 202, windowId: 8, url: "https://calendar.example/", pinned: true },
+      { id: 102, windowId: 8, url: "https://work.example/" },
+    ]);
+    const listed = async (id: string) => {
+      await request(id, "switcher.tabs.list", {});
+      return postMessage.mock.calls
+        .map(([message]) => message)
+        .find((message) => message.id === id)
+        .payload.data.map((tab: { id: number }) => tab.id);
+    };
+    expect(await listed("chrome-list")).toEqual([201, 900, 202, 102]);
+    await chrome.storage.local.set({ "browserControl.identityOverride": { browserName: "zen" } });
+    expect(await listed("zen-list")).toEqual([900, 202, 102]);
+  });
+
   it("人工切换器列表与事件标出代理管理的标签", async () => {
     // 本次浏览器运行内已确认过标记
     vi.mocked(chrome.storage.session.get).mockImplementation(async () => ({

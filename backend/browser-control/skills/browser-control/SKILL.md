@@ -122,7 +122,8 @@ bctl human tabs list --all-browsers --json
 
 Without a browser flag, a sole connected browser is selected; multiple browsers
 require `--browser` or `--all-browsers`. `--browser` takes precedence when both
-are supplied. This command uses the switcher API without an agent window or task
+are supplied. On Zen, Essentials and space-pinned tabs, which Zen copies into
+every window, are listed once, from the oldest non-agent window. This command uses the switcher API without an agent window or task
 session; JSON responses identify `switcher.tabs.list`. It provides metadata only,
 not page access. Session and personal-tab flags do not apply. This operator
 entrypoint does not authorize agents to discover personal tabs or recover from

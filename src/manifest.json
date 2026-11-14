@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LBcat",
-  "version": "4.35.1",
+  "version": "4.35.2",
   "author": "LatentByte",
   "description": "Let coding agents drive your signed-in browser inside a window you control. Includes a userscript manager based on ScriptCat.",
   "options_ui": {
