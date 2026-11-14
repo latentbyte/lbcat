@@ -1,0 +1,8 @@
+LBcat now shows its own name and icon in the toolbar popup, the options page header, and page titles.
+bctl tabs link prints a link that focuses a tab and raises its window, so an agent can point you at a tab from a chat app.
+When an agent leaves a needs-human note on a tab, you get a desktop notification that takes you to it.
+Tab listings now mark which tabs belong to an agent task, so tab switchers can filter them.
+Large site icons now show in tab listings.
+Update checks and site icons no longer go through ScriptCat's servers.
+Install the command-line tools with Homebrew: brew install latentbyte/tap/lbcat.
+Update, issue, and project links now point at the LBcat repository.
