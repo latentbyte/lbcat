@@ -1,0 +1,1 @@
+In Zen, tab listings now show Essentials and pinned space tabs once instead of once per window.
