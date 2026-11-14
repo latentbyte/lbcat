@@ -1,0 +1,1 @@
+The command-line tools now trust LBcat installed from the Chrome Web Store. After upgrading them, run browser-control install again so Chrome lets the extension connect.

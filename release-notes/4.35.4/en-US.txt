@@ -1,0 +1,1 @@
+Without the command-line tools installed, the popup now says userscripts work and links to the agent setup steps, instead of showing a connection error.
