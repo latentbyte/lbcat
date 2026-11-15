@@ -1,0 +1,1 @@
+Firefox: LBcat now has its own add-on ID, so Firefox treats this version as a new add-on. Back up your scripts in the old LBcat first (Tools, Backup, Export File), install this version, load the backup with Import File, then remove the old one. The command-line tools accept both versions. Chrome is not affected.

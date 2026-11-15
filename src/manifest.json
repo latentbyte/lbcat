@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LBcat",
-  "version": "4.35.5",
+  "version": "4.35.6",
   "author": "LatentByte",
   "description": "Let coding agents drive your signed-in browser inside a window you control. Includes a userscript manager based on ScriptCat.",
   "options_ui": {
@@ -56,7 +56,7 @@
   ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "scriptcat@latentbyte.com",
+      "id": "lbcat@latentbyte.com",
       "strict_min_version": "142.0"
     }
   }

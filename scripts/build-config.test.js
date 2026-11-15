@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 describe("Firefox 自托管更新配置", () => {
   it("两个打包入口应使用同一个固定更新地址和扩展 ID", () => {
     expect(firefoxRelease).toEqual({
-      addonId: "scriptcat@latentbyte.com",
+      addonId: "lbcat@latentbyte.com",
       updateUrl: "https://dl.latentbyte.com/lb/exts/lbcat-updates.json",
       downloadBaseUrl: "https://dl.latentbyte.com/lb/exts/",
     });

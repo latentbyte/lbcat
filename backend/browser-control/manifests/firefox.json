@@ -3,5 +3,5 @@
   "description": "Browser Control bridge",
   "path": "/absolute/path/to/lbcat-shim",
   "type": "stdio",
-  "allowed_extensions": ["scriptcat@latentbyte.com"]
+  "allowed_extensions": ["lbcat@latentbyte.com", "scriptcat@latentbyte.com"]
 }

@@ -186,7 +186,7 @@ func TestBuildChromeOriginsOnlyTrustsLBcatIDs(t *testing.T) {
 func TestBuildManifestDataSkipsChromeWithoutOrigins(t *testing.T) {
 	t.Parallel()
 
-	noChrome := extensionRegistry{hostName: extensions[0].hostName, knownIDs: map[string]string{"firefox": "scriptcat@latentbyte.com"}}
+	noChrome := extensionRegistry{hostName: extensions[0].hostName, knownIDs: map[string]string{"firefox": "lbcat@latentbyte.com"}}
 	_, err := buildManifestData(browserRegistry["chrome"], "chrome", "/bin/lbcat-shim", "", false, "", nil, noChrome)
 	if !errors.Is(err, errNoChromeOrigins) {
 		t.Fatalf("buildManifestData() error = %v, want errNoChromeOrigins", err)
@@ -201,7 +201,7 @@ func TestBuildManifestDataSkipsChromeWithoutOrigins(t *testing.T) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatalf("Unmarshal(zen manifest) failed: %v", err)
 	}
-	if !reflect.DeepEqual(m.AllowedExtensions, []string{"scriptcat@latentbyte.com"}) {
+	if !reflect.DeepEqual(m.AllowedExtensions, []string{"lbcat@latentbyte.com", "scriptcat@latentbyte.com"}) {
 		t.Fatalf("zen allowed_extensions = %#v", m.AllowedExtensions)
 	}
 }

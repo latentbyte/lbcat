@@ -99,8 +99,8 @@ component. `pnpm run set-version 4.1.0` updates both package and source manifest
 ship without the built-in AI agent, like upstream, so the store listing covers everything the package does;
 dev and beta builds keep it, and `SC_ENABLE_AGENT=true` turns it on for a stable build. The Chrome manifest
 keeps `debugger` either way, for Browser Control screenshots and viewport emulation. The displayed
-extension name is LBcat. Keep upstream identifiers and the signed add-on ID `scriptcat@latentbyte.com`
-for compatibility.
+extension name is LBcat. Keep upstream identifiers for compatibility. The Firefox add-on ID is
+`lbcat@latentbyte.com` since 4.35.6; the native host still allows the old `scriptcat@latentbyte.com`.
 
 Release configuration lives in [`scripts/firefox-release.json`](../scripts/firefox-release.json):
 
