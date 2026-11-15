@@ -15,7 +15,7 @@ install-cli:
     mkdir -p ~/.local/bin
     cp bin/browser-control ~/.local/bin/
     ln -sf browser-control ~/.local/bin/bctl
-    codesign --sign - --force ~/.local/bin/browser-control
+    if [ "$(uname)" = Darwin ]; then codesign --sign - --force ~/.local/bin/browser-control; fi
 
 # build, copy to ~/.local/bin, and register native host manifests
 install: build
@@ -23,7 +23,7 @@ install: build
     cp bin/browser-control bin/browser-control-daemon bin/lbcat-shim ~/.local/bin/
     ln -sf browser-control ~/.local/bin/bctl
     # re-sign after copy so macOS code signing monitor doesn't kill them
-    codesign --sign - --force ~/.local/bin/browser-control ~/.local/bin/browser-control-daemon ~/.local/bin/lbcat-shim
+    if [ "$(uname)" = Darwin ]; then codesign --sign - --force ~/.local/bin/browser-control ~/.local/bin/browser-control-daemon ~/.local/bin/lbcat-shim; fi
     ~/.local/bin/browser-control install --dev
 
 # build macOS release tarballs and a Homebrew formula into bin/dist; URL_BASE is where the tarballs will be hosted

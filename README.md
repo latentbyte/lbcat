@@ -21,8 +21,9 @@ LBcat is a fork of [ScriptCat](https://github.com/scriptscat/scriptcat), so it i
 userscript manager. All three jobs need a native bridge between a local program and the extension, which upstream
 ScriptCat does not include, so we added it and ship our own signed build.
 
-Status: free and open source. macOS is supported today; the CLI builds on Linux but desktop notifications are
-macOS-only for now. There is no Windows support yet.
+Status: free and open source. Tested on macOS. Linux should work: the tools build and install from source there,
+but we have not tested them on Linux yet, and desktop notifications are macOS-only for now. There is no Windows
+support yet.
 
 ## Why use it
 
@@ -59,6 +60,8 @@ You need two parts: the extension and the local tools.
 
 ### 2. CLI, daemon, and native host
 
+On macOS:
+
 ```sh
 brew install latentbyte/tap/lbcat
 browser-control install
@@ -70,13 +73,14 @@ second registers the Native Messaging host for every browser it finds. Restart t
 Chromium browsers trust the LBcat Chrome Web Store ID. For an unpacked build, pass its ID from `chrome://extensions`:
 `browser-control install --extension-id <id>`.
 
-To build from source instead you need Go 1.25 or newer and [just](https://github.com/casey/just):
+On Linux, or to build from source on macOS, you need Go 1.25 or newer and [just](https://github.com/casey/just).
+This puts the tools in `~/.local/bin` (add it to your `PATH`) and registers the Native Messaging host:
 
 ```sh
 git clone https://github.com/latentbyte/lbcat
 cd lbcat
 just browser-control-install
-brew install terminal-notifier   # click-to-approve notifications
+brew install terminal-notifier   # macOS only: click-to-approve notifications
 ```
 
 ## Quick start
