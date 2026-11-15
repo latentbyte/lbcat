@@ -95,8 +95,10 @@ Do not commit secrets, local certificates, build output, coverage, Playwright re
 ## LBcat Firefox releases and updates
 
 LBcat uses plain semantic release versions (`x.y.z`), without the old `-az` label or fourth `1900`
-component. `pnpm run set-version 4.1.0` updates both package and source manifest versions. The fork keeps
-its agent enabled in stable builds; `SC_ENABLE_AGENT=false` remains an explicit override. The displayed
+component. `pnpm run set-version 4.1.0` updates both package and source manifest versions. Stable builds
+ship without the built-in AI agent, like upstream, so the store listing covers everything the package does;
+dev and beta builds keep it, and `SC_ENABLE_AGENT=true` turns it on for a stable build. The Chrome manifest
+keeps `debugger` either way, for Browser Control screenshots and viewport emulation. The displayed
 extension name is LBcat. Keep upstream identifiers and the signed add-on ID `scriptcat@latentbyte.com`
 for compatibility.
 

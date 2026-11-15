@@ -19,9 +19,6 @@ describe("Firefox 自托管更新配置", () => {
 
 describe("构建配置 - agent 开关", () => {
   describe("isAgentEnabled", () => {
-    it("LBcat 正式版本应保留现有 agent 功能", () => {
-      expect(isAgentEnabled({ isDev: false, isBeta: false, isFork: true })).toBe(true);
-    });
     it("开发版本应启用 agent", () => {
       expect(isAgentEnabled({ isDev: true, isBeta: false })).toBe(true);
     });
@@ -36,10 +33,6 @@ describe("构建配置 - agent 开关", () => {
   });
 
   describe("resolveAgentEnabled - 环境变量覆盖", () => {
-    it("LBcat 正式版本默认启用 agent 且允许显式关闭", () => {
-      expect(resolveAgentEnabled({ isDev: false, isBeta: false, isFork: true, envValue: undefined })).toBe(true);
-      expect(resolveAgentEnabled({ isDev: false, isBeta: false, isFork: true, envValue: "false" })).toBe(false);
-    });
     it("未设置环境变量时按版本派生（正式版禁用）", () => {
       expect(resolveAgentEnabled({ isDev: false, isBeta: false, envValue: undefined })).toBe(false);
     });
@@ -92,6 +85,17 @@ describe("构建配置 - agent 开关", () => {
     it("禁用 agent 时不改动其它权限", () => {
       const result = applyAgentManifest(makeManifest(), false);
       expect(result.optional_permissions).toEqual(["background", "userScripts"]);
+    });
+
+    it("LBcat 浏览器控制在禁用 agent 时仍为 Chrome 保留 debugger 权限", () => {
+      const manifest = makeManifest();
+      const result = applyAgentManifest(manifest, false, "chrome", { browserControl: true });
+      expect(result.permissions).toEqual(["tabs", "debugger", "storage"]);
+    });
+
+    it("LBcat 浏览器控制在 Firefox 上仍移除不支持的 debugger 权限", () => {
+      const result = applyAgentManifest(makeManifest(), false, "firefox", { browserControl: true });
+      expect(result.permissions).toEqual(["tabs", "storage"]);
     });
 
     it("禁用 agent 时不修改入参 manifest", () => {

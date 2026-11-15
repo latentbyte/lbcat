@@ -46,14 +46,14 @@ const versionInfo = getManifestVersion(version);
 const isPrerelease = Boolean(versionInfo.prereleaseName);
 const isBeta = version.includes("-");
 const isReactTools = process.env.REACT_DEVTOOLS === "true";
-// LBcat 保留 agent；上游正式版本屏蔽入口并移除 debugger 权限
+// 正式版本屏蔽 agent 入口；LBcat 的浏览器控制仍需要 debugger 权限
 // 可用环境变量 SC_ENABLE_AGENT 强制覆盖（如 e2e 在正式版上强制开启）。
 const enableAgent = resolveAgentEnabled({
   isDev,
   isBeta,
-  isFork: pkg.name === "lbcat",
   envValue: process.env.SC_ENABLE_AGENT,
 });
+const browserControl = pkg.name === "lbcat";
 const targetBrowser = (process.env.TARGET_BROWSER || "chrome").toLowerCase();
 if (!["chrome", "firefox"].includes(targetBrowser)) {
   throw new Error(`unsupported target browser: ${targetBrowser}`);
@@ -239,7 +239,8 @@ export default {
             const manifest = applyAgentManifest(
               JSON.parse(content.toString()) as ScriptCatManifest,
               enableAgent,
-              targetBrowser
+              targetBrowser,
+              { browserControl }
             );
             manifest.version = versionInfo.manifestVersion;
             if (versionInfo.versionName) {

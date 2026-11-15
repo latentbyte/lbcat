@@ -33,14 +33,14 @@ if (!version) {
   throw new Error(`invalid package version: ${packageInfo.version}`);
 }
 
-// LBcat 保留 agent；上游正式版本屏蔽入口并移除 debugger 权限
+// 正式版本屏蔽 agent 入口；LBcat 的浏览器控制仍需要 debugger 权限
 // （与 rspack 构建一致，支持环境变量 SC_ENABLE_AGENT 覆盖）
 const agentEnabled = resolveAgentEnabled({
   isDev: false,
   isBeta: version.prerelease.length > 0,
-  isFork: packageInfo.name === "lbcat",
   envValue: process.env.SC_ENABLE_AGENT,
 });
+const browserControl = packageInfo.name === "lbcat";
 
 const prereleaseName = version.prerelease[0]?.toString();
 if (version.prerelease.length) {
@@ -91,9 +91,15 @@ execSync("pnpm run build", { stdio: "inherit" });
 const firefoxManifest = applyAgentManifest(
   { ...manifest, background: { ...manifest.background } },
   agentEnabled,
-  "firefox"
+  "firefox",
+  { browserControl }
 );
-const chromeManifest = applyAgentManifest({ ...manifest, background: { ...manifest.background } }, agentEnabled);
+const chromeManifest = applyAgentManifest(
+  { ...manifest, background: { ...manifest.background } },
+  agentEnabled,
+  "chrome",
+  { browserControl }
+);
 
 chromeManifest.optional_permissions = chromeManifest.optional_permissions.filter((val) => val !== "userScripts");
 delete chromeManifest.background.scripts;
