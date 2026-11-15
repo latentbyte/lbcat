@@ -377,11 +377,11 @@ export function useInstallData() {
   // 更新按钮文案和页面标题
   useEffect(() => {
     if (skillPreview) {
-      document.title = `${t("install_script")} - ${skillPreview.metadata.name} - ScriptCat`;
+      document.title = `${t("install_script")} - ${skillPreview.metadata.name} - LBcat`;
       return;
     }
     if (scriptInfo?.skillScript && skillScriptMetadata) {
-      document.title = `${t("install_script")} - ${skillScriptMetadata.name} - ScriptCat`;
+      document.title = `${t("install_script")} - ${skillScriptMetadata.name} - LBcat`;
       return;
     }
     if (scriptInfo?.userSubscribe) {
@@ -390,7 +390,7 @@ export function useInstallData() {
       setBtnText(isUpdate ? t("update_script")! : t("install_script"));
     }
     if (upsertScript) {
-      document.title = `${!isUpdate ? t("install_script") : t("update_script")} - ${i18nName(upsertScript!)} - ScriptCat`;
+      document.title = `${!isUpdate ? t("install_script") : t("update_script")} - ${i18nName(upsertScript!)} - LBcat`;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isUpdate, scriptInfo, upsertScript, skillScriptMetadata, t]);

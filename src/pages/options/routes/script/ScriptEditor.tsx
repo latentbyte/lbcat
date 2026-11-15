@@ -950,7 +950,7 @@ function ScriptEditor() {
     updateScriptList();
     // 离开ScriptEditor时恢复标题
     return () => {
-      document.title = "Home - ScriptCat";
+      document.title = "Home - LBcat";
     };
   }, []);
 
