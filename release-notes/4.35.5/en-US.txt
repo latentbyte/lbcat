@@ -1,0 +1,1 @@
+The built-in AI agent is removed from store builds of LBcat, in Chrome and Firefox. The extension no longer has its own AI chat or model settings. Coding agents on your computer still drive the browser through the bctl command-line tools, and screenshots and viewport sizing keep working in Chrome. Install and editor pages now show LBcat in the tab title instead of ScriptCat.
