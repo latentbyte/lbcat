@@ -23,11 +23,12 @@ permanent regression coverage. That path is owned by [`DEVELOP.md`](./DEVELOP.md
 ### Committed regression checks
 
 Some scenarios are cheap enough to keep, because a unit test cannot see them. `just test-e2e-guide-keys` rebuilds
-the extension, loads the fresh `dist/ext` in a real Chromium and types with real keys:
+the **Chrome** extension (`dist/ext` is shared with the Firefox build, so load the Firefox one separately with
+`pnpm run build:firefox`), opens the fresh `dist/ext` in a real Chromium and types with real keys:
 
 ```bash
 test-e2e-guide-keys:
-    pnpm build
+    pnpm build:chrome
     pnpm exec playwright test e2e/guide-keys.spec.ts
 ```
 

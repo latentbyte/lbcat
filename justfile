@@ -59,9 +59,9 @@ test-ci:
 test-e2e:
     pnpm test:e2e
 
-# rebuild the extension, then check the guide card keeps keys away from page shortcuts
+# rebuild the Chrome extension, then check the guide card keeps keys away from page shortcuts
 test-e2e-guide-keys:
-    pnpm build
+    pnpm build:chrome
     pnpm exec playwright test e2e/guide-keys.spec.ts
 
 # run coverage
