@@ -108,6 +108,11 @@ categories, summary, description, links, license, reviewer notes) lives in
 policy is set separately through the AMO `eula_policy` endpoint from `PRIVACY.md`. Maintainers follow
 the internal Latent Byte extension publishing runbook for store submissions.
 
+Latent Byte extensions share their build layout, permission discipline, content-script UI and testing
+conventions; this repo's specifics are the `justfile` recipes, `scripts/pack.js` (per-target manifest)
+and the e2e suite. Keep new work in the same shape as the code around it, and update this section when a
+convention changes.
+
 Release configuration lives in [`scripts/firefox-release.json`](../scripts/firefox-release.json):
 
 - Legacy public feed: https://dl.latentbyte.com/lb/exts/lbcat-updates.json

@@ -24,6 +24,8 @@ The upstream guidance below still applies.
 - Browser Control agent skill: the public copy ships in `backend/browser-control/skills/browser-control/SKILL.md`.
   Update it when `backend/browser-control/`, `src/pkg/browser-control/`, or agent browser tools change CLI commands,
   window registration, task leases, personal-tab overrides, notification behavior, or capture capabilities.
+- Latent Byte extensions share their build layout, permission discipline, content-script UI and testing
+  conventions; keep this repo in the same shape and record repo-specific details in `docs/DEVELOP.md`.
 - Licensing: the extension is GPLv3 (ScriptCat). `backend/browser-control/` is Apache-2.0 (`backend/browser-control/LICENSE`);
   keep it free of imports from the GPL tree.
 
