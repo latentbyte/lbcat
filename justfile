@@ -136,15 +136,17 @@ ext-build:
     pnpm build:chrome
     pnpm build:firefox
 
-# check both store zips before upload (shared script, see the extension-publishing skill)
+# check both store zips before upload; needs a preflight script path in EXT_PREFLIGHT (see .env)
 ext-preflight:
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ -f .env ]; then set -a; . ./.env; set +a; fi
+    : "${EXT_PREFLIGHT:?set EXT_PREFLIGHT in .env to a store-zip preflight script}"
     version=$(node -p 'require("./package.json").version')
     for browser in chrome firefox; do
         zip="dist/lbcat-$version-$browser.zip"
         [ -e "$zip" ] || { echo "$zip is missing; run 'just pack' first" >&2; exit 1; }
-        bun ~/.agents/skills/extension-publishing/scripts/preflight.ts "$zip" --expect-version "$version"
+        bun "$EXT_PREFLIGHT" "$zip" --expect-version "$version"
     done
 
 # pack source files for Mozilla review, excluding Browser Control tooling
