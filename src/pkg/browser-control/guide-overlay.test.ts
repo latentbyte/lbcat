@@ -308,6 +308,24 @@ describe("引导覆盖层", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("卡片内的按键不冒泡到页面，页面单键快捷键不会抢走正在输入的字符", () => {
+    const root = render(view)!;
+    const field = root.querySelector("textarea")!;
+    const pageKeys: string[] = [];
+    const pageShortcut = (event: Event) => {
+      pageKeys.push((event as KeyboardEvent).key);
+      event.preventDefault();
+    };
+    document.addEventListener("keydown", pageShortcut);
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true, composed: true, cancelable: true }));
+    // 页面自身的输入照常收到按键
+    document
+      .getElementById("box")!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "b", bubbles: true, composed: true, cancelable: true }));
+    document.removeEventListener("keydown", pageShortcut);
+    expect(pageKeys).toEqual(["b"]);
+  });
+
   it("相邻标注的标签不遮挡其他标注元素", () => {
     document.body.innerHTML = `<input id="a" type="checkbox"><input id="b" type="checkbox">`;
     refs({ e1: document.getElementById("a")!, e2: document.getElementById("b")! });

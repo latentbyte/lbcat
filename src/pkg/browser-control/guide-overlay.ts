@@ -45,6 +45,9 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   const host = document.createElement("lbcat-agent-guide");
   host.style.cssText = "all: initial; position: fixed; inset: 0; pointer-events: none; z-index: 2147483646;";
   const root = host.attachShadow({ mode: "closed" });
+  // 卡片内的按键停在 shadow 边界：页面快捷键（如 Gmail 的单键快捷键）只看到宿主元素，会把正在输入的字符当快捷键吃掉
+  for (const type of ["keydown", "keypress", "keyup"] as const)
+    root.addEventListener(type, (event) => event.stopPropagation());
   const font = "font: 13px/1.45 system-ui, -apple-system, sans-serif;";
 
   // 标注框与标签，元素消失或不可见时隐藏
