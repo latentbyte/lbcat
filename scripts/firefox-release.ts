@@ -116,9 +116,6 @@ export async function download(url: string, mime: string): Promise<Response> {
 
 export async function checkUpdateFeed(url: string = config.updateUrl): Promise<FirefoxUpdateFeed> {
   const addons = object(object(await (await download(url, "application/json")).json()).addons);
-  const ids = Object.keys(addons);
-  // 扩展 ID 迁移后，线上仍是旧 ID 的清单：旧安装无法升级到新 ID，按空清单处理
-  if (ids.length === 1 && config.previousAddonIds.includes(ids[0])) return emptyUpdateFeed();
   if (Object.keys(addons).length !== 1 || !Object.hasOwn(addons, config.addonId)) {
     throw new Error("Update feed must contain only configured add-on ID");
   }

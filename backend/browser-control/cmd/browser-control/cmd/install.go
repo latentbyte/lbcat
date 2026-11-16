@@ -122,8 +122,6 @@ type extensionRegistry struct {
 	hostName    string            // native messaging host name
 	description string            // human-readable description
 	knownIDs    map[string]string // "chrome" or "firefox" -> published extension ID
-	// previously published IDs still allowed so older installs keep connecting
-	legacyIDs map[string][]string
 }
 
 var extensions = []extensionRegistry{
@@ -133,9 +131,6 @@ var extensions = []extensionRegistry{
 		knownIDs: map[string]string{
 			"chrome":  "kahoajflpencacfboacdkmhldlehmbpa", // Chrome Web Store
 			"firefox": "lbcat@latentbyte.com",
-		},
-		legacyIDs: map[string][]string{
-			"firefox": {"scriptcat@latentbyte.com"}, // add-on ID before 4.35.6
 		},
 	},
 }
@@ -346,8 +341,7 @@ func buildFirefoxIDs(extID, devFirefoxID, browser string, reg extensionRegistry)
 		ids = append(ids, extID)
 	}
 
-	ids = append(ids, reg.legacyIDs["firefox"]...)
-	return uniqStrings(ids)
+	return ids
 }
 
 // readDevFirefoxID tries to read the Firefox extension ID from dist/manifest.json.

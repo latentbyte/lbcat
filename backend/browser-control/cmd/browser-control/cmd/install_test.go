@@ -201,7 +201,7 @@ func TestBuildManifestDataSkipsChromeWithoutOrigins(t *testing.T) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatalf("Unmarshal(zen manifest) failed: %v", err)
 	}
-	if !reflect.DeepEqual(m.AllowedExtensions, []string{"lbcat@latentbyte.com", "scriptcat@latentbyte.com"}) {
+	if !reflect.DeepEqual(m.AllowedExtensions, []string{"lbcat@latentbyte.com"}) {
 		t.Fatalf("zen allowed_extensions = %#v", m.AllowedExtensions)
 	}
 }

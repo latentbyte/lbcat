@@ -80,14 +80,6 @@ describe("Firefox 公共更新检查", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("旧扩展 ID 的线上清单视为空清单，以便迁移到新 ID 后首次发布", async () => {
-    const legacy = { addons: { [config.previousAddonIds[0]]: { updates: [{ version: "4.35.4" }] } } };
-    const fetchMock = vi.fn().mockResolvedValue(response(JSON.stringify(legacy), "application/json"));
-    vi.stubGlobal("fetch", fetchMock);
-    await expect(checkUpdateFeed()).resolves.toEqual(emptyUpdateFeed());
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
   it("仍拒绝未知扩展 ID 的清单", async () => {
     const other = { addons: { "other@example.com": { updates: [] } } };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(JSON.stringify(other), "application/json")));
