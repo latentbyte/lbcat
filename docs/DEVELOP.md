@@ -105,10 +105,8 @@ extension name is LBcat. Keep upstream identifiers for compatibility. The Firefo
 LBcat is listed on AMO: https://addons.mozilla.org/firefox/addon/lbcat/. Listing metadata (slug,
 categories, summary, description, links, license, reviewer notes) lives in
 [`scripts/amo-metadata.json`](../scripts/amo-metadata.json) and is sent with every submission; the privacy
-policy is set separately through the AMO `eula_policy` endpoint from `PRIVACY.md`. Store
-procedure shared across Latent Byte extensions: the `extension-publishing` skill (dotfiles) and
-`fleet/runbooks/extension-publishing.md`; preflight the exact package with
-`bun ~/.agents/skills/extension-publishing/scripts/preflight.ts dist/lbcat-<version>-firefox.zip`.
+policy is set separately through the AMO `eula_policy` endpoint from `PRIVACY.md`. Maintainers follow
+the internal Latent Byte extension publishing runbook for store submissions.
 
 Release configuration lives in [`scripts/firefox-release.json`](../scripts/firefox-release.json):
 

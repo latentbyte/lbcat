@@ -18,22 +18,14 @@ import (
 )
 
 // scriptArchiveDir returns the directory where pushed scripts are saved.
-// Uses $BROWSER_CONTROL_SCRIPTS_DIR, then $DOTFILES_DIR/user-scripts, then ~/dotfiles/user-scripts when ~/dotfiles
-// exists, then $XDG_DATA_HOME/browser-control/user-scripts (default ~/.local/share).
+// Uses $BROWSER_CONTROL_SCRIPTS_DIR, then $XDG_DATA_HOME/browser-control/user-scripts (default ~/.local/share).
 func scriptArchiveDir() string {
 	if d := os.Getenv("BROWSER_CONTROL_SCRIPTS_DIR"); d != "" {
 		return d
 	}
-	if d := os.Getenv("DOTFILES_DIR"); d != "" {
-		return filepath.Join(d, "user-scripts")
-	}
-	home, _ := os.UserHomeDir()
-	dotfiles := filepath.Join(home, "dotfiles")
-	if info, err := os.Stat(dotfiles); err == nil && info.IsDir() {
-		return filepath.Join(dotfiles, "user-scripts")
-	}
 	data := os.Getenv("XDG_DATA_HOME")
 	if data == "" {
+		home, _ := os.UserHomeDir()
 		data = filepath.Join(home, ".local", "share")
 	}
 	return filepath.Join(data, "browser-control", "user-scripts")
@@ -790,8 +782,8 @@ var scriptWatchCmd = &cobra.Command{
 	Short: "Watch directory and auto-push userscript changes",
 	Long: `Watch a directory for .user.js file changes and automatically push updates.
 
-If no path is provided, uses $BROWSER_CONTROL_SCRIPTS_DIR, then $DOTFILES_DIR/user-scripts,
-then ~/dotfiles/user-scripts when ~/dotfiles exists, then ~/.local/share/browser-control/user-scripts.
+If no path is provided, uses $BROWSER_CONTROL_SCRIPTS_DIR, then
+$XDG_DATA_HOME/browser-control/user-scripts (default ~/.local/share).
 
 Examples:
   browser-control script watch                    # watch default dir
