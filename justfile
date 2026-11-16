@@ -129,10 +129,29 @@ pack:
     pnpm run pack
 
 alias zip := pack
+alias ext-zip := pack
+
+# unpacked extension builds for chrome and firefox in dist/ext/<browser>
+ext-build:
+    pnpm build:chrome
+    pnpm build:firefox
+
+# check both store zips before upload (shared script, see the extension-publishing skill)
+ext-preflight:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version=$(node -p 'require("./package.json").version')
+    for browser in chrome firefox; do
+        zip="dist/lbcat-$version-$browser.zip"
+        [ -e "$zip" ] || { echo "$zip is missing; run 'just pack' first" >&2; exit 1; }
+        bun ~/.agents/skills/extension-publishing/scripts/preflight.ts "$zip" --expect-version "$version"
+    done
 
 # pack source files for Mozilla review, excluding Browser Control tooling
 mozilla-source:
     pnpm run mozilla-source
+
+alias ext-source := mozilla-source
 
 # pack, then submit the Firefox zip + source to Mozilla's listed (public AMO) channel for review
 amo-submit:
