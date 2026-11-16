@@ -61,10 +61,9 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     host.remove();
     return;
   }
-  // 卡片文档不继承页面样式，只带自己的一份重置
-  const resetCSS = doc.createElement("style");
-  resetCSS.textContent = "html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }";
-  doc.head.append(resetCSS);
+  // 卡片文档不继承页面样式，只带自己的一份重置；用行内样式，页面 CSP 的 style-src 会拦掉 iframe 里的 <style>（Firefox）
+  doc.documentElement.style.cssText = "margin: 0; padding: 0; background: transparent; overflow: hidden;";
+  doc.body.style.cssText = "margin: 0; padding: 0; background: transparent; overflow: hidden;";
   const create = <K extends keyof HTMLElementTagNameMap>(tag: K, css: string, text?: string) => {
     const element = doc.createElement(tag);
     element.style.cssText = css;
@@ -287,7 +286,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
 
   const text = create(
     "div",
-    "margin: 6px 0 10px; max-height: 50vh; overflow-y: auto; overflow-wrap: anywhere; overscroll-behavior: contain;"
+    "margin: 6px 0 10px; overflow-y: auto; overflow-wrap: anywhere; overscroll-behavior: contain;"
   );
   text.dataset.text = "";
   const actions = create("div", "display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap;");
@@ -347,7 +346,9 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     return position;
   };
   // iframe 跟着卡片内容长高，不出现内部滚动条
+  // 正文上限按页面视口算：iframe 里的 vh 是 iframe 自己的高度，会和按内容定高的 iframe 互相压缩，把按钮挤出卡片
   const sync = () => {
+    text.style.maxHeight = `${Math.floor(window.innerHeight / 2)}px`;
     const height = Math.ceil(doc.documentElement.getBoundingClientRect().height);
     if (height > 0) frame.style.height = `${height}px`;
   };

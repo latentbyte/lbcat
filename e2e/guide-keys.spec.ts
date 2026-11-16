@@ -50,13 +50,19 @@ async function serve(context: { newPage: () => Promise<Page> }, kind: string, cs
   return target;
 }
 
-async function injectGuide(target: Page) {
+async function injectGuide(target: Page, guide: GuideOverlayView = view) {
   await target.evaluate(
     ({ src, guide }) => {
+      // 页面主世界没有扩展消息通道，记录卡片发出的消息
+      const sent: unknown[] = [];
+      Object.assign(window, {
+        __sent: sent,
+        chrome: { runtime: { sendMessage: (message: unknown) => sent.push(message) } },
+      });
       const render = (0, eval)(`(${src})`);
       render(guide, { message: "test.guide" });
     },
-    { src: renderGuideOverlay.toString(), guide: view }
+    { src: renderGuideOverlay.toString(), guide }
   );
   await target.evaluate(() => {
     const frame = document.querySelector<HTMLIFrameElement>("lbcat-agent-guide iframe");
@@ -116,5 +122,47 @@ test("严格 CSP 的页面（frame-src 'none'）也能画卡片并输入", async
   await injectGuide(target);
   await target.keyboard.type("forward");
   expect((await cardValue(target)).value).toBe("forward");
+  await target.close();
+});
+
+// 长步骤回归：正文 max-height 曾按 iframe 自己的视口算 50vh，iframe 又按内容定高，两者互相压缩，
+// 输入框和按钮落到 iframe 外面，人工既点不到按钮也无法聚焦输入框
+test("长步骤的卡片完整显示，按钮能用真实鼠标点到", async ({ context }) => {
+  const target = await serve(context, "window-capture");
+  const steps = Array.from({ length: 12 }, (_, index) => `${index + 1}. Do **thing** number ${index + 1}`).join("\n");
+  await injectGuide(target, {
+    ...view,
+    text: `Create the filter:\n\n${steps}\n\n\`\`\`\nfrom:sink@example.com\n\`\`\``,
+  });
+  await target.waitForTimeout(100);
+
+  const geometry = await target.evaluate(() => {
+    const frame = document.querySelector<HTMLIFrameElement>("lbcat-agent-guide iframe")!;
+    const box = frame.getBoundingClientRect();
+    const doc = frame.contentDocument!;
+    const next = Array.from(doc.querySelectorAll("button")).find((item) => item.textContent === "Got it, next")!;
+    const button = next.getBoundingClientRect();
+    const card = doc.querySelector("[data-card]")!.getBoundingClientRect();
+    const text = doc.querySelector<HTMLElement>("[data-text]")!;
+    return {
+      text: { height: text.clientHeight, content: text.scrollHeight },
+      frame: { top: box.top, bottom: box.bottom, height: box.height },
+      card: card.height,
+      button: { x: box.left + button.left + button.width / 2, y: box.top + button.top + button.height / 2 },
+      viewport: window.innerHeight,
+    };
+  });
+  // 卡片整张放进 iframe，iframe 整个落在视口内
+  expect(geometry.frame.height).toBeGreaterThanOrEqual(geometry.card);
+  expect(geometry.frame.top).toBeGreaterThanOrEqual(0);
+  expect(geometry.frame.bottom).toBeLessThanOrEqual(geometry.viewport);
+  expect(geometry.button.y).toBeLessThan(geometry.frame.bottom);
+  // 正文最多占页面视口的一半，而不是 iframe 自己高度的一半
+  expect(geometry.text.height).toBeGreaterThanOrEqual(Math.min(geometry.text.content, geometry.viewport / 2) - 1);
+
+  await target.mouse.click(geometry.button.x, geometry.button.y);
+  expect(await target.evaluate(() => (window as unknown as { __sent: unknown[] }).__sent)).toEqual([
+    { type: "test.guide", stepId: 1, event: { kind: "next" } },
+  ]);
   await target.close();
 });
