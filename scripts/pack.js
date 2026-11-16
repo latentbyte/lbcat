@@ -1,5 +1,5 @@
 /* global process */
-import { promises as fs } from "fs";
+import { existsSync, promises as fs } from "fs";
 import { ZipWriter } from "web-jszipp";
 import ChromeExtension from "crx";
 import { execFileSync, execSync } from "child_process";
@@ -154,12 +154,19 @@ async function addDir(zip, localDir, toDir, filters) {
   await sub(localDir, toDir);
 }
 
+// 每个目标浏览器读自己的构建目录，缺哪个就先构建哪个
+for (const target of ["chrome", "firefox"]) {
+  if (!existsSync(`./dist/ext/${target}`)) {
+    throw new Error(`dist/ext/${target} is missing; run "pnpm build:${target}" before packing`);
+  }
+}
+
 await addZipFile(chrome, "manifest.json", JSON.stringify(chromeManifest));
 await addZipFile(firefox, "manifest.json", JSON.stringify(firefoxManifest));
 
 await Promise.all([
-  addDir(chrome, "./dist/ext", "", ["manifest.json"]),
-  addDir(firefox, "./dist/ext", "", ["manifest.json"]),
+  addDir(chrome, "./dist/ext/chrome", "", ["manifest.json"]),
+  addDir(firefox, "./dist/ext/firefox", "", ["manifest.json"]),
 ]);
 
 // 导出zip包
@@ -177,7 +184,7 @@ try {
     privateKey: await fs.readFile("./dist/scriptcat.pem", { encoding: "utf8" }),
   });
   await crx
-    .load("./dist/ext")
+    .load("./dist/ext/chrome")
     .then((crxFile) => crxFile.pack())
     .then((crxBuffer) => fs.writeFile(`./dist/${packageInfo.name}-${packageInfo.version}-chrome.crx`, crxBuffer));
 } catch (err) {

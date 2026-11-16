@@ -110,4 +110,4 @@ pnpm run pack
 
 ## 注意问题
 
-- `pnpm run dev`之后需要把`dist/ext`目录里面内容在浏览器扩展里面导入加载，然后开始改代码保存即可，浏览器是实时更新的，但是涉及到`manifest.json`、`service_worker`、`offscreen`、`sandbox`的改动需要重新加载。
+- `pnpm run dev`之后需要把`dist/ext/chrome`目录里面内容在浏览器扩展里面导入加载，然后开始改代码保存即可，浏览器是实时更新的，但是涉及到`manifest.json`、`service_worker`、`offscreen`、`sandbox`的改动需要重新加载。

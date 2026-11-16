@@ -1,3 +1,6 @@
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 import { renderGuideOverlay, type GuideOverlayView } from "../src/pkg/browser-control/guide-overlay";
@@ -61,6 +64,12 @@ async function injectGuide(target: Page) {
   });
 }
 
+// 未打包扩展的 ID 由绝对路径哈希得出
+const extensionId = (dir: string) =>
+  [...crypto.createHash("sha256").update(dir).digest("hex").slice(0, 32)]
+    .map((digit) => String.fromCharCode(97 + parseInt(digit, 16)))
+    .join("");
+
 const cardValue = (target: Page) =>
   target.evaluate(() => {
     const frame = document.querySelector<HTMLIFrameElement>("lbcat-agent-guide iframe");
@@ -69,6 +78,15 @@ const cardValue = (target: Page) =>
       seen: (window as unknown as { __seen: { key: string }[] }).__seen.map((item) => item.key),
     };
   });
+
+test("浏览器加载的是刚构建的 Chrome 扩展", async ({ context }) => {
+  const dir = path.resolve(__dirname, "../dist/ext/chrome");
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId(dir)}/src/options.html`);
+  const built = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8")).version;
+  expect(await page.evaluate(() => chrome.runtime.getManifest().version)).toBe(built);
+  await page.close();
+});
 
 for (const kind of where) {
   test(`卡片里输入的字符不被页面的 ${kind} 快捷键监听吃掉`, async ({ context }) => {

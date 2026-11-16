@@ -10,7 +10,7 @@
 
 ```bash
 pnpm install              # install deps (preinstall enforces pnpm)
-pnpm run dev              # dev build (source maps); load dist/ext as unpacked extension
+pnpm run dev              # dev build (source maps); load dist/ext/chrome as unpacked extension
 pnpm run dev:noMap        # dev build w/o source maps (incognito)
 pnpm run build            # production Rspack build
 pnpm run pack             # package the extension (requires dist/scriptcat.pem)
@@ -28,7 +28,7 @@ pnpm run lint-fix         # tsc --noEmit + eslint --fix (also applies Prettier v
 
 No standalone `format` script — formatting is part of `lint-fix`. Husky pre-commit runs `pnpm run lint-fix` and re-stages the files it touched.
 
-After `pnpm run dev`, load `dist/ext` as an unpacked extension. The browser hot-reloads page changes, but edits to `manifest.json`, `service_worker`, `offscreen`, or `sandbox` require reloading the extension.
+After `pnpm run dev`, load `dist/ext/chrome` as an unpacked extension (Firefox: `pnpm run build:firefox`, then `dist/ext/firefox`). The browser hot-reloads page changes, but edits to `manifest.json`, `service_worker`, `offscreen`, or `sandbox` require reloading the extension.
 
 For same-profile local browser automation, register a dedicated agent window and begin a task session first; see
 [`backend/browser-control/README.md`](../backend/browser-control/README.md). Personal active tabs are outside the default
@@ -124,7 +124,7 @@ Prepare packages:
 ```bash
 pnpm run pack                 # dist/lbcat-<version>-{chrome,firefox,source}.zip; prunes artifacts older than 2 versions back
 just mozilla-source           # only dist/lbcat-<version>-source.zip for Mozilla review
-pnpm run build:firefox        # alternative unpacked Firefox build in dist/ext
+pnpm run build:firefox        # alternative unpacked Firefox build in dist/ext/firefox
 ```
 
 `just amo-submit` packs and submits the Firefox zip with the source zip and listing metadata to the listed

@@ -61,7 +61,7 @@ This single command:
 2. Copies them to `~/.local/bin/`
 3. Writes native host manifests for every detected browser
 4. Uses `--dev` flag, so it accepts the Chrome Web Store ID and the unpacked/dev extension IDs found in browser profiles (reads Firefox addon
-   ID from `dist/manifest.json` or `dist/ext/manifest.json` if it exists)
+   ID from `dist/manifest.json` or `dist/ext/chrome/manifest.json` if it exists)
 
 No need to re-register when you reload an unpacked extension in Chrome, because Chrome unpacked extensions keep the same
 ID across reloads. For a fresh `Load unpacked` with a new path, add the new ID:
@@ -79,7 +79,7 @@ just dev           # rspack watch, outputs to dist/
 
 ### 5. Load extension in browser
 
-**Chrome / Brave / Comet**: `chrome://extensions/` -> Developer mode -> Load unpacked -> select `dist/ext/`
+**Chrome / Brave / Comet**: `chrome://extensions/` -> Developer mode -> Load unpacked -> select `dist/ext/chrome/`
 
 **Firefox / Zen**: `about:debugging#/runtime/this-firefox` -> Load Temporary Add-on -> select `dist/manifest.json`
 

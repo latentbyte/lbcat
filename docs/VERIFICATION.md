@@ -23,8 +23,7 @@ permanent regression coverage. That path is owned by [`DEVELOP.md`](./DEVELOP.md
 ### Committed regression checks
 
 Some scenarios are cheap enough to keep, because a unit test cannot see them. `just test-e2e-guide-keys` rebuilds
-the **Chrome** extension (`dist/ext` is shared with the Firefox build, so load the Firefox one separately with
-`pnpm run build:firefox`), opens the fresh `dist/ext` in a real Chromium and types with real keys:
+the Chrome extension, opens the fresh `dist/ext/chrome` in a real Chromium and types with real keys:
 
 ```bash
 test-e2e-guide-keys:
@@ -52,22 +51,22 @@ extension. That gap is exactly what this guide closes.
 ## Step 1 — Build a loadable extension
 
 ```bash
-pnpm run dev            # development build with source maps → writes dist/ext
-# or: pnpm run build    # production build, also → dist/ext
+pnpm run dev            # development build with source maps → writes dist/ext/chrome
+# or: pnpm run build    # production build, also → dist/ext/chrome
 ```
 
-Load `dist/ext` as an unpacked extension (the scratch scripts below do this for you via
+Load `dist/ext/chrome` as an unpacked extension (the scratch scripts below do this for you via
 `--load-extension`). After a rebuild:
 
 - **Page-only edits** (React UI under `src/pages/`) hot-reload — just refresh the page.
 - **Edits to `manifest.json`, `service_worker`, `offscreen`, or `sandbox`** require **reloading the extension**
-  (and a fresh launch in the scratch flow, since each run loads `dist/ext` freshly).
+  (and a fresh launch in the scratch flow, since each run loads `dist/ext/chrome` freshly).
 
 ## Step 2 — Write a scratch verification script
 
 Scratch scripts live in **`e2e/scratch/`** and reuse the existing harness, so you write almost no boilerplate:
 
-- `import { test, expect } from "../fixtures";` — gives you a `context` (with `dist/ext` loaded) and an
+- `import { test, expect } from "../fixtures";` — gives you a `context` (with `dist/ext/chrome` loaded) and an
   `extensionId`, with the first-use guide already dismissed. See [`e2e/fixtures.ts`](../e2e/fixtures.ts).
 - `import { ... } from "../utils";` — page openers and a script installer. See [`e2e/utils.ts`](../e2e/utils.ts):
   `openOptionsPage`, `openPopupPage`, `openInstallPage`, `openEditorPage`, `installScriptByCode`,
@@ -170,8 +169,8 @@ model in [`ARCHITECTURE.md`](./ARCHITECTURE.md)):
 | --- | --- |
 | CRUD, permissions, routing, chrome API calls | **Service Worker** — `chrome://extensions` → ScriptCat → *Inspect views: service worker* |
 | Script not injecting / GM bridge to page | **Content** + **Inject** — the **target page**'s DevTools console |
-| Background / scheduled script, DOM-needing GM APIs | **Offscreen** — `dist/ext/src/offscreen.html` context |
-| Cron scheduling, `with`-sandboxed execution | **Sandbox** — `dist/ext/src/sandbox.html` context |
+| Background / scheduled script, DOM-needing GM APIs | **Offscreen** — `dist/ext/chrome/src/offscreen.html` context |
+| Cron scheduling, `with`-sandboxed execution | **Sandbox** — `dist/ext/chrome/src/sandbox.html` context |
 
 In a scratch script, capture the page console (`page.on("console", …)`) and take screenshots
 (`await page.screenshot({ path: "test-results/…png" })`) so failures leave evidence.

@@ -480,7 +480,7 @@ UI pages (React): popup · options · install · batchupdate · confirm · impor
 workers         : editor.worker · ts.worker (Monaco) · linter.worker
 ```
 
-Output goes to `dist/ext/src/[name].js` (cleaned each build). Notable behavior:
+Output goes to `dist/ext/<target>/src/[name].js` (cleaned each build; `<target>` is `chrome` or `firefox`, so the two never overwrite each other). Notable behavior:
 
 - **Path aliases** mirror `tsconfig.json`: `@App → src`, `@Packages → packages` (the `@Tests → tests` alias is
   test-only — defined in `vitest.config.ts` / `tsconfig.json`, not in the Rspack build).
@@ -497,7 +497,7 @@ Output goes to `dist/ext/src/[name].js` (cleaned each build). Notable behavior:
 The dist layout:
 
 ```
-dist/ext/
+dist/ext/{chrome,firefox}/
 ├── manifest.json                 # version-stamped, browser-specialized at pack time
 ├── assets/  _locales/
 └── src/

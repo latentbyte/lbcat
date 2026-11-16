@@ -122,8 +122,10 @@ alias bctl-dev := browser-control-dev
 alias bctl-clean := browser-control-clean
 alias bctl-smoke := browser-control-smoke
 
-# pack extension + source archives, pruning dist artifacts older than 2 versions
+# build both targets, then pack extension + source archives, pruning dist artifacts older than 2 versions
 pack:
+    pnpm build:chrome
+    pnpm build:firefox
     pnpm run pack
 
 alias zip := pack
@@ -143,7 +145,7 @@ amo-submit:
     xpi="dist/lbcat-$version.xpi"
     # AMO never accepts a version twice; a signed XPI here means this version is already spent
     if [ -e "$xpi" ]; then echo "$xpi already exists; bump the version first" >&2; exit 1; fi
-    pnpm run pack
+    just pack
     work=$(mktemp -d)
     trap 'rm -rf "$work"' EXIT
     unzip -q "dist/lbcat-$version-firefox.zip" -d "$work/ext"

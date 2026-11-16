@@ -352,8 +352,10 @@ func readDevFirefoxID() string {
 	candidates := []string{
 		"dist/manifest.json",
 		"../../dist/manifest.json", // from backend/browser-control/
-		"dist/ext/manifest.json",
-		"../../dist/ext/manifest.json", // from backend/browser-control/
+		"dist/ext/chrome/manifest.json",
+		"dist/ext/firefox/manifest.json",
+		"../../dist/ext/chrome/manifest.json", // from backend/browser-control/
+		"../../dist/ext/firefox/manifest.json",
 	}
 
 	for _, path := range candidates {
@@ -410,9 +412,11 @@ func readDevChromeIDs(home string) ([]string, error) {
 func devDistPaths() ([]string, error) {
 	candidates := []string{
 		"dist",
-		"dist/ext",
+		"dist/ext/chrome",
+		"dist/ext/firefox",
 		"../../dist",
-		"../../dist/ext",
+		"../../dist/ext/chrome",
+		"../../dist/ext/firefox",
 	}
 	var paths []string
 	for _, candidate := range candidates {

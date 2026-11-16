@@ -49,7 +49,7 @@ You need two parts: the extension and the local tools.
 
 - **Firefox and Zen:** install [LBcat from Firefox Add-ons](https://addons.mozilla.org/firefox/addon/lbcat/).
 - **Chrome and other Chromium browsers:** a Chrome Web Store listing is on the way. Until then, build it and load
-  `dist/ext` as an unpacked extension:
+  `dist/ext/chrome` as an unpacked extension:
 
   ```sh
   pnpm install

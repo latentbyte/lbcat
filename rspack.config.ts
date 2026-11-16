@@ -112,6 +112,8 @@ const targets = ["chrome >= 120", "edge >= 120", "firefox >= 142"];
 
 const src = path.join(dirname, "src");
 const dist = path.join(dirname, "dist");
+// 每个目标浏览器各写自己的目录，Chrome 与 Firefox 的未打包构建互不覆盖
+const ext = path.join(dist, "ext", targetBrowser);
 const assets = path.join(src, "assets");
 
 // 排除这些文件，不进行分离
@@ -161,7 +163,7 @@ export default {
     "linter.worker": `${src}/linter.worker.ts`,
   },
   output: {
-    path: `${dist}/ext/src`,
+    path: `${ext}/src`,
     filename: "[name].js",
     clean: true,
   },
@@ -231,7 +233,7 @@ export default {
       patterns: [
         {
           from: `${src}/manifest.json`,
-          to: `${dist}/ext`,
+          to: `${ext}`,
           // 将manifest.json内版本号替换为package.json中版本号
           transform(content: Buffer) {
             const manifest = applyAgentManifest(
@@ -266,23 +268,23 @@ export default {
         },
         {
           from: `${assets}/logo${isDev || isPrerelease ? "-beta" : ""}.png`,
-          to: `${dist}/ext/assets/logo.png`,
+          to: `${ext}/assets/logo.png`,
         },
         {
           from: `${assets}/logo${isDev || isPrerelease ? "-beta" : ""}-32.png`,
-          to: `${dist}/ext/assets/logo-32.png`,
+          to: `${ext}/assets/logo-32.png`,
         },
-        { from: `${assets}/logo-gray.png`, to: `${dist}/ext/assets/logo-gray.png` },
-        { from: `${assets}/logo-gray-32.png`, to: `${dist}/ext/assets/logo-gray-32.png` },
-        { from: `${assets}/logo`, to: `${dist}/ext/assets/logo` },
+        { from: `${assets}/logo-gray.png`, to: `${ext}/assets/logo-gray.png` },
+        { from: `${assets}/logo-gray-32.png`, to: `${ext}/assets/logo-gray-32.png` },
+        { from: `${assets}/logo`, to: `${ext}/assets/logo` },
         {
           from: `${assets}/_locales`,
-          to: `${dist}/ext/_locales`,
+          to: `${ext}/_locales`,
         },
       ],
     }),
     new rspack.HtmlRspackPlugin({
-      filename: `${dist}/ext/src/install.html`,
+      filename: `${ext}/src/install.html`,
       template: `${src}/pages/template.html`,
       inject: "head",
       title: "Install - LBcat",
@@ -290,7 +292,7 @@ export default {
       chunks: ["install"],
     }),
     new rspack.HtmlRspackPlugin({
-      filename: `${dist}/ext/src/batchupdate.html`,
+      filename: `${ext}/src/batchupdate.html`,
       template: `${src}/pages/template.html`,
       inject: "head",
       title: "BatchUpdate - LBcat",
@@ -298,7 +300,7 @@ export default {
       chunks: ["batchupdate"],
     }),
     new rspack.HtmlRspackPlugin({
-      filename: `${dist}/ext/src/confirm.html`,
+      filename: `${ext}/src/confirm.html`,
       template: `${src}/pages/template.html`,
       inject: "head",
       title: "Confirm - LBcat",
@@ -306,7 +308,7 @@ export default {
       chunks: ["confirm"],
     }),
     new rspack.HtmlRspackPlugin({
-      filename: `${dist}/ext/src/import.html`,
+      filename: `${ext}/src/import.html`,
       template: `${src}/pages/template.html`,
       inject: "head",
       title: "Import - LBcat",
@@ -317,7 +319,7 @@ export default {
       templateParameters: {
         isReactTools: isReactTools ? "true" : "false",
       },
-      filename: `${dist}/ext/src/options.html`,
+      filename: `${ext}/src/options.html`,
       template: `${src}/pages/options.html`,
       inject: "head",
       title: "Home - LBcat",
@@ -325,14 +327,14 @@ export default {
       chunks: ["options"],
     }),
     new rspack.HtmlRspackPlugin({
-      filename: `${dist}/ext/src/agent-window.html`,
+      filename: `${ext}/src/agent-window.html`,
       template: `${src}/pages/agent-window.html`,
       inject: false,
       minify: true,
       chunks: [],
     }),
     new rspack.HtmlRspackPlugin({
-      filename: `${dist}/ext/src/popup.html`,
+      filename: `${ext}/src/popup.html`,
       template: `${src}/pages/popup.html`,
       inject: "head",
       title: "Home - LBcat",
@@ -340,14 +342,14 @@ export default {
       chunks: ["popup"],
     }),
     new rspack.HtmlRspackPlugin({
-      filename: `${dist}/ext/src/offscreen.html`,
+      filename: `${ext}/src/offscreen.html`,
       template: `${src}/pages/offscreen.html`,
       inject: "head",
       minify: true,
       chunks: ["offscreen"],
     }),
     new rspack.HtmlRspackPlugin({
-      filename: `${dist}/ext/src/sandbox.html`,
+      filename: `${ext}/src/sandbox.html`,
       template: `${src}/pages/sandbox.html`,
       inject: "head",
       minify: true,

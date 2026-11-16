@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 import { test as base, chromium, type BrowserContext } from "@playwright/test";
 
-const pathToExtension = path.resolve(__dirname, "../dist/ext");
+const pathToExtension = path.resolve(__dirname, "../dist/ext/chrome");
 
 function getProxyOptions() {
   const proxy =

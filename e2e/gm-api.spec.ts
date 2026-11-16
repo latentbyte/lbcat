@@ -21,7 +21,7 @@ const test = base.extend<{
 }>({
   // eslint-disable-next-line no-empty-pattern
   context: async ({}, use) => {
-    const pathToExtension = path.resolve(__dirname, "../dist/ext");
+    const pathToExtension = path.resolve(__dirname, "../dist/ext/chrome");
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pw-ext-"));
     const chromeArgs = [
       `--disable-extensions-except=${pathToExtension}`,

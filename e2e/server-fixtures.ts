@@ -16,7 +16,7 @@ import { test as base, expect, chromium, type BrowserContext } from "@playwright
  * 被 resource-update.spec.ts 与 gm-xhr-site-access.spec.ts 复用。
  */
 
-const pathToExtension = path.resolve(__dirname, "../dist/ext");
+const pathToExtension = path.resolve(__dirname, "../dist/ext/chrome");
 
 /** 全部映射到本地 mock server 的测试域名 */
 export const TEST_HOSTS = [

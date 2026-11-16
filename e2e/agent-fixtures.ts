@@ -4,7 +4,7 @@ import path from "path";
 import { test as base, expect, chromium, type BrowserContext, type Route } from "@playwright/test";
 export { expect };
 
-const pathToExtension = path.resolve(__dirname, "../dist/ext");
+const pathToExtension = path.resolve(__dirname, "../dist/ext/chrome");
 const chromeArgs = [`--disable-extensions-except=${pathToExtension}`, `--load-extension=${pathToExtension}`];
 
 function getProxyOptions() {
