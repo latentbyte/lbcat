@@ -77,8 +77,9 @@ export async function generateUpdateFeed(bytes: ArrayBuffer): Promise<FirefoxUpd
     if (manifest.manifest_version !== 2 && manifest.manifest_version !== 3) throw new Error("Invalid manifest_version");
     const gecko = object(object(manifest.browser_specific_settings).gecko);
     if (gecko.id !== config.addonId) throw new Error("XPI add-on identity mismatch");
-    if (gecko.update_url !== config.updateUrl)
-      throw new Error("XPI update URL mismatch; rebuild before Mozilla signing");
+    // AMO listed builds carry no update_url and update through AMO; older self-hosted builds point at the feed
+    if (gecko.update_url !== undefined && gecko.update_url !== config.updateUrl)
+      throw new Error("XPI update URL mismatch");
     const manifestVersion = version(manifest.version);
     const feed = emptyUpdateFeed();
     feed.addons[config.addonId].updates.push({

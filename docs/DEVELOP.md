@@ -102,15 +102,22 @@ keeps `debugger` either way, for Browser Control screenshots and viewport emulat
 extension name is LBcat. Keep upstream identifiers for compatibility. The Firefox add-on ID is
 `lbcat@latentbyte.com` since 4.35.6.
 
+LBcat is listed on AMO: https://addons.mozilla.org/firefox/addon/lbcat/. Listing metadata (slug,
+categories, summary, description, links, license, reviewer notes) lives in
+[`scripts/amo-metadata.json`](../scripts/amo-metadata.json) and is sent with every submission; the privacy
+policy is set separately through the AMO `eula_policy` endpoint from `PRIVACY.md`.
+
 Release configuration lives in [`scripts/firefox-release.json`](../scripts/firefox-release.json):
 
-- Permanent public feed: https://dl.latentbyte.com/lb/exts/lbcat-updates.json
+- Legacy public feed: https://dl.latentbyte.com/lb/exts/lbcat-updates.json
 - Immutable signed downloads: https://dl.latentbyte.com/lb/exts/lbcat-<version>.xpi
 
-Both Firefox manifest generation paths include this feed URL before signing. Never change the feed
-path after distribution: installed Firefox copies continue checking their original endpoint. Existing
-`3.0.9.1900` packages lack an update URL and need one manual installation of a newer signed release.
-Renaming an XPI changes its download path, not its signed internal version.
+AMO rejects `update_url` in listed packages and never accepts a version number twice across channels, so
+each release is signed once, on the listed channel, and the Firefox manifests carry no `update_url`.
+Releases up to 4.35.6 were signed unlisted with `update_url` pointing at the feed. Keep publishing approved
+listed XPIs to the feed: those installs fetch the next one from it, and once on a listed build they update
+through AMO. Never change the feed path: old installs keep checking it. Renaming an XPI changes its
+download path, not its signed internal version.
 
 Prepare packages:
 
@@ -120,12 +127,11 @@ just mozilla-source           # only dist/lbcat-<version>-source.zip for Mozilla
 pnpm run build:firefox        # alternative unpacked Firefox build in dist/ext
 ```
 
-Submit the Firefox zip through Mozilla's self-distribution ("On your own" / unlisted) signing channel.
-`just amo-submit` does this through the AMO signing API: it packs, uploads the Firefox zip with the source zip,
-waits for signing, saves the signed XPI unchanged as `dist/lbcat-<version>.xpi`, then runs `just stash-publish`
-(below). It reads `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`
-(AMO Developer Hub -> Manage API Keys) from the environment or the gitignored `.env`, and refuses a version
-that already has a signed XPI, since AMO never accepts a version twice. Manual feed commands (Node 22.18+):
+`just amo-submit` packs and submits the Firefox zip with the source zip and listing metadata to the listed
+channel, without waiting for review. Once Mozilla approves the version, `just amo-publish [version]` saves the
+signed XPI unchanged as `dist/lbcat-<version>.xpi`, then runs `just stash-publish` (below). Both read
+`WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET` (AMO Developer Hub -> Manage API Keys) from the environment or the
+gitignored `.env`, and refuse a version that already has a signed XPI. Manual feed commands (Node 22.18+):
 
 ```bash
 pnpm --silent firefox:updates init > dist/lbcat-updates.json
@@ -136,9 +142,10 @@ pnpm --silent firefox:updates check https://dl.latentbyte.com/lb/exts/lbcat-upda
 ```
 
 `init` creates an empty feed, suitable before the first signed build. `generate` derives the exact
-version, SHA-256, and Gecko compatibility from the package; it requires the configured ID, update URL,
-plain `x.y.z` version, and signature metadata. `check` is read-only: it follows HTTPS redirects and
-checks JSON/XPI MIME types, every download hash, version, identity, feed URL, and compatibility.
+version, SHA-256, and Gecko compatibility from the package; it requires the configured ID, plain `x.y.z`
+version, and signature metadata, and rejects an `update_url` other than the feed. `check` is read-only:
+it follows HTTPS redirects and checks JSON/XPI MIME types, every download hash, version, identity, feed URL,
+and compatibility.
 Signature metadata is a prerequisite check; Firefox verifies actual Mozilla signing trust.
 
 Publish explicitly through LB Stash in the existing `lb` namespace / `exts` folder. `just stash-publish`

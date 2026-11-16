@@ -50,12 +50,13 @@ describe("Firefox 离线更新清单", () => {
     await expect(generateUpdateFeed(await packageBytes(manifest, false))).rejects.toThrow(/signature/i);
   });
 
-  it("首次发行包缺少更新地址时要求重新构建和签名", async () => {
+  it("AMO 上架签名包没有更新地址时也可以写入清单", async () => {
     const bytes = await packageBytes({
       ...manifest,
       browser_specific_settings: { gecko: { id: config.addonId, strict_min_version: "142.0" } },
     });
-    await expect(generateUpdateFeed(bytes)).rejects.toThrow(/rebuild before Mozilla signing/);
+    const [update] = (await generateUpdateFeed(bytes)).addons[config.addonId].updates;
+    expect(update).toMatchObject({ version: "4.1.0", applications: { gecko: { strict_min_version: "142.0" } } });
   });
 
   it.each([

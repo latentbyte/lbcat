@@ -127,7 +127,7 @@ alias zip := pack
 mozilla-source:
     pnpm run mozilla-source
 
-# pack, sign the Firefox zip + source through Mozilla's unlisted channel, then publish via stash-publish
+# pack, then submit the Firefox zip + source to Mozilla's listed (public AMO) channel for review
 amo-submit:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -142,10 +142,17 @@ amo-submit:
     work=$(mktemp -d)
     trap 'rm -rf "$work"' EXIT
     unzip -q "dist/lbcat-$version-firefox.zip" -d "$work/ext"
-    pnpm exec web-ext sign --channel unlisted --source-dir "$work/ext" --artifacts-dir "$work/signed" \
-        --upload-source-code "dist/lbcat-$version-source.zip"
-    mv "$work"/signed/*.xpi "$xpi"
-    echo "signed: $xpi"
+    pnpm exec web-ext sign --channel listed --source-dir "$work/ext" --artifacts-dir "$work/signed" \
+        --upload-source-code "dist/lbcat-$version-source.zip" --amo-metadata scripts/amo-metadata.json \
+        --approval-timeout 0
+    echo "submitted $version; run 'just amo-publish' once Mozilla approves it"
+
+# download the approved listed XPI (default: package version) into dist, then publish via stash-publish
+amo-publish version="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f .env ]; then set -a; . ./.env; set +a; fi
+    pnpm --silent amo:fetch {{version}}
     just stash-publish
 
 # publish signed dist/lbcat-*.xpi files missing from LB Stash and promote the newest to the live update feed

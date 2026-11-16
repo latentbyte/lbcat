@@ -115,7 +115,6 @@ firefoxManifest.permissions = firefoxManifest.permissions.filter((val) => !["off
 firefoxManifest.browser_specific_settings = {
   gecko: {
     id: firefoxRelease.addonId,
-    update_url: firefoxRelease.updateUrl,
     // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/userScripts#browser_compatibility
     // Firefox 142+ also covers Android support for data_collection_permissions
     strict_min_version: "142.0",

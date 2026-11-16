@@ -23,6 +23,7 @@
     "set-version": "node ./scripts/set-version.mjs",
     "firefox:updates": "node ./scripts/firefox-release.ts",
     "stash:publish": "node ./scripts/stash-publish.ts",
+    "amo:fetch": "node ./scripts/amo-fetch.ts",
     "mozilla-source": "node ./scripts/mozilla-source.mjs",
     "lint": "tsc --noEmit && eslint .",
     "lint:ci": "tsc --noEmit && eslint . --cache --cache-location .eslintcache",

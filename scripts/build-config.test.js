@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { isAgentEnabled, resolveAgentEnabled, applyAgentManifest, firefoxRelease } from "./build-config.js";
 import { readFileSync } from "node:fs";
 
-describe("Firefox 自托管更新配置", () => {
-  it("两个打包入口应使用同一个固定更新地址和扩展 ID", () => {
+describe("Firefox 发布配置", () => {
+  it("两个打包入口应使用同一个扩展 ID，且不写入 AMO 上架版本禁止的 update_url", () => {
     expect(firefoxRelease).toEqual({
       addonId: "lbcat@latentbyte.com",
       updateUrl: "https://dl.latentbyte.com/lb/exts/lbcat-updates.json",
@@ -12,7 +12,7 @@ describe("Firefox 自托管更新配置", () => {
     for (const filename of ["rspack.config.ts", "scripts/pack.js"]) {
       const source = readFileSync(filename, "utf8");
       expect(source).toContain("id: firefoxRelease.addonId");
-      expect(source).toContain("update_url: firefoxRelease.updateUrl");
+      expect(source).not.toContain("update_url");
     }
   });
 });

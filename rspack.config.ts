@@ -66,7 +66,6 @@ type ScriptCatManifest = chrome.runtime.ManifestV3 & {
     gecko?: {
       id?: string;
       strict_min_version?: string;
-      update_url?: string;
       data_collection_permissions?: { required: string[] };
     };
   };
@@ -90,7 +89,6 @@ const applyFirefoxManifest = (manifest: ScriptCatManifest) => {
     gecko: {
       ...manifest.browser_specific_settings?.gecko,
       id: firefoxRelease.addonId,
-      update_url: firefoxRelease.updateUrl,
       strict_min_version: "142.0",
       data_collection_permissions: {
         required: ["none"],
