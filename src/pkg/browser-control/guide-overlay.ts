@@ -16,7 +16,7 @@ export type GuideGotoEvent = { kind: "goto"; tabId: number };
 export type GuideOverlayMessage = { type: string; stepId: number; event: GuidePageEvent | GuideGotoEvent };
 
 // 在页面隔离世界执行，需保持自包含；与快照共享 __bctlRefs 取回标注元素
-// 卡片在封闭 Shadow Root 中，页面脚本无法触达按钮；标注交互只记录可信事件
+// 卡片在 iframe 自己的文档里，页面脚本和页面快捷键都碰不到卡片；标注交互只记录可信事件
 export function renderGuideOverlay(view: GuideOverlayView | null, options: GuideOverlayOptions): void {
   const store = globalThis as {
     __lbcatGuideTeardown?: () => void;
@@ -35,32 +35,54 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     const message: GuideOverlayMessage = { type: options.message, stepId: view.stepId, event };
     void chrome.runtime.sendMessage(message);
   };
-  const create = <K extends keyof HTMLElementTagNameMap>(tag: K, css: string, text?: string) => {
+  // 页面里的元素：标注框与标签
+  const createPage = <K extends keyof HTMLElementTagNameMap>(tag: K, css: string, text?: string) => {
     const element = document.createElement(tag);
     element.style.cssText = css;
     if (text !== undefined) element.textContent = text;
     return element;
   };
 
+  const font = "font: 13px/1.45 system-ui, -apple-system, sans-serif;";
   const host = document.createElement("lbcat-agent-guide");
   host.style.cssText = "all: initial; position: fixed; inset: 0; pointer-events: none; z-index: 2147483646;";
-  const root = host.attachShadow({ mode: "closed" });
-  // 卡片内的按键停在 shadow 边界：页面快捷键（如 Gmail 的单键快捷键）只看到宿主元素，会把正在输入的字符当快捷键吃掉
-  for (const type of ["keydown", "keypress", "keyup"] as const)
-    root.addEventListener(type, (event) => event.stopPropagation());
-  const font = "font: 13px/1.45 system-ui, -apple-system, sans-serif;";
+  // 卡片放在同源 iframe 自己的文档里：页面拿不到卡片里的按键，即使页面在捕获阶段监听 keydown 并 preventDefault
+  // （Gmail 的单键快捷键就是这样把页面内输入的字符吃掉），也碰不到人工在卡片里输入的字符
+  const frame = document.createElement("iframe");
+  frame.setAttribute("title", "Agent walkthrough");
+  frame.style.cssText =
+    "all: initial; position: fixed; left: 50%; transform: translateX(-50%); width: min(400px, calc(100vw - 24px)); " +
+    "display: block; height: 0; border: 0; background: transparent; pointer-events: auto;";
+  host.append(frame);
+  document.documentElement.append(host);
+  const doc = frame.contentDocument;
+  const win = frame.contentWindow;
+  if (!doc || !win) {
+    host.remove();
+    return;
+  }
+  // 卡片文档不继承页面样式，只带自己的一份重置
+  const resetCSS = doc.createElement("style");
+  resetCSS.textContent = "html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }";
+  doc.head.append(resetCSS);
+  const create = <K extends keyof HTMLElementTagNameMap>(tag: K, css: string, text?: string) => {
+    const element = doc.createElement(tag);
+    element.style.cssText = css;
+    if (text !== undefined) element.textContent = text;
+    return element;
+  };
 
   // 标注框与标签，元素消失或不可见时隐藏
   const marks = view.marks
     .map((mark) => ({ mark, el: store.__bctlRefs?.get(mark.ref)?.deref() }))
     .filter((item): item is { mark: GuideMark; el: Element } => Boolean(item.el?.isConnected))
     .map(({ mark, el }) => {
-      const box = create(
+      const box = createPage(
         "div",
         `position: fixed; box-sizing: border-box; border: 3px solid ${ACCENT}; border-radius: 6px; ` +
           `box-shadow: 0 0 0 4px rgba(245,158,11,.25), 0 0 18px rgba(245,158,11,.55); pointer-events: none;`
       );
-      const label = create(
+      const label = createPage(
         "div",
         `position: fixed; max-width: 260px; padding: 2px 8px; border-radius: 4px; background: ${ACCENT}; ` +
           `color: #111827; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; ` +
@@ -68,15 +90,14 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
         mark.label
       );
       label.dataset.mark = mark.ref;
-      root.append(box, label);
+      host.append(box, label);
       return { mark, el, box, label };
     });
 
   const card = create(
     "div",
-    `position: fixed; left: 50%; transform: translateX(-50%); width: min(400px, calc(100vw - 24px)); ` +
-      `box-sizing: border-box; padding: 12px 14px; border-radius: 10px; background: #111827; color: #F9FAFB; ` +
-      `box-shadow: 0 8px 28px rgba(0,0,0,.35); pointer-events: auto; ${font}`
+    `box-sizing: border-box; padding: 12px 14px; border-radius: 10px; background: #111827; color: #F9FAFB; ` +
+      `box-shadow: 0 8px 28px rgba(0,0,0,.35); ${font}`
   );
   card.dataset.card = "";
   // 标题栏可拖动卡片，右侧按钮折叠或展开正文；新步骤总是展开显示
@@ -115,13 +136,14 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     show("Copy");
     trigger.addEventListener("click", () => {
       clearTimeout(reset);
-      navigator.clipboard.writeText(value).then(
+      // 卡片文档在前台时只有它自己的剪贴板可用
+      win.navigator.clipboard.writeText(value).then(
         () => {
           show("Copied");
           reset = window.setTimeout(() => show("Copy"), 1500);
         },
         () => {
-          getSelection()?.selectAllChildren(selectable);
+          win.getSelection()?.selectAllChildren(selectable);
           show("Press Ctrl+C or Cmd+C to copy");
         }
       );
@@ -160,7 +182,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   };
   // 图标只用 DOM 构建：剪贴板与对勾
   const icon = (paths: string[]) => {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
     for (const [name, value] of Object.entries({
       viewBox: "0 0 24 24",
       width: "14",
@@ -173,7 +195,7 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     }))
       svg.setAttribute(name, value);
     for (const d of paths) {
-      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", d);
       svg.append(path);
     }
@@ -309,14 +331,14 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     label.style.top = `${spot.top}px`;
     return spot;
   };
-  // 卡片保持在视口内
+  // 卡片保持在视口内，位置落在 iframe 上（iframe 就是卡片的外框）
   const place = (left: number, top: number) => {
-    const { width, height } = card.getBoundingClientRect();
+    const { width, height } = frame.getBoundingClientRect();
     const position = {
       left: Math.max(0, Math.min(left, window.innerWidth - width)),
       top: Math.max(0, Math.min(top, window.innerHeight - height)),
     };
-    Object.assign(card.style, {
+    Object.assign(frame.style, {
       left: `${position.left}px`,
       top: `${position.top}px`,
       bottom: "auto",
@@ -324,8 +346,14 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     });
     return position;
   };
+  // iframe 跟着卡片内容长高，不出现内部滚动条
+  const sync = () => {
+    const height = Math.ceil(doc.documentElement.getBoundingClientRect().height);
+    if (height > 0) frame.style.height = `${height}px`;
+  };
   // 卡片默认在底部，挡住标注时移到顶部；人工拖动过则留在拖到的位置
   const layout = () => {
+    sync();
     const placed: Array<{ label: HTMLElement; rect: DOMRect; box: Box }> = [];
     for (const { el, box, label } of marks) {
       const visible = shown(el);
@@ -346,17 +374,19 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
       return;
     }
     const rects = placed.map((item) => item.rect);
-    const height = card.getBoundingClientRect().height || 160;
+    const height = frame.getBoundingClientRect().height || 160;
     const zone = window.innerHeight - height - 32;
     const top = rects.some((rect) => rect.bottom > zone && rect.top < window.innerHeight);
-    card.style.top = top ? "16px" : "auto";
-    card.style.bottom = top ? "auto" : "16px";
+    frame.style.left = "50%";
+    frame.style.transform = "translateX(-50%)";
+    frame.style.top = top ? "16px" : "auto";
+    frame.style.bottom = top ? "auto" : "16px";
   };
-  let frame = 0;
+  let pending = 0;
   const schedule = () => {
-    if (!frame)
-      frame = requestAnimationFrame(() => {
-        frame = 0;
+    if (!pending)
+      pending = requestAnimationFrame(() => {
+        pending = 0;
         layout();
       });
   };
@@ -442,18 +472,21 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     body.append(textarea);
   }
   body.append(actions);
-  root.append(create("style", "", "@keyframes lbcat-guide-spin { to { transform: rotate(360deg); } }"), card);
+  doc.head.append(create("style", "", "@keyframes lbcat-guide-spin { to { transform: rotate(360deg); } }"));
+  doc.body.append(card);
 
   let drag: { x: number; y: number } | undefined;
+  // 拖动在卡片文档里进行：指针被捕获后移出 iframe 也继续收到事件，坐标加上 iframe 在页面里的位置换算
   header.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || event.composedPath().includes(fold)) return;
-    const rect = card.getBoundingClientRect();
-    drag = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    drag = { x: event.clientX, y: event.clientY };
     header.setPointerCapture(event.pointerId);
     event.preventDefault();
   });
   header.addEventListener("pointermove", (event) => {
-    if (drag) store.__lbcatGuidePosition = place(event.clientX - drag.x, event.clientY - drag.y);
+    if (!drag) return;
+    const rect = frame.getBoundingClientRect();
+    store.__lbcatGuidePosition = place(rect.left + event.clientX - drag.x, rect.top + event.clientY - drag.y);
   });
   const drop = () => (drag = undefined);
   header.addEventListener("pointerup", drop);
@@ -478,6 +511,9 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   };
   const resize = new ResizeObserver(schedule);
   for (const { el } of marks) resize.observe(el);
+  const Observer = (win as Window & typeof globalThis).ResizeObserver ?? ResizeObserver;
+  const cardResize = new Observer(schedule);
+  cardResize.observe(doc.documentElement);
   const mutations = new MutationObserver(schedule);
   mutations.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
   window.addEventListener("scroll", schedule, { capture: true, passive: true });
@@ -485,8 +521,9 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
   for (const type of ["click", "input"]) document.addEventListener(type, onInteraction, true);
 
   store.__lbcatGuideTeardown = () => {
-    cancelAnimationFrame(frame);
+    cancelAnimationFrame(pending);
     resize.disconnect();
+    cardResize.disconnect();
     mutations.disconnect();
     window.removeEventListener("scroll", schedule, { capture: true });
     window.removeEventListener("resize", schedule);
@@ -494,7 +531,6 @@ export function renderGuideOverlay(view: GuideOverlayView | null, options: Guide
     host.remove();
   };
 
-  document.documentElement.append(host);
   layout();
   // 第一个标注不在视口内时滚动过去
   const first = marks[0]?.el.getBoundingClientRect();

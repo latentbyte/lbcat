@@ -20,6 +20,21 @@ you only want to *check that a feature works*, do not pay that cost and do not l
 Promoting a scenario into the permanent suite is a *separate, deliberate* decision — only when it deserves
 permanent regression coverage. That path is owned by [`DEVELOP.md`](./DEVELOP.md), not this guide.
 
+### Committed regression checks
+
+Some scenarios are cheap enough to keep, because a unit test cannot see them. `just test-e2e-guide-keys` rebuilds
+the extension, loads the fresh `dist/ext` in a real Chromium and types with real keys:
+
+```bash
+test-e2e-guide-keys:
+    pnpm build
+    pnpm exec playwright test e2e/guide-keys.spec.ts
+```
+
+It covers `src/pkg/browser-control/guide-overlay.ts`: the guide card must receive what the human types even when
+the page treats non-editable key targets as shortcuts (bubble, window-capture, and `activeElement` variants) and on
+pages with `frame-src 'none'`. Each run loads the current build, so a rebuilt extension needs no manual reload step.
+
 ## Prerequisite gate (cheap signals first)
 
 Driving a browser is the *last* check, not the first. Confirm the cheap signals are green before you build:

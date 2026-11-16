@@ -9,19 +9,17 @@ function refs(entries: Record<string, Element>) {
   );
 }
 
+// 卡片在 iframe 自己的文档里，标注框仍在页面里
+const overlay = () => document.querySelector("lbcat-agent-guide");
+const frame = () => overlay()!.querySelector("iframe") as HTMLIFrameElement;
+const cardWindow = () => frame().contentWindow!;
+
 function render(view: GuideOverlayView | null) {
-  let root: ShadowRoot | undefined;
-  const attach = Element.prototype.attachShadow;
-  const spy = vi.spyOn(Element.prototype, "attachShadow").mockImplementation(function (this: Element, init) {
-    root = attach.call(this, init);
-    return root;
-  });
   renderGuideOverlay(view, { message: MESSAGE });
-  spy.mockRestore();
-  return root;
+  return overlay()?.querySelector("iframe")?.contentDocument ?? undefined;
 }
 
-const button = (root: ShadowRoot, name: string) =>
+const button = (root: Document, name: string) =>
   Array.from(root.querySelectorAll("button")).find((item) => item.textContent === name)!;
 
 describe("引导覆盖层", () => {
@@ -63,7 +61,7 @@ describe("引导覆盖层", () => {
     const root = render(view)!;
     expect(root.querySelector("[data-card]")!.textContent).toContain("Step 3");
     expect(root.querySelector("[data-text]")!.textContent).toBe(view.text);
-    const labels = Array.from(root.querySelectorAll("[data-mark]")).map((mark) => mark.textContent);
+    const labels = Array.from(overlay()!.querySelectorAll("[data-mark]")).map((mark) => mark.textContent);
     expect(labels).toEqual(["copy this", "1"]);
   });
 
@@ -109,57 +107,54 @@ describe("引导覆盖层", () => {
   });
 
   it("点击复制按钮写入剪贴板并提示已复制，不通知代理", async () => {
-    const writeText = vi.fn(() => Promise.resolve());
-    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const root = render({ ...view, text: "```\nsk-123\n```" })!;
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(cardWindow().navigator, "clipboard", { configurable: true, value: { writeText } });
     const copy = root.querySelector<HTMLButtonElement>("[data-copy] button")!;
     copy.click();
     await vi.waitFor(() => expect(copy.title).toBe("Copied"));
     expect(writeText).toHaveBeenCalledWith("sk-123");
     expect(send).not.toHaveBeenCalled();
-    delete (navigator as { clipboard?: unknown }).clipboard;
+    delete (cardWindow().navigator as { clipboard?: unknown }).clipboard;
   });
 
   it("剪贴板写入失败时选中文本供手动复制", async () => {
-    Object.defineProperty(navigator, "clipboard", {
+    const root = render({ ...view, text: "```\nsk-123\n```" })!;
+    Object.defineProperty(cardWindow().navigator, "clipboard", {
       configurable: true,
       value: { writeText: () => Promise.reject(new Error("denied")) },
     });
-    // jsdom 无法选中 Shadow Root 内的节点，只断言选中了代码文本
-    const select = vi.spyOn(Selection.prototype, "selectAllChildren").mockImplementation(() => {});
-    const root = render({ ...view, text: "```\nsk-123\n```" })!;
     const copy = root.querySelector<HTMLButtonElement>("[data-copy] button")!;
     copy.click();
     await vi.waitFor(() => expect(copy.title).toBe("Press Ctrl+C or Cmd+C to copy"));
-    expect(select).toHaveBeenCalledWith(root.querySelector("[data-copy] pre"));
-    delete (navigator as { clipboard?: unknown }).clipboard;
+    expect(cardWindow().getSelection()?.toString()).toBe("sk-123");
+    delete (cardWindow().navigator as { clipboard?: unknown }).clipboard;
   });
 
   it("点击行内代码写入剪贴板并提示已复制，不通知代理", async () => {
-    const writeText = vi.fn(() => Promise.resolve());
-    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const root = render({ ...view, text: "Remove header `X-Forwarded-For`" })!;
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(cardWindow().navigator, "clipboard", { configurable: true, value: { writeText } });
     const code = root.querySelector<HTMLElement>("[data-text] code")!;
     expect(code.title).toBe("Copy");
     code.click();
     await vi.waitFor(() => expect(code.title).toBe("Copied"));
     expect(writeText).toHaveBeenCalledWith("X-Forwarded-For");
     expect(send).not.toHaveBeenCalled();
-    delete (navigator as { clipboard?: unknown }).clipboard;
+    delete (cardWindow().navigator as { clipboard?: unknown }).clipboard;
   });
 
   it("行内代码剪贴板写入失败时选中该代码供手动复制", async () => {
-    Object.defineProperty(navigator, "clipboard", {
+    const root = render({ ...view, text: "Remove `X-Forwarded-For`" })!;
+    Object.defineProperty(cardWindow().navigator, "clipboard", {
       configurable: true,
       value: { writeText: () => Promise.reject(new Error("denied")) },
     });
-    const select = vi.spyOn(Selection.prototype, "selectAllChildren").mockImplementation(() => {});
-    const root = render({ ...view, text: "Remove `X-Forwarded-For`" })!;
     const code = root.querySelector<HTMLElement>("[data-text] code")!;
     code.click();
     await vi.waitFor(() => expect(code.title).toBe("Press Ctrl+C or Cmd+C to copy"));
-    expect(select).toHaveBeenCalledWith(code);
-    delete (navigator as { clipboard?: unknown }).clipboard;
+    expect(cardWindow().getSelection()?.toString()).toBe("X-Forwarded-For");
+    delete (cardWindow().navigator as { clipboard?: unknown }).clipboard;
   });
 
   it("点击下一步发送回复并进入等待状态，标注随之移除", () => {
@@ -169,7 +164,7 @@ describe("引导覆盖层", () => {
     expect(send).toHaveBeenCalledWith({ type: MESSAGE, stepId: 3, event: { kind: "next", reply: "copied it" } });
     expect(root.querySelector("[data-text]")!.textContent).toContain("preparing the next step");
     expect(root.querySelector("[data-text] [data-busy]")).not.toBeNull();
-    expect(root.querySelectorAll("[data-mark]")).toHaveLength(0);
+    expect(overlay()!.querySelectorAll("[data-mark]")).toHaveLength(0);
     expect(Array.from(root.querySelectorAll("[data-actions] button")).map((item) => item.textContent)).toEqual([
       "Close",
     ]);
@@ -181,7 +176,7 @@ describe("引导覆盖层", () => {
     const reply = button(root, "Send");
     expect(reply.disabled).toBe(true);
     textarea.value = "I don't see the box";
-    textarea.dispatchEvent(new Event("input"));
+    textarea.dispatchEvent(new (cardWindow() as unknown as { Event: typeof Event }).Event("input"));
     expect(reply.disabled).toBe(false);
     reply.click();
     expect(send).toHaveBeenCalledWith({
@@ -189,7 +184,7 @@ describe("引导覆盖层", () => {
       stepId: 3,
       event: { kind: "reply", reply: "I don't see the box" },
     });
-    expect(root.querySelectorAll("[data-mark]")).toHaveLength(2);
+    expect(overlay()!.querySelectorAll("[data-mark]")).toHaveLength(2);
     expect(root.querySelector("[data-text]")!.textContent).toContain("updating this step");
     expect(root.querySelector("[data-text] [data-busy]")).not.toBeNull();
   });
@@ -215,7 +210,7 @@ describe("引导覆盖层", () => {
     });
     expect(root.querySelector("[data-text]")!.textContent).toContain("agent is doing this step");
     expect(root.querySelector("[data-text] [data-busy]")).not.toBeNull();
-    expect(root.querySelectorAll("[data-mark]")).toHaveLength(0);
+    expect(overlay()!.querySelectorAll("[data-mark]")).toHaveLength(0);
   });
 
   it("准备状态只显示等待提示", () => {
@@ -253,35 +248,38 @@ describe("引导覆盖层", () => {
 
   it("拖动标题栏移动卡片，位置限制在视口内并沿用到下一步", () => {
     const capture = vi.fn();
-    Object.assign(Element.prototype, { setPointerCapture: capture });
     const root = render(view)!;
+    const cardWindow_ = cardWindow() as unknown as { Element: typeof Element; MouseEvent: typeof MouseEvent };
+    Object.assign(cardWindow_.Element.prototype, { setPointerCapture: capture });
     const handle = root.querySelector<HTMLElement>("[data-handle]")!;
-    const card = root.querySelector<HTMLElement>("[data-card]")!;
+    const box = frame();
     const pointer = (type: string, x: number, y: number) =>
-      handle.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y }));
+      handle.dispatchEvent(new cardWindow_.MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y }));
     pointer("pointerdown", 10, 10);
     pointer("pointermove", 210, 110);
     pointer("pointerup", 210, 110);
     expect(capture).toHaveBeenCalled();
-    expect([card.style.left, card.style.top, card.style.bottom]).toEqual(["200px", "100px", "auto"]);
+    expect([box.style.left, box.style.top, box.style.bottom]).toEqual(["200px", "100px", "auto"]);
     pointer("pointermove", 500, 500);
-    expect(card.style.left).toBe("200px");
+    expect(box.style.left).toBe("200px");
 
     pointer("pointerdown", 0, 0);
     pointer("pointermove", -50, 99999);
     pointer("pointerup", 0, 0);
-    expect([card.style.left, card.style.top]).toEqual(["0px", `${window.innerHeight}px`]);
+    expect([box.style.left, box.style.top]).toEqual(["0px", `${window.innerHeight}px`]);
 
-    const next = render({ ...view, stepId: 4 })!.querySelector<HTMLElement>("[data-card]")!;
+    render({ ...view, stepId: 4 });
+    const next = frame();
     expect([next.style.left, next.style.top]).toEqual(["0px", `${window.innerHeight}px`]);
-    delete (Element.prototype as { setPointerCapture?: unknown }).setPointerCapture;
+    delete (cardWindow_.Element.prototype as { setPointerCapture?: unknown }).setPointerCapture;
   });
 
   it("点击折叠按钮不触发拖动", () => {
     const root = render(view)!;
     const fold = root.querySelector<HTMLElement>("[data-fold]")!;
-    fold.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, composed: true, button: 0 }));
-    fold.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, composed: true, clientX: 300, clientY: 300 }));
+    const Mouse = (cardWindow() as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent;
+    fold.dispatchEvent(new Mouse("pointerdown", { bubbles: true, composed: true, button: 0 }));
+    fold.dispatchEvent(new Mouse("pointermove", { bubbles: true, composed: true, clientX: 300, clientY: 300 }));
     expect((globalThis as { __lbcatGuidePosition?: unknown }).__lbcatGuidePosition).toBeUndefined();
   });
 
@@ -341,14 +339,14 @@ describe("引导覆盖层", () => {
     vi.spyOn(Element.prototype, "getClientRects").mockImplementation(
       () => [new DOMRect(0, 0, 1, 1)] as unknown as DOMRectList
     );
-    const root = render({
+    render({
       ...view,
       marks: [
         { ref: "e1", label: "2" },
         { ref: "e2", label: "3" },
       ],
-    })!;
-    const labels = Array.from(root.querySelectorAll<HTMLElement>("[data-mark]")).map((label) => {
+    });
+    const labels = Array.from(overlay()!.querySelectorAll<HTMLElement>("[data-mark]")).map((label) => {
       const left = parseFloat(label.style.left);
       const top = parseFloat(label.style.top);
       return { left, top, right: left + 20, bottom: top + 22 };
