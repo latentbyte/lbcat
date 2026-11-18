@@ -4,6 +4,26 @@ import { uuidv4 } from "@App/pkg/utils/uuid";
 
 const listenerMgr = new EventEmitter<string, any>(); // 单一管理器
 
+type UserScriptConnectListener = (port: chrome.runtime.Port) => void;
+type UserScriptMessageListener = (
+  msg: TMessage,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response?: any) => void
+) => boolean | void;
+
+// 仅在事件上缺少该监听时挂上；addListener 失败时保持未挂载，下次授予权限或 LISTEN_CONNECTIONS 时重试
+function attachUserScriptListener<T extends (...args: any[]) => any>(
+  event: chrome.events.Event<T> | undefined,
+  listener: T
+) {
+  if (typeof event?.addListener !== "function" || event.hasListener(listener)) return;
+  try {
+    event.addListener(listener);
+  } catch {
+    // do nothing
+  }
+}
+
 export class ExtensionMessage implements Message {
   constructor(private backgroundPrimary = false) {
     if (backgroundPrimary) {
@@ -52,11 +72,18 @@ export class ExtensionMessage implements Message {
     // empty function
   };
 
-  private userScriptConnectListenerAttached = false;
-  private userScriptMessageListenerAttached = false;
+  // 保留监听函数引用，以 hasListener 判断真实挂载状态：
+  // Firefox 撤销再授予 userScripts 权限后旧监听会失效，需要重新挂上；Chrome 则一直保留，不能重复挂
+  private userScriptConnectListener: UserScriptConnectListener | null = null;
+  private userScriptMessageListener: UserScriptMessageListener | null = null;
 
   userScriptListenersAttached(): { message: boolean; connect: boolean } {
-    return { message: this.userScriptMessageListenerAttached, connect: this.userScriptConnectListenerAttached };
+    const messageListener = this.userScriptMessageListener;
+    const connectListener = this.userScriptConnectListener;
+    return {
+      message: messageListener !== null && chrome.runtime.onUserScriptMessage?.hasListener(messageListener) === true,
+      connect: connectListener !== null && chrome.runtime.onUserScriptConnect?.hasListener(connectListener) === true,
+    };
   }
 
   onConnect(callback: (data: TMessage, con: MessageConnect) => void) {
@@ -79,36 +106,27 @@ export class ExtensionMessage implements Message {
     });
 
     if (this.backgroundPrimary) {
-      let addUserScriptConnectionListener: (() => void) | null = () => {
-        try {
-          // 监听用户脚本的连接
-          chrome.runtime.onUserScriptConnect.addListener((port: chrome.runtime.Port) => {
-            let myPort: chrome.runtime.Port | null = port;
-            const lastError = chrome.runtime.lastError;
-            if (lastError) {
-              console.error("chrome.runtime.lastError in chrome.runtime.onUserScriptConnect:", lastError);
-            }
-            const handler = (msg: TMessage) => {
-              const port = myPort;
-              if (port !== null) {
-                myPort = null;
-                port.onMessage.removeListener(handler);
-                callback(msg, new ExtensionMessageConnect(port));
-              }
-            };
-            myPort.onMessage.addListener(handler);
-          });
-          addUserScriptConnectionListener = null;
-          this.userScriptConnectListenerAttached = true;
-        } catch {
-          // do nothing
+      const listener: UserScriptConnectListener = (port: chrome.runtime.Port) => {
+        // 监听用户脚本的连接
+        let myPort: chrome.runtime.Port | null = port;
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          console.error("chrome.runtime.lastError in chrome.runtime.onUserScriptConnect:", lastError);
         }
+        const handler = (msg: TMessage) => {
+          const port = myPort;
+          if (port !== null) {
+            myPort = null;
+            port.onMessage.removeListener(handler);
+            callback(msg, new ExtensionMessageConnect(port));
+          }
+        };
+        myPort.onMessage.addListener(handler);
       };
+      this.userScriptConnectListener = listener;
       // Firefox 需要先得到 userScripts 权限才能进行 onUserScriptConnect 的监听
       this.tryEnableUserScriptConnectionListener = () => {
-        if (typeof chrome.runtime.onUserScriptConnect?.addListener === "function") {
-          addUserScriptConnectionListener && addUserScriptConnectionListener();
-        }
+        attachUserScriptListener(chrome.runtime.onUserScriptConnect, listener);
       };
       // Chrome 在初始化时就能监听
       this.tryEnableUserScriptConnectionListener();
@@ -148,30 +166,21 @@ export class ExtensionMessage implements Message {
     });
 
     if (this.backgroundPrimary) {
-      let addUserScriptMessageListener: (() => void) | null = () => {
-        try {
-          // 监听用户脚本的消息
-          chrome.runtime.onUserScriptMessage.addListener((msg: TMessage, sender, sendResponse) => {
-            const lastError = chrome.runtime.lastError;
-            if (typeof msg.action !== "string") return;
-            if (lastError) {
-              console.error("chrome.runtime.lastError in chrome.runtime.onUserScriptMessage:", lastError);
-              // 消息API发生错误因此不继续执行
-              return false;
-            }
-            return callback(msg, sendResponse, sender);
-          });
-          addUserScriptMessageListener = null;
-          this.userScriptMessageListenerAttached = true;
-        } catch {
-          // do nothing
+      const listener: UserScriptMessageListener = (msg: TMessage, sender, sendResponse) => {
+        // 监听用户脚本的消息
+        const lastError = chrome.runtime.lastError;
+        if (typeof msg.action !== "string") return;
+        if (lastError) {
+          console.error("chrome.runtime.lastError in chrome.runtime.onUserScriptMessage:", lastError);
+          // 消息API发生错误因此不继续执行
+          return false;
         }
+        return callback(msg, sendResponse, sender);
       };
+      this.userScriptMessageListener = listener;
       // Firefox 需要先得到 userScripts 权限才能进行 onUserScriptMessage 的监听
       this.tryEnableUserScriptMessageListener = () => {
-        if (typeof chrome.runtime.onUserScriptMessage?.addListener === "function") {
-          addUserScriptMessageListener && addUserScriptMessageListener();
-        }
+        attachUserScriptListener(chrome.runtime.onUserScriptMessage, listener);
       };
       // Chrome 在初始化时就能监听
       this.tryEnableUserScriptMessageListener();

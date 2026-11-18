@@ -150,8 +150,14 @@ describe.concurrent("RuntimeService - getPageScriptMatchingResultByUrl 脚本匹
         { id: "11111111-1111-4111-8111-111111111111" },
         { id: "22222222-2222-4222-8222-222222222222" },
       ];
+      // 内容脚本引导 scriptcat-scripting 经由 chrome.scripting 注册
+      Object.defineProperty(chrome, "scripting", {
+        value: { getRegisteredContentScripts: async () => [{ id: "scriptcat-scripting" }] },
+        configurable: true,
+      });
       onTestFinished(() => {
         userScriptsMock.scripts = previous;
+        delete (chrome as { scripting?: unknown }).scripting;
       });
       const getScripts = vi.spyOn(chrome.userScripts, "getScripts");
 
@@ -165,9 +171,27 @@ describe.concurrent("RuntimeService - getPageScriptMatchingResultByUrl 脚本匹
         registration: {
           state: expect.stringMatching(/^(registered|unregistered|unset)$/),
           scripts: 2,
-          bootstrap: ["scriptcat-inject", "scriptcat-content"],
+          bootstrap: ["scriptcat-inject", "scriptcat-content", "scriptcat-scripting"],
         },
       });
+    });
+
+    it("初始化完成前应等待初始化结果，避免误报 userScripts 不可用", async () => {
+      runtime.isUserScriptsAvailable = false;
+      let finishInit!: (value: boolean) => void;
+      runtime.initReady = new Promise<boolean>((resolve) => {
+        finishInit = resolve;
+      });
+      onTestFinished(() => {
+        runtime.initReady = false;
+      });
+
+      const pending = runtime.getPageScriptStatus();
+      runtime.isUserScriptsAvailable = true;
+      runtime.isLoadScripts = true;
+      finishInit(true);
+
+      expect((await pending).userScriptsApi).toBe(true);
     });
 
     it("userScripts 不可用时不应调用 userScripts API", async () => {

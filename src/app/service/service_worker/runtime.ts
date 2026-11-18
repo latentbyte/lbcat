@@ -712,6 +712,8 @@ export class RuntimeService {
   }
 
   async getPageScriptStatus(): Promise<PageScriptStatus> {
+    // 后台刚启动时各项状态仍是预设值，等初始化完成再报告
+    if (typeof this.initReady !== "boolean") await this.initReady;
     const ids: string[] = [];
     if (this.isUserScriptsAvailable) {
       ids.push(...(await chrome.userScripts.getScripts()).map((script) => script.id));

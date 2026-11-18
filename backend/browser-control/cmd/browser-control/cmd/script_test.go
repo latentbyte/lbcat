@@ -311,7 +311,7 @@ func TestScriptPushReloadTabs(t *testing.T) {
 }
 
 func TestScriptStatus(t *testing.T) {
-	const response = `{"cmd":"script.status","data":{"userScriptsApi":true,"scriptingFallback":false,"enabled":true,"registration":{"state":"registered","scripts":57,"bootstrap":["scriptcat-inject","scriptcat-content"]},"listeners":{"message":false,"connect":false}}}`
+	const response = `{"cmd":"script.status","data":{"userScriptsApi":true,"scriptingFallback":false,"enabled":true,"registration":{"state":"registered","scripts":57,"bootstrap":["scriptcat-inject","scriptcat-content","scriptcat-scripting"]},"listeners":{"message":false,"connect":false}}}`
 	for _, test := range []struct {
 		name string
 		json bool
@@ -320,7 +320,7 @@ func TestScriptStatus(t *testing.T) {
 		{name: "文本输出汇总注入状态", want: `runner:       userScripts API
 enabled:      yes
 registration: registered, 57 scripts
-bootstrap:    scriptcat-inject, scriptcat-content
+bootstrap:    scriptcat-inject, scriptcat-content, scriptcat-scripting
 listeners:    message no, connect no
 `},
 		{name: "JSON 输出原样返回扩展响应", json: true, want: response + "\n"},

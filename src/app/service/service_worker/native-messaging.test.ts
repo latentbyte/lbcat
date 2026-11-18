@@ -1284,7 +1284,11 @@ describe("原生消息并发控制", () => {
       userScriptsApi: true,
       scriptingFallback: false,
       enabled: true,
-      registration: { state: "registered", scripts: 3, bootstrap: ["scriptcat-inject", "scriptcat-content"] },
+      registration: {
+        state: "registered",
+        scripts: 3,
+        bootstrap: ["scriptcat-inject", "scriptcat-content", "scriptcat-scripting"],
+      },
       listeners: { message: false, connect: false },
     };
     const getPageScriptStatus = vi.fn(async () => status);

@@ -126,6 +126,16 @@ counts, and whether the background listens for messages from the userscript worl
 both `listeners` must be `yes`; otherwise pages never receive their script list. Reload the extension (or restart the
 browser) to recover, and report it as a bug.
 
+Healthy output with the userScripts API looks like:
+
+```text
+runner:       userScripts API
+enabled:      yes
+registration: registered, 57 scripts
+bootstrap:    scriptcat-inject, scriptcat-content, scriptcat-scripting
+listeners:    message yes, connect yes
+```
+
 ### Debugging the shim
 
 Test the shim manually (simulates what the browser does):

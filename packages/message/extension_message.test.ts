@@ -10,12 +10,13 @@ const makeEvent = () => {
     addListener: vi.fn((fn: Listener) => {
       listeners.push(fn);
     }),
+    hasListener: (fn: Listener) => listeners.includes(fn),
     fire: (...args: any[]) => listeners.map((fn) => fn(...args)),
   };
 };
 
 // Firefox 在授予 userScripts 权限前不会暴露 onUserScriptMessage / onUserScriptConnect
-const stubChromeWithoutUserScripts = () => {
+const stubChrome = ({ granted }: { granted: boolean }) => {
   const runtime: Record<string, any> = {
     lastError: undefined,
     onMessage: makeEvent(),
@@ -27,7 +28,20 @@ const stubChromeWithoutUserScripts = () => {
     runtime.onUserScriptMessage = makeEvent();
     runtime.onUserScriptConnect = makeEvent();
   };
-  return { runtime, permissionsOnAdded, grantUserScripts };
+  // 模拟 Firefox 撤销权限：受权限控制的命名空间连同监听一起被拆掉
+  const revokeUserScripts = () => {
+    delete runtime.onUserScriptMessage;
+    delete runtime.onUserScriptConnect;
+  };
+  if (granted) grantUserScripts();
+  return { runtime, permissionsOnAdded, grantUserScripts, revokeUserScripts };
+};
+
+const startBackground = () => {
+  const message = new ExtensionMessage(true);
+  message.onMessage(() => undefined);
+  message.onConnect(() => undefined);
+  return message;
 };
 
 afterEach(() => {
@@ -36,10 +50,8 @@ afterEach(() => {
 
 describe("ExtensionMessage userScripts 监听", () => {
   it("后台启动后在 about:addons 授予 userScripts 权限时应挂上用户脚本监听且只挂一次", () => {
-    const { runtime, permissionsOnAdded, grantUserScripts } = stubChromeWithoutUserScripts();
-    const message = new ExtensionMessage(true);
-    message.onMessage(() => undefined);
-    message.onConnect(() => undefined);
+    const { runtime, permissionsOnAdded, grantUserScripts } = stubChrome({ granted: false });
+    const message = startBackground();
     expect(message.userScriptListenersAttached()).toEqual({ message: false, connect: false });
 
     grantUserScripts();
@@ -58,11 +70,57 @@ describe("ExtensionMessage userScripts 监听", () => {
     expect(message.userScriptListenersAttached()).toEqual({ message: true, connect: true });
   });
 
+  it("已有权限时后台重启应在初始化时挂上监听，之后的授予事件不应重复挂载", () => {
+    const { runtime, permissionsOnAdded } = stubChrome({ granted: true });
+    const message = startBackground();
+    expect(runtime.onUserScriptMessage.addListener).toHaveBeenCalledTimes(1);
+    expect(runtime.onUserScriptConnect.addListener).toHaveBeenCalledTimes(1);
+
+    permissionsOnAdded.fire({ permissions: ["userScripts"] });
+
+    expect(runtime.onUserScriptMessage.addListener).toHaveBeenCalledTimes(1);
+    expect(runtime.onUserScriptConnect.addListener).toHaveBeenCalledTimes(1);
+    expect(message.userScriptListenersAttached()).toEqual({ message: true, connect: true });
+  });
+
+  it("addListener 抛错时应保持未挂载并在下次授予时重试", () => {
+    const { runtime, permissionsOnAdded, grantUserScripts } = stubChrome({ granted: false });
+    const message = startBackground();
+    grantUserScripts();
+    runtime.onUserScriptMessage.addListener.mockImplementationOnce(() => {
+      throw new Error("not ready");
+    });
+
+    permissionsOnAdded.fire({ permissions: ["userScripts"] });
+    expect(message.userScriptListenersAttached()).toEqual({ message: false, connect: true });
+
+    permissionsOnAdded.fire({ permissions: ["userScripts"] });
+    expect(runtime.onUserScriptMessage.addListener).toHaveBeenCalledTimes(2);
+    expect(runtime.onUserScriptConnect.addListener).toHaveBeenCalledTimes(1);
+    expect(message.userScriptListenersAttached()).toEqual({ message: true, connect: true });
+  });
+
+  it("撤销后重新授予 userScripts 权限时应重新挂上监听", () => {
+    const { runtime, permissionsOnAdded, grantUserScripts, revokeUserScripts } = stubChrome({ granted: false });
+    const message = startBackground();
+    grantUserScripts();
+    permissionsOnAdded.fire({ permissions: ["userScripts"] });
+    expect(message.userScriptListenersAttached()).toEqual({ message: true, connect: true });
+
+    revokeUserScripts();
+    expect(message.userScriptListenersAttached()).toEqual({ message: false, connect: false });
+
+    grantUserScripts();
+    permissionsOnAdded.fire({ permissions: ["userScripts"] });
+
+    expect(runtime.onUserScriptMessage.addListener).toHaveBeenCalledTimes(1);
+    expect(runtime.onUserScriptConnect.addListener).toHaveBeenCalledTimes(1);
+    expect(message.userScriptListenersAttached()).toEqual({ message: true, connect: true });
+  });
+
   it("授予其他权限时不应挂上用户脚本监听", () => {
-    const { runtime, permissionsOnAdded, grantUserScripts } = stubChromeWithoutUserScripts();
-    const message = new ExtensionMessage(true);
-    message.onMessage(() => undefined);
-    message.onConnect(() => undefined);
+    const { runtime, permissionsOnAdded, grantUserScripts } = stubChrome({ granted: false });
+    startBackground();
 
     grantUserScripts();
     permissionsOnAdded.fire({ permissions: ["background"] });
@@ -72,7 +130,7 @@ describe("ExtensionMessage userScripts 监听", () => {
   });
 
   it("非后台主实例不应监听权限变化", () => {
-    const { permissionsOnAdded } = stubChromeWithoutUserScripts();
+    const { permissionsOnAdded } = stubChrome({ granted: false });
     new ExtensionMessage(false);
     expect(permissionsOnAdded.addListener).not.toHaveBeenCalled();
   });
