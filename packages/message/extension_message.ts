@@ -5,7 +5,22 @@ import { uuidv4 } from "@App/pkg/utils/uuid";
 const listenerMgr = new EventEmitter<string, any>(); // 单一管理器
 
 export class ExtensionMessage implements Message {
-  constructor(private backgroundPrimary = false) {}
+  constructor(private backgroundPrimary = false) {
+    if (backgroundPrimary) {
+      // Firefox 可以在 about:addons 授予 userScripts 权限，此时后台不会重启，需要在这里补挂用户脚本监听
+      chrome.permissions.onAdded.addListener((permissions: chrome.permissions.Permissions) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          console.error("chrome.runtime.lastError in chrome.permissions.onAdded:", lastError);
+          return;
+        }
+        if (permissions.permissions?.includes("userScripts")) {
+          this.tryEnableUserScriptConnectionListener();
+          this.tryEnableUserScriptMessageListener();
+        }
+      });
+    }
+  }
 
   connect(data: TMessage): Promise<MessageConnect> {
     return new Promise((resolve) => {
@@ -36,6 +51,13 @@ export class ExtensionMessage implements Message {
   tryEnableUserScriptMessageListener = (..._args: any) => {
     // empty function
   };
+
+  private userScriptConnectListenerAttached = false;
+  private userScriptMessageListenerAttached = false;
+
+  userScriptListenersAttached(): { message: boolean; connect: boolean } {
+    return { message: this.userScriptMessageListenerAttached, connect: this.userScriptConnectListenerAttached };
+  }
 
   onConnect(callback: (data: TMessage, con: MessageConnect) => void) {
     chrome.runtime.onConnect.addListener((port: chrome.runtime.Port) => {
@@ -77,6 +99,7 @@ export class ExtensionMessage implements Message {
             myPort.onMessage.addListener(handler);
           });
           addUserScriptConnectionListener = null;
+          this.userScriptConnectListenerAttached = true;
         } catch {
           // do nothing
         }
@@ -139,6 +162,7 @@ export class ExtensionMessage implements Message {
             return callback(msg, sendResponse, sender);
           });
           addUserScriptMessageListener = null;
+          this.userScriptMessageListenerAttached = true;
         } catch {
           // do nothing
         }

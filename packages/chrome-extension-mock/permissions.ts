@@ -1,4 +1,20 @@
 export default class Permissions {
+  addedListener: Array<(permissions: chrome.permissions.Permissions) => void> = [];
+
+  removedListener: Array<(permissions: chrome.permissions.Permissions) => void> = [];
+
+  onAdded = {
+    addListener: (callback: (permissions: chrome.permissions.Permissions) => void) => {
+      this.addedListener.push(callback);
+    },
+  };
+
+  onRemoved = {
+    addListener: (callback: (permissions: chrome.permissions.Permissions) => void) => {
+      this.removedListener.push(callback);
+    },
+  };
+
   request(permissions: chrome.permissions.Permissions, callback?: (granted: boolean) => void) {
     // Mock implementation - always grant permissions for testing
     if (callback) {
