@@ -19,6 +19,12 @@ Host name: `com.latentbyte.browser_control`
 Runtime state lives under `$XDG_STATE_HOME/browser-control`, or `~/.local/state/browser-control` when `XDG_STATE_HOME`
 is unset.
 
+## Go toolchain
+
+Build with Go 1.27.4 or newer (earlier 1.27.x ships the `net/http` `MaxBytesReader` race, GO-2026-6859, reachable from
+the tablink HTTP server). `go.mod` pins `toolchain go1.27.4`, so Go 1.21+ downloads it automatically.
+The `go 1.25.0` directive is the language floor.
+
 ## Common commands
 
 ```sh

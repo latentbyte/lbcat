@@ -2,6 +2,8 @@ module github.com/latentbyte/lbcat/backend/browser-control
 
 go 1.25.0
 
+toolchain go1.27.4
+
 require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
