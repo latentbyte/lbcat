@@ -74,7 +74,7 @@ function main() {
   // Firefox 后台页与 offscreen 服务共用内部通道和消息队列
   const offscreen = hasOffscreenDocument ? new ServiceWorkerMessageSend() : new EventPageOffscreenManager(messageQueue);
   const server = new Server("serviceWorker", [message, offscreen]);
-  const manager = new ServiceWorkerManager(server, messageQueue, offscreen);
+  const manager = new ServiceWorkerManager(server, messageQueue, offscreen, message);
   manager.initManager();
   if (hasOffscreenDocument) {
     setupOffscreenDocument();

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -306,5 +307,55 @@ func TestScriptPushReloadTabs(t *testing.T) {
 	want := map[string]any{"enabled": true, "reloadTabs": true, "wait": "load", "timeoutMs": 10000.0}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("args = %#v, want %#v", args, want)
+	}
+}
+
+func TestScriptStatus(t *testing.T) {
+	const response = `{"cmd":"script.status","data":{"userScriptsApi":true,"scriptingFallback":false,"enabled":true,"registration":{"state":"registered","scripts":57,"bootstrap":["scriptcat-inject","scriptcat-content"]},"listeners":{"message":false,"connect":false}}}`
+	for _, test := range []struct {
+		name string
+		json bool
+		want string
+	}{
+		{name: "文本输出汇总注入状态", want: `runner:       userScripts API
+enabled:      yes
+registration: registered, 57 scripts
+bootstrap:    scriptcat-inject, scriptcat-content
+listeners:    message no, connect no
+`},
+		{name: "JSON 输出原样返回扩展响应", json: true, want: response + "\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			previousJSON := flagJSON
+			flagJSON = test.json
+			var stdout bytes.Buffer
+			scriptStatusCmd.SetOut(&stdout)
+			t.Cleanup(func() {
+				flagJSON = previousJSON
+				scriptStatusCmd.SetOut(nil)
+			})
+			result := startPageCommandDaemon(t, map[string]json.RawMessage{"script.status": json.RawMessage(response)})
+			if err := scriptStatusCmd.RunE(scriptStatusCmd, nil); err != nil {
+				t.Fatal(err)
+			}
+			requests := waitPageCommandRequests(t, result)
+			if len(requests) != 1 || requests[0].Cmd != "script.status" {
+				t.Fatalf("requests = %#v", requests)
+			}
+			if stdout.String() != test.want {
+				t.Fatalf("output = %q, want %q", stdout.String(), test.want)
+			}
+		})
+	}
+}
+
+func TestFormatScriptStatusFallback(t *testing.T) {
+	var s scriptStatus
+	s.ScriptingFallback = true
+	s.Registration.State = "unset"
+	got := formatScriptStatus(s)
+	if !strings.Contains(got, "runner:       scripting fallback (userScripts API unavailable)") ||
+		!strings.Contains(got, "bootstrap:    none") || !strings.Contains(got, "enabled:      no") {
+		t.Fatalf("output = %q", got)
 	}
 }

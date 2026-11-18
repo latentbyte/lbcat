@@ -1,6 +1,6 @@
 import { initTestEnv } from "@Tests/utils";
 import { RuntimeService } from "./runtime";
-import { vi, describe, it, expect, beforeEach, type MockedFunction } from "vitest";
+import { vi, describe, it, expect, beforeEach, onTestFinished, type MockedFunction } from "vitest";
 import { randomUUID } from "crypto";
 import type { Script, ScriptRunResource } from "@App/app/repo/scripts";
 import { SCRIPT_STATUS_DISABLE, SCRIPT_STATUS_ENABLE, SCRIPT_TYPE_NORMAL } from "@App/app/repo/scripts";
@@ -134,6 +134,57 @@ describe.concurrent("RuntimeService - getPageScriptMatchingResultByUrl 脚本匹
       runtime.isScriptingFallbackAvailable = true;
 
       expect(runtime.hasPageScriptRunner()).toBe(true);
+    });
+  });
+
+  describe.sequential("页面脚本注册状态", () => {
+    it("应报告 userScripts 可用性、总开关、注册数量与引导脚本", async () => {
+      runtime.isUserScriptsAvailable = true;
+      runtime.isScriptingFallbackAvailable = false;
+      runtime.isLoadScripts = true;
+      const userScriptsMock = chrome.userScripts as unknown as { scripts: { id: string }[] };
+      const previous = userScriptsMock.scripts;
+      userScriptsMock.scripts = [
+        { id: "scriptcat-inject" },
+        { id: "scriptcat-content" },
+        { id: "11111111-1111-4111-8111-111111111111" },
+        { id: "22222222-2222-4222-8222-222222222222" },
+      ];
+      onTestFinished(() => {
+        userScriptsMock.scripts = previous;
+      });
+      const getScripts = vi.spyOn(chrome.userScripts, "getScripts");
+
+      const status = await runtime.getPageScriptStatus();
+
+      expect(getScripts).toHaveBeenCalledTimes(1);
+      expect(status).toEqual({
+        userScriptsApi: true,
+        scriptingFallback: false,
+        enabled: true,
+        registration: {
+          state: expect.stringMatching(/^(registered|unregistered|unset)$/),
+          scripts: 2,
+          bootstrap: ["scriptcat-inject", "scriptcat-content"],
+        },
+      });
+    });
+
+    it("userScripts 不可用时不应调用 userScripts API", async () => {
+      runtime.isUserScriptsAvailable = false;
+      runtime.isScriptingFallbackAvailable = false;
+      runtime.isLoadScripts = false;
+      const getScripts = vi.spyOn(chrome.userScripts, "getScripts");
+      getScripts.mockClear();
+
+      const status = await runtime.getPageScriptStatus();
+
+      expect(getScripts).not.toHaveBeenCalled();
+      expect(status).toMatchObject({
+        userScriptsApi: false,
+        enabled: false,
+        registration: { scripts: 0, bootstrap: [] },
+      });
     });
   });
 

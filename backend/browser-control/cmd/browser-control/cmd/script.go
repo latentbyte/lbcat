@@ -160,6 +160,94 @@ var scriptListCmd = &cobra.Command{
 	},
 }
 
+type scriptStatus struct {
+	UserScriptsAPI    bool `json:"userScriptsApi"`
+	ScriptingFallback bool `json:"scriptingFallback"`
+	Enabled           bool `json:"enabled"`
+	Registration      struct {
+		State     string   `json:"state"`
+		Scripts   int      `json:"scripts"`
+		Bootstrap []string `json:"bootstrap"`
+	} `json:"registration"`
+	Listeners struct {
+		Message bool `json:"message"`
+		Connect bool `json:"connect"`
+	} `json:"listeners"`
+}
+
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
+}
+
+func formatScriptStatus(s scriptStatus) string {
+	runner := "userScripts API"
+	if !s.UserScriptsAPI {
+		runner = "none (userScripts API unavailable)"
+		if s.ScriptingFallback {
+			runner = "scripting fallback (userScripts API unavailable)"
+		}
+	}
+	bootstrap := "none"
+	if len(s.Registration.Bootstrap) > 0 {
+		bootstrap = strings.Join(s.Registration.Bootstrap, ", ")
+	}
+	return fmt.Sprintf(`runner:       %s
+enabled:      %s
+registration: %s, %d scripts
+bootstrap:    %s
+listeners:    message %s, connect %s
+`, runner, yesNo(s.Enabled), s.Registration.State, s.Registration.Scripts, bootstrap,
+		yesNo(s.Listeners.Message), yesNo(s.Listeners.Connect))
+}
+
+var scriptStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show whether LBcat can inject userscripts (API, enable switch, registration, listeners)",
+	Long: `Show the extension's page-script runtime state. Read-only.
+
+runner is the backend that injects scripts; enabled is the global enable switch;
+registration is the register state plus the number of registered userscripts and
+bootstrap entries; listeners shows whether the background listens for messages
+from the userscript world. With the userScripts API in use, page scripts only run
+when both listeners are attached.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, err := cli.Connect()
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+
+		target, err := resolveBrowser(c.Peers())
+		if err != nil {
+			return err
+		}
+
+		resp, err := c.Request(target, cli.ExtCommand{Cmd: "script.status"})
+		if err != nil {
+			return err
+		}
+
+		out := cmd.OutOrStdout()
+		if flagJSON {
+			_, err := fmt.Fprintln(out, string(resp))
+			return err
+		}
+
+		var result struct {
+			Data scriptStatus `json:"data"`
+		}
+		if err := json.Unmarshal(resp, &result); err != nil {
+			return fmt.Errorf("decode script.status response: %w", err)
+		}
+		_, err = fmt.Fprint(out, formatScriptStatus(result.Data))
+		return err
+	},
+}
+
 var scriptGetCmd = &cobra.Command{
 	Use:   "get <uuid>",
 	Short: "Get userscript details",
@@ -949,6 +1037,7 @@ func init() {
 
 	scriptCmd.AddCommand(
 		scriptListCmd,
+		scriptStatusCmd,
 		scriptGetCmd,
 		scriptCreateCmd,
 		scriptUpdateCmd,

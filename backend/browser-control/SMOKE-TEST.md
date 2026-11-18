@@ -96,6 +96,7 @@ browser-control events --json --type tab-focused,tab-removed,browser-connected,b
 browser-control page exec 123 "document.title"      # run JS in a tab
 browser-control guide step 123 --text "Read the heading" --mark "h1|heading"  # card + mark; blocks until you press a card button
 browser-control script list                         # list userscripts
+browser-control script status                       # can LBcat inject userscripts? (read-only)
 ```
 
 ## Troubleshooting
@@ -117,6 +118,13 @@ The extension must initiate the connection. Check:
 3. Does `path` point to the actual `lbcat-shim` binary?
 4. Is `nativeMessaging` in the extension's manifest permissions?
 5. Has the extension-side `native-messaging.js` been implemented?
+
+### Userscripts installed but none run
+
+`browser-control script status` reports the injection backend, the global enable switch, the registration state with
+counts, and whether the background listens for messages from the userscript world. With the userScripts API in use,
+both `listeners` must be `yes`; otherwise pages never receive their script list. Reload the extension (or restart the
+browser) to recover, and report it as a bug.
 
 ### Debugging the shim
 
@@ -145,4 +153,4 @@ All components are implemented:
 2. **Extension manifest**: `"nativeMessaging"` added to permissions in `src/manifest.json`.
 
 3. **Command handlers in extension**: `tabs.list`, `tabs.get`, `tabs.focus`, `tabs.subscribe`, `page.content`,
-   `page.exec`, `script.list/get/create/update/delete/toggle/push`, `ping`.
+   `page.exec`, `script.list/status/get/create/update/delete/toggle/push`, `ping`.

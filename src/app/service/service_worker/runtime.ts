@@ -77,6 +77,24 @@ const runtimeGlobal = {
   messageFlag: string;
 };
 
+const REGISTER_STATE_NAMES = {
+  [RuntimeRegisterCode.UNSET]: "unset",
+  [RuntimeRegisterCode.REGISTER_DONE]: "registered",
+  [RuntimeRegisterCode.UNREGISTER_DONE]: "unregistered",
+} as const;
+
+// 页面脚本运行环境的只读快照，供 bctl script status 排查脚本不注入的问题
+export type PageScriptStatus = {
+  userScriptsApi: boolean;
+  scriptingFallback: boolean;
+  enabled: boolean;
+  registration: {
+    state: ValueOf<typeof REGISTER_STATE_NAMES>;
+    scripts: number;
+    bootstrap: string[];
+  };
+};
+
 export type TTabInfo = {
   url: string;
   tabId: number | undefined;
@@ -691,6 +709,27 @@ export class RuntimeService {
 
   hasPageScriptRunner() {
     return this.isUserScriptsAvailable || this.isScriptingFallbackAvailable;
+  }
+
+  async getPageScriptStatus(): Promise<PageScriptStatus> {
+    const ids: string[] = [];
+    if (this.isUserScriptsAvailable) {
+      ids.push(...(await chrome.userScripts.getScripts()).map((script) => script.id));
+    }
+    if (typeof chrome.scripting?.getRegisteredContentScripts === "function") {
+      ids.push(...(await chrome.scripting.getRegisteredContentScripts()).map((script) => script.id));
+    }
+    const bootstrap = ids.filter((id) => id.startsWith("scriptcat-"));
+    return {
+      userScriptsApi: this.isUserScriptsAvailable,
+      scriptingFallback: this.isScriptingFallbackAvailable,
+      enabled: this.isLoadScripts,
+      registration: {
+        state: REGISTER_STATE_NAMES[runtimeGlobal.registerState],
+        scripts: ids.length - bootstrap.length,
+        bootstrap,
+      },
+    };
   }
 
   canUseScriptingFallback() {

@@ -476,6 +476,11 @@ blanket permission from an exception or widen the ID after access fails.
 Userscripts are managed with `bctl script` (see `bctl script --help`). Script management is a separate,
 profile-wide operation; window/session confinement does not isolate its effects.
 
+If installed, enabled scripts do not run on matching pages, run `bctl script status` (read-only) before debugging
+script code. It shows the injection backend, the global enable switch, registration state and counts, and whether the
+background's userscript-world listeners are attached; with the userScripts API both listeners must be `yes`. Report
+a mismatch to the operator instead of reloading the extension yourself.
+
 Daemon is managed externally. Do not start, stop, restart, or manage
 `browser-control-daemon` unless explicitly asked. Runtime state usually lives
 in `~/.local/state/browser-control`.

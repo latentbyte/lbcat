@@ -5,6 +5,7 @@ import { ScriptService } from "./script";
 import { ResourceService } from "./resource";
 import { ValueService } from "./value";
 import { RuntimeService } from "./runtime";
+import type { ExtensionMessage } from "@Packages/message/extension_message";
 import { type IOffscreenSend } from "@Packages/message/types";
 import { PopupService } from "./popup";
 import { SystemConfig } from "@App/pkg/config/config";
@@ -32,7 +33,8 @@ export default class ServiceWorkerManager {
   constructor(
     private api: Server,
     private mq: IMessageQueue,
-    private offscreenSend: IOffscreenSend
+    private offscreenSend: IOffscreenSend,
+    private extMessage: Pick<ExtensionMessage, "userScriptListenersAttached">
   ) {}
 
   logger(data: Logger) {
@@ -125,7 +127,10 @@ export default class ServiceWorkerManager {
     system.init();
     initAgentTabAccess();
     initAgentGuide();
-    initNativeMessaging(script);
+    initNativeMessaging(script, async () => ({
+      ...(await runtime.getPageScriptStatus()),
+      listeners: this.extMessage.userScriptListenersAttached(),
+    }));
     const agent = new AgentService(this.api.group("agent"), this.offscreenSend, resource);
     agent.init();
 

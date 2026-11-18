@@ -47,6 +47,9 @@ import { prepareScriptByCode } from "@App/pkg/utils/script";
 import { isUrlIncluded } from "@App/pkg/utils/match";
 import { getCombinedMeta, scriptURLPatternResults } from "./utils";
 import type { ScriptService } from "./script";
+import type { PageScriptStatus } from "./runtime";
+
+export type NativeScriptStatus = PageScriptStatus & { listeners: { message: boolean; connect: boolean } };
 
 export { browserIdentityFromUserAgent } from "@App/pkg/browser-control/identity";
 
@@ -107,6 +110,7 @@ const log = {
 };
 
 let scriptService: ScriptService | null = null;
+let getScriptStatus: (() => Promise<NativeScriptStatus>) | null = null;
 
 let port: chrome.runtime.Port | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1325,6 +1329,11 @@ const handlers: Record<string, Handler> = {
     };
   },
 
+  async "script.status"() {
+    if (!getScriptStatus) throw new Error("script status not initialized");
+    return { data: await getScriptStatus() };
+  },
+
   async "script.get"(args) {
     const uuid = args["uuid"] as string | undefined;
     if (!uuid) throw new Error("uuid is required");
@@ -1526,9 +1535,10 @@ async function onMessage(envelope: Envelope) {
 }
 
 // connect on load; the shim handles handshake with the daemon
-export function initNativeMessaging(svc: ScriptService) {
+export function initNativeMessaging(svc: ScriptService, scriptStatus?: () => Promise<NativeScriptStatus>) {
   startNativeTabOperations();
   scriptService = svc;
+  getScriptStatus = scriptStatus ?? null;
   registerStatusListener();
   connect();
 }

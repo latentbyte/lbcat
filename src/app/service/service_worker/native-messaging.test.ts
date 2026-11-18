@@ -9,6 +9,7 @@ import {
   normalizeNativeTabEvent,
   tabToBrowserControlTab,
 } from "./native-messaging";
+import type { NativeScriptStatus } from "./native-messaging";
 import type { ScriptService } from "./script";
 import { withNativeWindowOperation } from "@App/pkg/browser-control/capture";
 import { clearTabActivations, consumeTabActivation } from "@App/pkg/browser-control/activation-source";
@@ -1274,6 +1275,24 @@ describe("原生消息并发控制", () => {
         id: "scripts",
         payload: expect.objectContaining({ data: [expect.objectContaining({ runAt: "document-end" })] }),
       })
+    );
+  });
+
+  it("脚本状态应只读地汇总页面脚本运行状态", async () => {
+    disconnect();
+    const status: NativeScriptStatus = {
+      userScriptsApi: true,
+      scriptingFallback: false,
+      enabled: true,
+      registration: { state: "registered", scripts: 3, bootstrap: ["scriptcat-inject", "scriptcat-content"] },
+      listeners: { message: false, connect: false },
+    };
+    const getPageScriptStatus = vi.fn(async () => status);
+    initNativeMessaging({} as ScriptService, getPageScriptStatus);
+    await request("status", "script.status", {});
+    expect(getPageScriptStatus).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "status", payload: { cmd: "script.status", data: status } })
     );
   });
 
