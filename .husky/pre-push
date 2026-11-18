@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# Skip: SKIP_PRE_PUSH=1 git push 或 git push --no-verify
+if [ "$SKIP_PRE_PUSH" = "1" ]; then
+  exit 0
+fi
+
+just audit

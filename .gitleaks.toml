@@ -1,0 +1,14 @@
+# gitleaks config for `just audit-secrets` (scans the working tree, `gitleaks dir .`)
+title = "lbcat gitleaks"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "test-only random key fixture in the vitest env block"
+targetRules = ["generic-api-key"]
+paths = ['''^vitest\.config\.ts$''']
+
+[[allowlists]]
+description = "local gitignored .env, never committed"
+paths = ['''^\.env$''']

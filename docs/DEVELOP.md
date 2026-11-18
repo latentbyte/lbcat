@@ -90,6 +90,8 @@ i18next, 7 locales (`src/locales/`: en-US, zh-CN, zh-TW, ja-JP, de-DE, vi-VN, ru
 
 ## Security & Configuration Tips
 
+`just audit` (also run by `.husky/pre-push`) is the local, non-mutating gate: `audit-deps` fails on prod npm advisories at high+ and on Go vulns in `backend/browser-control` (`govulncheck`), lists dev-only advisories without failing, and skips with a message when the registry is unreachable; `audit-secrets` runs `gitleaks dir .` with `.gitleaks.toml`. Allowlist entries go by rule id and path only, never by value.
+
 Do not commit secrets, local certificates, build output, coverage, Playwright reports, test results, or local `.env` changes.
 
 ## LBcat Firefox releases and updates

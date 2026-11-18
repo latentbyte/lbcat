@@ -22,6 +22,49 @@ check:
 
 alias lint := check
 
+# audit prod dependencies (pnpm audit, high+; Go via govulncheck) and scan the tree for secrets; non-mutating
+audit: audit-deps audit-secrets
+
+# dependency advisories: prod deps fail at high+, dev-only advisories are listed but never fail
+audit-deps:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    net='ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed|network'
+    echo "== pnpm audit (prod, high+) =="
+    out=$(pnpm audit --prod --audit-level high 2>&1); rc=$?
+    echo "$out" | tail -n 20
+    if [ $rc -ne 0 ]; then
+        if echo "$out" | grep -qiE "$net"; then
+            echo "audit-deps: registry unreachable, skipping npm audit" >&2
+        else
+            echo "audit-deps: prod advisories at high or above" >&2; exit 1
+        fi
+    fi
+    echo "== pnpm audit (all deps, informational) =="
+    pnpm audit 2>&1 | tail -n 3 || true
+    echo "== govulncheck (backend/browser-control) =="
+    if ! command -v govulncheck >/dev/null; then
+        echo "audit-deps: govulncheck not installed, skipping Go audit" >&2; exit 0
+    fi
+    out=$(cd backend/browser-control && govulncheck ./... 2>&1); rc=$?
+    echo "$out" | tail -n 8
+    if [ $rc -ne 0 ]; then
+        if echo "$out" | grep -qiE "$net|dial tcp|no such host"; then
+            echo "audit-deps: vuln db unreachable, skipping Go audit" >&2
+        else
+            echo "audit-deps: Go vulnerabilities found" >&2; exit 1
+        fi
+    fi
+
+# secret scan of the working tree using .gitleaks.toml
+audit-secrets:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v gitleaks >/dev/null; then
+        echo "audit-secrets: gitleaks not installed, skipping" >&2; exit 0
+    fi
+    gitleaks dir . --config .gitleaks.toml --no-banner --redact
+
 # build for production
 build:
     pnpm build
