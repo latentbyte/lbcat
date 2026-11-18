@@ -102,7 +102,7 @@ keeps `debugger` either way, for Browser Control screenshots and viewport emulat
 extension name is LBcat. Keep upstream identifiers for compatibility. The Firefox add-on ID is
 `lbcat@latentbyte.com` since 4.35.6.
 
-LBcat's AMO listing is https://addons.mozilla.org/firefox/addon/lbcat/; 4.35.14 is the first version sent to the
+LBcat's AMO listing is https://addons.mozilla.org/firefox/addon/lbcat/; 4.35.15 is the first version sent to the
 listed channel (earlier versions were unlisted only, so the page is not public until it is approved). Listing metadata (slug,
 categories, summary, description, links, license, reviewer notes) lives in
 [`scripts/amo-metadata.json`](../scripts/amo-metadata.json) and is sent with every submission; the privacy

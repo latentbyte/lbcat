@@ -11,7 +11,7 @@
   "support_url": { "en-US": "https://github.com/latentbyte/lbcat/issues" },
   "support_email": { "en-US": "hello@latentbyte.com" },
   "version": {
-    "license": "GPL-3.0-or-later",
+    "license": "GPL-3.0-only",
     "approval_notes": "Source: the attached source zip (also https://github.com/latentbyte/lbcat). Build with Node 22+ and pnpm 10 (corepack enable): pnpm install --frozen-lockfile && pnpm build:firefox && pnpm run pack. The Firefox package is dist/lbcat-<version>-firefox.zip. Each build embeds a fresh random key (SC_RANDOM_KEY in rspack.config.ts, inherited from ScriptCat, used to name the page-to-extension message channel), so a rebuild matches the upload except for that key and the few minified identifier names it shifts in content.js and inject.js. LBcat is a userscript manager: the eval and Function warnings come from running the scripts the user installs (sandbox, inject and content scripts), and the innerHTML warnings come from bundled libraries (Monaco editor, React, Arco Design). The optional local bctl CLI lives in the GitHub repo and is not part of the extension package."
   }
 }
