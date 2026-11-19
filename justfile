@@ -56,12 +56,12 @@ audit-deps:
         fi
     fi
 
-# secret scan of the working tree using .gitleaks.toml
+# secret scan of the working tree using .gitleaks.toml; fails when gitleaks is missing (pushed commits: scripts/secrets-pushed.sh in pre-push)
 audit-secrets:
     #!/usr/bin/env bash
     set -euo pipefail
     if ! command -v gitleaks >/dev/null; then
-        echo "audit-secrets: gitleaks not installed, skipping" >&2; exit 0
+        echo "audit-secrets: gitleaks is not installed (brew install gitleaks)" >&2; exit 1
     fi
     gitleaks dir . --config .gitleaks.toml --no-banner --redact
 

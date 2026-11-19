@@ -5,4 +5,8 @@ if [ "$SKIP_PRE_PUSH" = "1" ]; then
   exit 0
 fi
 
+# git sends the pushed refs on stdin; read them before any recipe can consume it
+refs=$(cat)
+
 just audit
+printf '%s\n' "$refs" | scripts/secrets-pushed.sh
