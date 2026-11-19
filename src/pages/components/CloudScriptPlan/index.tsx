@@ -136,7 +136,7 @@ const CloudScriptPlan: React.FC<{
             compressionOptions: {
               level: 9,
             },
-            comment: "Created by Scriptcat",
+            comment: "Created by LBcat",
           });
           const url = makeBlobURL({ blob: zipOutput, persistence: false }) as string;
           chrome.downloads.download({

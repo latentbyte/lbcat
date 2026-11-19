@@ -111,7 +111,7 @@ export class LinterWorkerController {
 
 let isEditorRegistered = false;
 
-const scriptcatMarkerOwner = "ScriptCat";
+const scriptcatMarkerOwner = "LBcat";
 const eslintMarkerOwner = "ESLint";
 const scriptcatMetadataAlignmentRuleId = "scriptcat/align-metadata-attributes";
 const scriptcatRemoveConnectWildcardRuleId = "scriptcat/remove-connect-wildcard";

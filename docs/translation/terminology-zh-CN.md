@@ -1,6 +1,6 @@
 # zh-CN 术语与界面文案规范
 
-本文档是 ScriptCat 简体中文（`zh-CN`）界面与文档的用语依据。翻译或修改简体中文时，目标是让中国大陆用户自然理解，同时保留 ScriptCat 已建立的脚本类型、功能名称和开发者术语。
+本文档是 LBcat 简体中文（`zh-CN`）界面与文档的用语依据。翻译或修改简体中文时，目标是让中国大陆用户自然理解，同时保留 LBcat 已建立的脚本类型、功能名称和开发者术语。
 
 用例参考来源：`src/locales/zh-CN/translation.json`、`docs/README_zh-CN.md`
 
@@ -30,13 +30,13 @@
 
 | 概念 | 优先使用 | 当前用例 key | 说明 |
 | --- | --- | --- | --- |
-| ScriptCat browser extension | `脚本猫扩展` | `start_guide_title`, `ext_update_notification` | `扩展` 是浏览器 extension 的标准表达。 |
+| LBcat browser extension | `LBcat扩展` | `start_guide_title`, `ext_update_notification` | `扩展` 是浏览器 extension 的标准表达。 |
 | generic user script | `用户脚本` | `guide_script_list_content`, `allow_user_script_guide` | 泛指用户脚本能力或浏览器权限。 |
 | ordinary / Tampermonkey-compatible script type | `普通脚本` / `普通油猴脚本` | `create_user_script`, `script_status_tooltip`, `script_list.sidebar.normal_script` | 表示产品中的脚本分类；不可仅因泛称为用户脚本而抹去分类信息。 |
 | page script | `页面脚本` | `page_script`, `foreground_page_script_tooltip`, `guide_script_list_enable_content` | 表示在指定页面运行的脚本。 |
 | background script | `后台脚本` | `create_background_script`, `background_script`, `enable_background.description` | 表示后台运行能力及脚本类型。 |
 | scheduled script | `定时脚本` | `create_scheduled_script`, `scheduled_script`, `scheduled_script_description_title` | 表示按计划执行的脚本类型。 |
-| ScriptCat script-browsing destination | `脚本站` / `脚本市场` | `script_gallery`, `guide_script_list_title`, `guide_script_list_content`, README | README 将指向 `https://scriptcat.org/search` 的入口称为 `脚本站`；引导界面的脚本发现与安装区域使用 `脚本市场`。按显示位置沿用名称，不自动互换。 |
+| script-browsing destination | `脚本站` / `脚本市场` | `script_gallery`, `guide_script_list_title`, `guide_script_list_content`, README | README 将指向 `https://scriptcat.org/search` 的入口称为 `脚本站`；引导界面的脚本发现与安装区域使用 `脚本市场`。按显示位置沿用名称，不自动互换。 |
 | script synchronization | `脚本同步` | `script_sync`, `guide_setting_sync_title`, `sync_status` | 与同步相关的功能名称沿用现行产品用语。 |
 | deletion synchronization | `同步删除` / `同步脚本删除` | `sync_delete`, `notification.script_sync_delete`, `guide_setting_sync_content` | CodFrm 在 PR #1421 中明确选择此写法；具体行为由右侧帮助说明解释，不在标签中扩写为 `删除状态`。 |
 | script subscription | `订阅` / `脚本订阅` | `subscribe`, `subscribe_url`, `subscribe_import_progress` | 对象为订阅，不使用英文式动词名词混写。 |

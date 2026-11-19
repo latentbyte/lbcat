@@ -316,7 +316,7 @@ export class ResourceService {
           }
         }
         if (!flag) {
-          resource.content = `console.warn("ScriptCat: couldn't load resource from URL ${u.originalUrl} due to a SRI error ");`;
+          resource.content = `console.warn("LBcat: couldn't load resource from URL ${u.originalUrl} due to a SRI error ");`;
         }
       }
       return resource;

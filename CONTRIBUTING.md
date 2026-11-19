@@ -1,8 +1,8 @@
 [中文贡献指南](./docs/CONTRIBUTING_ZH.md) / [Руководство на русском](./docs/CONTRIBUTING_RU.md)
 
-# ScriptCat Contributing Guide
+# LBcat Contributing Guide
 
-We greatly appreciate your contributions to ScriptCat! This guide aims to help you contribute to ScriptCat in a more standardized way, so please read it carefully.
+We greatly appreciate your contributions to LBcat! This guide aims to help you contribute to LBcat in a more standardized way, so please read it carefully.
 
 ## Submitting Issues
 
@@ -10,7 +10,7 @@ Before submitting an issue, we recommend that you first check the [existing Issu
 
 ### Reporting Problems, Bugs & Vulnerabilities
 
-ScriptCat is an evolving project. If you encounter problems during use and are confident that these issues are caused by ScriptCat, we welcome you to submit an Issue. When submitting, please include detailed reproduction steps and runtime environment information.
+LBcat is an evolving project. If you encounter problems during use and are confident that these issues are caused by LBcat, we welcome you to submit an Issue. When submitting, please include detailed reproduction steps and runtime environment information.
 
 **Security vulnerabilities are an exception — do not open a public Issue.** Report them privately following our [Security Policy](SECURITY.md), so a fix can be prepared before the issue is disclosed.
 
@@ -20,7 +20,7 @@ We welcome you to propose new feature suggestions in Issues. To help us better u
 
 ## Pull Request
 
-ScriptCat uses [pnpm](https://pnpm.io/) to manage project dependencies. If you already have npm installed, the following commands can help you quickly set up the development environment:
+LBcat uses [pnpm](https://pnpm.io/) to manage project dependencies. If you already have npm installed, the following commands can help you quickly set up the development environment:
 
 ```bash
 # Install node.js dependencies
@@ -46,13 +46,13 @@ This example indicates that a new feature has been added: login functionality.
 
 ### Workflow Overview
 
-The `main` branch is ScriptCat's primary branch. To maintain code integrity, please do not directly modify the `main` branch. You should create a new branch and make modifications on this branch, then initiate a Pull Request targeting the `main` branch. Please try to use Chinese for Pull Request titles to facilitate automatic changelog generation.
+The `main` branch is LBcat's primary branch. To maintain code integrity, please do not directly modify the `main` branch. You should create a new branch and make modifications on this branch, then initiate a Pull Request targeting the `main` branch. Please try to use Chinese for Pull Request titles to facilitate automatic changelog generation.
 
-If you are not a member of the ScriptCat team, you can first fork this repository and then initiate a Pull Request to the `main` branch of this repository. When creating commits, please follow the commit message guidelines mentioned above. We will merge your contributions to the main branch after code review is completed.
+If you are not a member of the LBcat team, you can first fork this repository and then initiate a Pull Request to the `main` branch of this repository. When creating commits, please follow the commit message guidelines mentioned above. We will merge your contributions to the main branch after code review is completed.
 
 ## Writing Documentation
 
-ScriptCat's documentation is in a separate repository: [scriptcat.org](https://docs.scriptcat.org), written using [docusaurus](https://docusaurus.io/). There are some [Markdown](https://docusaurus.io/zh-CN/docs/markdown-features) features that can help you. If you need to preview the modified documentation locally, you can use the following commands to install documentation dependencies and start the dev server:
+Documentation is inherited from upstream ScriptCat, in a separate repository: [scriptcat.org](https://docs.scriptcat.org), written using [docusaurus](https://docusaurus.io/). There are some [Markdown](https://docusaurus.io/zh-CN/docs/markdown-features) features that can help you. If you need to preview the modified documentation locally, you can use the following commands to install documentation dependencies and start the dev server:
 
 ```bash
 pnpm install
@@ -61,7 +61,7 @@ pnpm start
 
 ### Help Us Translate
 
-ScriptCat's translation files are hosted on GitHub. Contributions via Pull Request are welcome.
+LBcat's translation files are hosted on GitHub. Contributions via Pull Request are welcome.
 
 - Translation files live in [`src/locales`](https://github.com/scriptscat/scriptcat/tree/main/src/locales); each language has its own `<locale>/translation.json`
 - **Improve an existing translation**: edit the corresponding `translation.json` directly
@@ -70,21 +70,21 @@ ScriptCat's translation files are hosted on GitHub. Contributions via Pull Reque
 
 ## Participating in Development
 
-ScriptCat uses ESLint to standardize code style and Vitest for unit testing. You can use the following commands to run them:
+LBcat uses ESLint to standardize code style and Vitest for unit testing. You can use the following commands to run them:
 
 ```bash
 pnpm test
 pnpm run lint
 ```
 
-ScriptCat's page development uses the following technologies:
+LBcat's page development uses the following technologies:
 
 - [React](https://reactjs.org/)
 - UI framework [arco](https://arco.design)
 - CSS framework [unocss](https://unocss.dev/interactive/)
 - RsPack bundling tool [rspack](https://rspack.dev/)
 
-If you want to run ScriptCat locally, you can use the following commands:
+If you want to run LBcat locally, you can use the following commands:
 
 ```bash
 pnpm run dev

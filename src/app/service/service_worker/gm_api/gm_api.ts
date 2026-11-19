@@ -984,7 +984,7 @@ export default class GMApi {
           - cookie a cookie to be patched into the sent cookie set
           - cookiePartition object?, containing the partition key to be used for sent and received partitioned cookies
                 topLevelSite string?, representing the top frame site for partitioned cookies
-        The ScriptCat implementation for cookie, cookiePartition, cookiePartition.topLevelSite are limited.
+        The LBcat implementation for cookie, cookiePartition, cookiePartition.topLevelSite are limited.
       */
 
       // 处理cookiePartition
@@ -1247,7 +1247,7 @@ export default class GMApi {
       throw new Error("param is failed");
     }
     const options: chrome.notifications.NotificationCreateOptions = {
-      title: details.title || "ScriptCat",
+      title: details.title || "LBcat",
       message: details.text || i18n.t("no_message_content"),
       iconUrl: details.image || getIcon(request.script) || chrome.runtime.getURL("assets/logo.png"),
       type: isFirefox() || details.progress === undefined ? "basic" : "progress",

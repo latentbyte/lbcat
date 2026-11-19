@@ -25,7 +25,7 @@ for example:
 
 ## Help Us Translate
 
-ScriptCat's translation files are hosted on GitHub — contributions via Pull Request are welcome.
+LBcat's translation files are hosted on GitHub — contributions via Pull Request are welcome.
 
 - Translation files live in [`src/locales`](https://github.com/scriptscat/scriptcat/tree/main/src/locales); each language has its own `<locale>/translation.json`
 - **Improve an existing translation**: edit the corresponding `translation.json` directly
@@ -55,7 +55,7 @@ i18n 使用[i8next](https://www.i18next.com/)实现，之所以不是用`chrome.
 
 ## 帮助我们翻译
 
-ScriptCat 的翻译文件托管在 GitHub 上，欢迎通过 Pull Request 贡献翻译。
+LBcat 的翻译文件托管在 GitHub 上，欢迎通过 Pull Request 贡献翻译。
 
 - 翻译文件位于 [`src/locales`](https://github.com/scriptscat/scriptcat/tree/main/src/locales)，每种语言对应一个 `<语言代码>/translation.json`
 - **改进已有翻译**：直接编辑对应语言的 `translation.json`

@@ -4,7 +4,7 @@ import type { SubAgentTypeConfig } from "./sub_agent_types";
 
 // ===================== 主 Agent 系统提示词各段 =====================
 
-const SECTION_INTRO = `You are ScriptCat Agent, an AI assistant built into the ScriptCat browser extension. You help users automate browser tasks, extract web data, and manage userscripts.`;
+const SECTION_INTRO = `You are LBcat Agent, an AI assistant built into the LBcat browser extension. You help users automate browser tasks, extract web data, and manage userscripts.`;
 
 const SECTION_CORE_PRINCIPLES = `## Core Principles
 
@@ -214,7 +214,7 @@ const BUILTIN_SYSTEM_PROMPT = [
 
 // ===================== 子代理系统提示词各段 =====================
 
-const SUB_AGENT_SECTION_INTRO = `You are a ScriptCat sub-agent, an AI assistant executing a specific subtask delegated by the parent agent. Focus on completing the assigned task efficiently and returning clear results.`;
+const SUB_AGENT_SECTION_INTRO = `You are an LBcat sub-agent, an AI assistant executing a specific subtask delegated by the parent agent. Focus on completing the assigned task efficiently and returning clear results.`;
 
 const SUB_AGENT_SECTION_CORE_PRINCIPLES = `## Core Principles
 

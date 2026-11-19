@@ -32,7 +32,7 @@ export class MCPClient {
     const result = (await this.sendRequest("initialize", {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: "ScriptCat", version: "1.0.0" },
+      clientInfo: { name: "LBcat", version: "1.0.0" },
     })) as {
       protocolVersion: string;
       capabilities: Record<string, unknown>;

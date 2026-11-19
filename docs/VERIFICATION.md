@@ -162,12 +162,12 @@ script or a git-ignored file — it is verification scaffolding, not a committed
 
 ## Step 4 — When it fails: the five-context debug map
 
-A feature can break in any of ScriptCat's five isolated contexts. Match the symptom to where its logs live (deep
+A feature can break in any of LBcat's five isolated contexts. Match the symptom to where its logs live (deep
 model in [`ARCHITECTURE.md`](./ARCHITECTURE.md)):
 
 | Symptom | Where to look |
 | --- | --- |
-| CRUD, permissions, routing, chrome API calls | **Service Worker** — `chrome://extensions` → ScriptCat → *Inspect views: service worker* |
+| CRUD, permissions, routing, chrome API calls | **Service Worker** — `chrome://extensions` → LBcat → *Inspect views: service worker* |
 | Script not injecting / GM bridge to page | **Content** + **Inject** — the **target page**'s DevTools console |
 | Background / scheduled script, DOM-needing GM APIs | **Offscreen** — `dist/ext/chrome/src/offscreen.html` context |
 | Cron scheduling, `with`-sandboxed execution | **Sandbox** — `dist/ext/chrome/src/sandbox.html` context |

@@ -21,7 +21,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "browser-control",
 	Short: "CLI for Browser Control by Latent Byte",
-	Long: `browser-control communicates with LBCat through a local daemon
+	Long: `browser-control communicates with LBcat through a local daemon
 (browser-control-daemon) to manage userscripts, inspect tabs, read page
 content, and execute JavaScript in browser tabs.`,
 	SilenceUsage: true,

@@ -258,9 +258,9 @@ declare const GM: {
           accessKey?: string; // 菜单快捷键
           autoClose?: boolean; // 默认为 true
           title?: string; // 菜单提示
-          // ScriptCat 扩展
+          // LBcat 扩展
           icon?: string; // 菜单图标
-          // ScriptCat 扩展
+          // LBcat 扩展
           closeOnClick?: boolean; // 点击菜单后是否关闭, 与autoClose含义相同
         }
       | string
@@ -534,7 +534,7 @@ declare namespace GMTypes {
     /**
      * 是否在隐私窗口（无痕模式）中打开标签页。
      *
-     * 注意：ScriptCat 的 manifest.json 配置了 `"incognito": "split"`，
+     * 注意：LBcat 的 manifest.json 配置了 `"incognito": "split"`，
      * 在 normal window 中执行时，tabId/windowId 将不可用，
      * 只能执行「打开新标签页」动作。
      *

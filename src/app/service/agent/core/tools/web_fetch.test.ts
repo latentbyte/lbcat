@@ -250,7 +250,7 @@ describe("WebFetchExecutor", () => {
     await executor.execute({ url: "https://example.com", prompt: "fetch" });
 
     expect(mockFetch).toHaveBeenCalledWith("https://example.com", {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; ScriptCat Agent)" },
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; LBcat Agent)" },
       signal: expect.any(AbortSignal),
     });
   });

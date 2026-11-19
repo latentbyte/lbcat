@@ -1417,7 +1417,7 @@ describe("handleConversationChat ephemeral 模式", () => {
     expect(fetchBody.messages.length).toBeGreaterThanOrEqual(4);
     // 第一条应是 system，包含内置提示词 + 用户自定义
     expect(fetchBody.messages[0].role).toBe("system");
-    expect(fetchBody.messages[0].content).toContain("You are ScriptCat Agent");
+    expect(fetchBody.messages[0].content).toContain("You are LBcat Agent");
     expect(fetchBody.messages[0].content).toContain("系统提示");
 
     // 应该发送了 done 事件
@@ -1519,6 +1519,6 @@ describe("handleConversationChat ephemeral 模式", () => {
     // 应有 system 消息（内置提示词），即使用户没传 system
     const systemMsg = fetchBody.messages.find((m: any) => m.role === "system");
     expect(systemMsg).toBeDefined();
-    expect(systemMsg.content).toContain("You are ScriptCat Agent");
+    expect(systemMsg.content).toContain("You are LBcat Agent");
   });
 });

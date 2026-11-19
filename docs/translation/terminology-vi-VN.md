@@ -1,6 +1,6 @@
 # Hướng dẫn thuật ngữ và nội dung giao diện vi-VN
 
-Tài liệu này quy định thuật ngữ dùng cho giao diện và tài liệu tiếng Việt (`vi-VN`) của ScriptCat. Mục đích là giữ rõ các khái niệm sản phẩm, dùng câu chữ tự nhiên trong giao diện và bảo toàn các định danh kỹ thuật khi tiếp tục bản địa hóa.
+Tài liệu này quy định thuật ngữ dùng cho giao diện và tài liệu tiếng Việt (`vi-VN`) của LBcat. Mục đích là giữ rõ các khái niệm sản phẩm, dùng câu chữ tự nhiên trong giao diện và bảo toàn các định danh kỹ thuật khi tiếp tục bản địa hóa.
 
 Nguồn sử dụng đã kiểm tra: `src/locales/vi-VN/translation.json`
 
@@ -17,7 +17,7 @@ Nguồn sử dụng đã kiểm tra: `src/locales/vi-VN/translation.json`
 
 | Nhóm | Cách dùng |
 | --- | --- |
-| **A. Thuật ngữ sản phẩm và tính năng** | Tên các khả năng của ScriptCat và các loại script. |
+| **A. Thuật ngữ sản phẩm và tính năng** | Tên các khả năng của LBcat và các loại script. |
 | **B. Thao tác và trạng thái giao diện** | Cách viết ưu tiên cho nút, nhãn và thông báo. |
 | **C. Thuật ngữ phụ thuộc ngữ cảnh** | Từ cần kiểm tra tính năng trước khi chọn cách dịch. |
 | **D. Thuật ngữ kỹ thuật cần giữ** | Thuật ngữ và định danh phải giữ đúng ý nghĩa kỹ thuật. |
@@ -27,7 +27,7 @@ Nguồn sử dụng đã kiểm tra: `src/locales/vi-VN/translation.json`
 
 | Khái niệm | Cách viết ưu tiên | Key ví dụ hiện tại | Ghi chú |
 | --- | --- | --- | --- |
-| ScriptCat browser extension | `tiện ích ScriptCat` | `start_guide_title`, `ext_update_notification` | Giữ tên sản phẩm là `ScriptCat`. |
+| LBcat browser extension | `tiện ích LBcat` | `start_guide_title`, `ext_update_notification` | Giữ tên sản phẩm là `LBcat`. |
 | generic user script | `script người dùng` | `create_user_script`, `guide_script_list_content` | Dùng cho khái niệm userscript chung. |
 | Tampermonkey-compatible script type | `script Tampermonkey` | `script_status_tooltip` | Không rút gọn thành loại script chung nếu cần giữ ý tương thích. |
 | page script | `script trang` | `page_script`, `foreground_page_script_tooltip` | Script chạy trên các trang được chỉ định. |
@@ -82,7 +82,7 @@ Các mục dưới đây ghi nhận vấn đề đã tồn tại. Việc tạo h
 | --- | --- | --- | --- |
 | `script` / `tập lệnh` | Hai cách gọi xuất hiện trong cùng luồng giao diện. | Xác nhận giọng điệu sản phẩm rồi thống nhất; với chuỗi mới trong ngữ cảnh hiện đang dùng rộng rãi, ưu tiên `script`. | `installed_scripts`, `create_user_script`, `script_status_tooltip` |
 | scheduled script naming | Loại sản phẩm là `script hẹn giờ` nhưng một thông báo dùng `script crontab`. | Dùng `script hẹn giờ` cho cùng loại sản phẩm; chỉ nhắc `cron` khi nói đến biểu thức lịch chạy. | `scheduled_script`, `only_background_scheduled_can_run`, `cron_invalid_expr` |
-| identifier and brand capitalization | Có các dạng `scriptcat`, `eslint`, `vscode`, `api`, `Url` trong văn bản hiện tại. | Trong chỉnh sửa có phạm vi rõ ràng, giữ `ScriptCat`, `ESLint`, `VSCode`, `API`, `URL`. | `start_guide_title`, `api_docs`, `enable_eslint`, `vscode_url` |
+| identifier and brand capitalization | Có các dạng `scriptcat`, `eslint`, `vscode`, `api`, `Url` trong văn bản hiện tại. | Trong chỉnh sửa có phạm vi rõ ràng, giữ `LBcat`, `ESLint`, `VSCode`, `API`, `URL`. | `start_guide_title`, `api_docs`, `enable_eslint`, `vscode_url` |
 | metadata identifier | Tooltip tài nguyên ghi `@required`, trong khi metadata dùng `@require`. | Giữ đúng định danh `@require`. | `script_resource_tooltip` |
 | documentation link locale | Một số chuỗi tiếng Việt liên kết đến tài liệu `/en/`. | Chỉ đổi khi đã xác nhận có trang tiếng Việt tương ứng. | `guide_script_list_content`, `develop_mode_guide` |
 

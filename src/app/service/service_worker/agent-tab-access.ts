@@ -46,7 +46,7 @@ export const agentTabIndicators = new TabIndicatorController(
       });
     },
   },
-  { text: "", color: "#000000", title: "LBCat" }
+  { text: "", color: "#000000", title: "LBcat" }
 );
 
 const warn = (...args: unknown[]) => console.warn("[agent-tab-access]", ...args);

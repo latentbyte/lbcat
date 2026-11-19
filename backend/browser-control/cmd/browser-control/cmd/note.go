@@ -70,7 +70,7 @@ func newNoteCmd() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "note",
 		Short: "Leave page notes for the human operator and read their replies",
-		Long:  "Page-level notes shown in the LBCat popup for the tab's URL. Humans can acknowledge, reply to, or resolve them.",
+		Long:  "Page-level notes shown in the LBcat popup for the tab's URL. Humans can acknowledge, reply to, or resolve them.",
 	}
 
 	add := &cobra.Command{

@@ -1,6 +1,6 @@
 # Browser Control
 
-Browser Control is a Latent Byte LLC local browser automation backend. LBCat is the browser-side companion that connects
+Browser Control is a Latent Byte LLC local browser automation backend. LBcat is the browser-side companion that connects
 through Native Messaging.
 
 Licensed under Apache-2.0 (see `LICENSE` and `NOTICE`). The agent skill that teaches coding agents this CLI is in

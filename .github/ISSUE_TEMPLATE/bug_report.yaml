@@ -1,5 +1,5 @@
 name: "Bug反馈"
-description: 提交脚本猫使用过程中遇到的 BUG
+description: 提交LBcat使用过程中遇到的 BUG
 title: "[BUG] "
 type: "Bug"
 # assignees: ""
@@ -36,8 +36,8 @@ body:
   - type: input
     id: scriptcat-version
     attributes:
-      label: 脚本猫版本
-      description: 你可以点击脚本猫的弹出窗口进行查看，可以的话最好使用最新版本，也许你的问题已经解决了
+      label: LBcat版本
+      description: 你可以点击LBcat的弹出窗口进行查看，可以的话最好使用最新版本，也许你的问题已经解决了
       placeholder: 例如 v0.17.0
     validations:
       required: true
@@ -64,7 +64,7 @@ body:
 
         扩展本身的错误日志查看流程为：
         1. 打开扩展管理页(chrome://extensions/)
-        2. 打开开发者模式，点击脚本猫的 服务工作进程 或 offscreen.html
+        2. 打开开发者模式，点击LBcat的 服务工作进程 或 offscreen.html
         3. 在弹出窗口中的控制台页面查看
 
         普通脚本的错误日志在脚本运行页面的开发者工具（快捷键F12）-控制台中查看

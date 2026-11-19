@@ -1,6 +1,6 @@
-# ScriptCat Architecture & Internals
+# LBcat Architecture & Internals
 
-> **Audience.** Contributors who work on **ScriptCat itself** — the browser extension — not script authors.
+> **Audience.** Contributors who work on **LBcat itself** — the browser extension — not script authors.
 > If you want to *write* userscripts, read [docs.scriptcat.org](https://docs.scriptcat.org/) instead.
 >
 > **Scope.** This document is the deep-dive companion to [`AGENTS.md`](../AGENTS.md) (terse contributor
@@ -21,16 +21,16 @@
 7. [Script Execution](#7-script-execution)
 8. [Build Pipeline & Manifest](#8-build-pipeline--manifest)
 9. [Workspace Packages](#9-workspace-packages)
-10. [Extending ScriptCat — Recipes](#10-extending-scriptcat--recipes)
+10. [Extending LBcat — Recipes](#10-extending-lbcat--recipes)
 11. [Testing the Internals](#11-testing-the-internals)
 
 ---
 
 ## 1. The Big Picture
 
-ScriptCat is a **Manifest V3** browser extension that runs Tampermonkey-compatible userscripts, plus its own
+LBcat is a **Manifest V3** browser extension that runs Tampermonkey-compatible userscripts, plus its own
 **background** and **scheduled** script types that have no Tampermonkey equivalent. MV3 fragments an extension
-into several sandboxed JavaScript realms that cannot share memory; ScriptCat therefore runs as a small
+into several sandboxed JavaScript realms that cannot share memory; LBcat therefore runs as a small
 **distributed system** of cooperating contexts that talk over message channels.
 
 Three ideas explain almost everything in the codebase:
@@ -110,7 +110,7 @@ if (hasOffscreenDocument) {
 ### Chrome vs Firefox: the offscreen split
 
 This is the most important platform divergence to understand. MV3 service workers have **no DOM**, but
-ScriptCat needs DOM for things like `DOMParser`, Blobs, and clipboard. Chrome solves this with the
+LBcat needs DOM for things like `DOMParser`, Blobs, and clipboard. Chrome solves this with the
 **Offscreen API** (a hidden document). Firefox MV3 has no offscreen API, so its background **event page**
 already has DOM and plays the offscreen role directly.
 
@@ -380,7 +380,7 @@ class GMContext {
 }
 ```
 
-When a script context is built, ScriptCat reads the script's `@grant` list and installs exactly the matching
+When a script context is built, LBcat reads the script's `@grant` list and installs exactly the matching
 APIs onto the script's `GM` object. On the SW side a parallel `@PermissionVerify.API` decorator wraps handlers
 with permission checks before they run.
 
@@ -550,7 +550,7 @@ Project-local ESLint rules live in [`eslint-rules/`](../eslint-rules); the headl
 
 ---
 
-## 10. Extending ScriptCat — Recipes
+## 10. Extending LBcat — Recipes
 
 Map a change onto the existing extension points instead of inventing new structure:
 

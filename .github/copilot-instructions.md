@@ -1,4 +1,4 @@
-# ScriptCat Development Guide
+# LBcat Development Guide
 
 ## Code Review
 
@@ -6,7 +6,7 @@ When performing a code review, respond in Chinese.
 
 ## Architecture Overview
 
-ScriptCat is a sophisticated browser extension that executes user scripts with a unique multi-process architecture:
+LBcat is a sophisticated browser extension that executes user scripts with a unique multi-process architecture:
 
 ### Core Components
 - **Service Worker** (`src/service_worker.ts`) - Main background process handling script management, installations, and chrome APIs
@@ -16,7 +16,7 @@ ScriptCat is a sophisticated browser extension that executes user scripts with a
 - **Inject Scripts** (`src/inject.ts`) - Runs in page context with access to page globals
 
 ### Message Passing System
-ScriptCat uses a sophisticated message passing architecture (`packages/message/`):
+LBcat uses a sophisticated message passing architecture (`packages/message/`):
 - **ExtensionMessage** - Chrome extension runtime messages between service worker/content/pages
 - **WindowMessage** - PostMessage-based communication between offscreen/sandbox
 - **CustomEventMessage** - CustomEvent-based communication between content/inject scripts

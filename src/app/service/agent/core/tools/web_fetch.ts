@@ -5,7 +5,7 @@ import { extractHtmlContent } from "@App/app/service/offscreen/client";
 import { requireString, optionalNumber } from "./param_utils";
 
 // Agent User-Agent 字符串
-const AGENT_USER_AGENT = "Mozilla/5.0 (compatible; ScriptCat Agent)";
+const AGENT_USER_AGENT = "Mozilla/5.0 (compatible; LBcat Agent)";
 
 export const WEB_FETCH_DEFINITION: ToolDefinition = {
   name: "web_fetch",

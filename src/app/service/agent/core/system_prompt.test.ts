@@ -6,7 +6,7 @@ import { SUB_AGENT_TYPES } from "./sub_agent_types";
 describe("buildSystemPrompt", () => {
   it("无 userSystem、无 skillSuffix 时只返回内置提示词", () => {
     const result = buildSystemPrompt({});
-    expect(result).toContain("You are ScriptCat Agent");
+    expect(result).toContain("You are LBcat Agent");
     expect(result).toContain("## Core Principles");
     // 末尾不应有多余的空行
     expect(result.endsWith("\n\n")).toBe(false);
@@ -52,7 +52,7 @@ describe("buildSystemPrompt", () => {
 
   it("有 userSystem 时拼接在内置提示词之后", () => {
     const result = buildSystemPrompt({ userSystem: "You are a helpful bot." });
-    expect(result).toContain("You are ScriptCat Agent");
+    expect(result).toContain("You are LBcat Agent");
     expect(result).toContain("You are a helpful bot.");
   });
 
@@ -60,7 +60,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       skillSuffix: "\n# Available Skills\n- browser_automation",
     });
-    expect(result).toContain("You are ScriptCat Agent");
+    expect(result).toContain("You are LBcat Agent");
     expect(result).toContain("# Available Skills");
   });
 
@@ -70,7 +70,7 @@ describe("buildSystemPrompt", () => {
       skillSuffix: "\n# Skills\n- test_skill",
     });
 
-    const builtinPos = result.indexOf("You are ScriptCat Agent");
+    const builtinPos = result.indexOf("You are LBcat Agent");
     const userPos = result.indexOf("Custom instructions here.");
     const skillPos = result.indexOf("# Skills");
 
@@ -193,7 +193,7 @@ describe("buildSubAgentSystemPrompt", () => {
     const config = SUB_AGENT_TYPES.general;
     const result = buildSubAgentSystemPrompt(config, allTools);
 
-    expect(result).toMatch(/^You are a ScriptCat sub-agent/);
+    expect(result).toMatch(/^You are an LBcat sub-agent/);
   });
 
   it.concurrent("无 OPFS 工具时不包含 OPFS 段", () => {

@@ -1,6 +1,6 @@
-# ScriptCat 文档索引 / Documentation Index
+# LBcat 文档索引 / Documentation Index
 
-本目录收录 ScriptCat **贡献者 / 维护者**面向的文档。想*编写*用户脚本的读者请改看 [docs.scriptcat.org](https://docs.scriptcat.org/)。
+本目录收录 LBcat **贡献者 / 维护者**面向的文档。想*编写*用户脚本的读者请改看 [docs.scriptcat.org](https://docs.scriptcat.org/)。
 
 ## 开发文档 / Development
 

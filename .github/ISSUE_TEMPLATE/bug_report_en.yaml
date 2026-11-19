@@ -1,5 +1,5 @@
 name: "Bug Report"
-description: Submit a bug encountered while using ScriptCat
+description: Submit a bug encountered while using LBcat
 title: "[BUG] "
 type: "Bug"
 # assignees: ""
@@ -36,8 +36,8 @@ body:
   - type: input
     id: scriptcat-version
     attributes:
-      label: ScriptCat Version
-      description: You can view it by clicking on the ScriptCat popup window. If possible, please use the latest version as your issue may have already been resolved
+      label: LBcat Version
+      description: You can view it by clicking on the LBcat popup window. If possible, please use the latest version as your issue may have already been resolved
       placeholder: e.g., v0.17.0
     validations:
       required: true
@@ -64,7 +64,7 @@ body:
 
         To view error logs for the extension itself:
         1. Open the extension management page (chrome://extensions/)
-        2. Turn on developer mode, click on ScriptCat's "Service Worker" or "offscreen.html"
+        2. Turn on developer mode, click on LBcat's "Service Worker" or "offscreen.html"
         3. View the console page in the popup window
 
         Error logs for regular scripts can be viewed in the developer tools (F12 shortcut) - Console on the script's running page

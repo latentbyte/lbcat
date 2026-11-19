@@ -34,11 +34,11 @@ declare type UserConfig = { [key: string]: { [key: string]: Config } };
 
 /** Script and environment metadata, compatible with Tampermonkey's `GM_info`. */
 declare const GM_info: {
-  /** ScriptCat version string. */
+  /** LBcat version string. */
   version: string;
   /** Whether auto-update is enabled for this script. */
   scriptWillUpdate: boolean;
-  /** Always `"ScriptCat"`. */
+  /** Always `"LBcat"`. */
   scriptHandler: "ScriptCat";
   scriptUpdateURL?: string;
   scriptMetaStr?: string;
@@ -46,7 +46,7 @@ declare const GM_info: {
   userConfigStr?: string;
   /** Whether running in an incognito/private window. */
   isIncognito: boolean;
-  /** Sandbox mode (ScriptCat always uses `"raw"`). */
+  /** Sandbox mode (LBcat always uses `"raw"`). */
   sandboxMode: "raw";
   userAgentData: {
     brands?: { brand: string; version: string }[];
@@ -55,7 +55,7 @@ declare const GM_info: {
     architecture?: string;
     bitness?: string;
   };
-  /** Download mode (ScriptCat uses `"native"`). */
+  /** Download mode (LBcat uses `"native"`). */
   downloadMode: "native";
   /** Metadata parsed from the script header. */
   script: {
@@ -122,7 +122,7 @@ declare function GM_getResourceText(name: string): string | undefined;
 /** Get a URL (data: or blob:) for a `@resource` by name. */
 declare function GM_getResourceURL(name: string, isBlobUrl?: boolean): string | undefined;
 
-/** Register a menu command in the ScriptCat popup. */
+/** Register a menu command in the LBcat popup. */
 declare function GM_registerMenuCommand(
   name: string,
   listener?: (inputValue?: any) => void,
@@ -178,7 +178,7 @@ declare const CAT_unregisterMenuInput: typeof GM_unregisterMenuCommand;
 /** Wait for the script to be fully loaded. Used with `@early-start`. */
 declare function CAT_scriptLoaded(): Promise<void>;
 
-/** Create a blob URL from a Blob object. ScriptCat manages the URL lifecycle. */
+/** Create a blob URL from a Blob object. LBcat manages the URL lifecycle. */
 declare function CAT_createBlobUrl(blob: Blob): Promise<string>;
 
 /** Fetch a blob URL and return the Blob data. Helper for `GM_xmlhttpRequest` stream responses. */
@@ -368,7 +368,7 @@ declare const GM: {
 };
 
 // ===========================================================================
-// CAT_* functions (ScriptCat-specific extensions)
+// CAT_* functions (LBcat-specific extensions)
 // ===========================================================================
 
 /**
@@ -444,7 +444,7 @@ declare function CAT_fileStorage(
 declare function CAT_fileStorage(action: "config"): void;
 
 /**
- * Retry error for background scripts. Throw this to make ScriptCat retry later.
+ * Retry error for background scripts. Throw this to make LBcat retry later.
  * Minimum retry interval is 5 seconds. Avoid overlapping with the script's own schedule.
  */
 declare class CATRetryError {
@@ -455,7 +455,7 @@ declare class CATRetryError {
 }
 
 // ===========================================================================
-// CATType namespace (ScriptCat-specific types)
+// CATType namespace (LBcat-specific types)
 // ===========================================================================
 
 declare namespace CATType {
@@ -587,7 +587,7 @@ declare namespace GMTypes {
 
     /**
      * Open in an incognito/private window.
-     * Note: ScriptCat uses `"incognito": "split"` — in a normal window,
+     * Note: LBcat uses `"incognito": "split"` — in a normal window,
      * tabId/windowId will not be available.
      * @default false
      */
@@ -793,7 +793,7 @@ declare namespace GMTypes {
 }
 
 // ===========================================================================
-// CAT.agent — ScriptCat Agent API
+// CAT.agent — LBcat Agent API
 // @grant CAT.agent.conversation / CAT.agent.dom /
 //        CAT.agent.task / CAT.agent.skills
 // ===========================================================================
@@ -1570,7 +1570,7 @@ declare namespace CATAgentOPFS {
 // ---- CAT global object ----
 
 /**
- * ScriptCat Agent global object — provides access to conversation, tools, DOM, task, and skills APIs.
+ * LBcat Agent global object — provides access to conversation, tools, DOM, task, and skills APIs.
  * Each sub-API requires its own `@grant` declaration.
  */
 declare const CAT: {

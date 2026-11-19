@@ -1,8 +1,8 @@
 [English Contribution Guidelines](../CONTRIBUTING.md) / [Руководство на русском](./CONTRIBUTING_RU.md)
 
-# ScriptCat 贡献指南
+# LBcat 贡献指南
 
-我们非常感谢你为 ScriptCat 做出贡献！本指南旨在帮助你以更规范的方式向 ScriptCat 提交贡献，因此请务必认真阅读。
+我们非常感谢你为 LBcat 做出贡献！本指南旨在帮助你以更规范的方式向 LBcat 提交贡献，因此请务必认真阅读。
 
 ## 提交 Issue
 
@@ -10,7 +10,7 @@
 
 ### 报告问题、故障与漏洞
 
-ScriptCat 是一个不断发展的项目。如果你在使用过程中发现问题，并且确信这些问题是由 ScriptCat 引起的，欢迎提交 Issue。在提交时，请附带详细的复现步骤和运行环境信息。
+LBcat 是一个不断发展的项目。如果你在使用过程中发现问题，并且确信这些问题是由 LBcat 引起的，欢迎提交 Issue。在提交时，请附带详细的复现步骤和运行环境信息。
 
 **安全漏洞是例外——请勿提交公开 Issue。** 请按照我们的[安全策略](../SECURITY.md)私密上报，以便在公开披露前先完成修复。
 
@@ -20,7 +20,7 @@ ScriptCat 是一个不断发展的项目。如果你在使用过程中发现问�
 
 ## Pull Request
 
-ScriptCat 使用 [pnpm](https://pnpm.io/) 来管理项目依赖。如果你已经安装了npm，以下的命令可以帮助你快速配置开发环境：
+LBcat 使用 [pnpm](https://pnpm.io/) 来管理项目依赖。如果你已经安装了npm，以下的命令可以帮助你快速配置开发环境：
 
 ```bash
 # 安装 node.js 依赖
@@ -47,18 +47,18 @@ git commit -m "✨ add login feature"
 
 ### 工作流概述
 
-`main` 分支是 ScriptCat 的主分支。为了保持代码的完整性，请不要直接修改 `main`
+`main` 分支是 LBcat 的主分支。为了保持代码的完整性，请不要直接修改 `main`
 分支。你应该创建一个新的分支，并在这个分支上进行修改，然后发起一个目标分支为
 `main` 的 Pull Request。Pull Request
 的标题请尽量使用中文，以便于自动生成更新日志。
 
-如果你不是 ScriptCat 团队的成员，你可以先 fork 本仓库，然后向本仓库的 `main`
+如果你不是 LBcat 团队的成员，你可以先 fork 本仓库，然后向本仓库的 `main`
 分支发起 Pull Request。在创建 commit 时，请按照上述 commit message
 规范进行。我们将在 code review 完成后将你的贡献合并到主分支。
 
 ## 撰写文档
 
-ScriptCat的文档在另外的仓库中：[scriptcat.org](https://docs.scriptcat.org)，使用
+文档继承自上游 ScriptCat，在另外的仓库中：[scriptcat.org](https://docs.scriptcat.org)，使用
 [docusaurus](https://docusaurus.io/)进行撰写，这有一些 [Markdown](https://docusaurus.io/zh-CN/docs/markdown-features)
 特性可以帮助你。如果你需要在本地预览修改后的文档，可以使用以下命令安装文档依赖并启动dev server：
 
@@ -69,7 +69,7 @@ pnpm start
 
 ### 帮助我们翻译
 
-ScriptCat 的翻译文件托管在 GitHub 上，欢迎通过 Pull Request 贡献翻译。
+LBcat 的翻译文件托管在 GitHub 上，欢迎通过 Pull Request 贡献翻译。
 
 - 翻译文件位于 [`src/locales`](https://github.com/scriptscat/scriptcat/tree/main/src/locales)，每种语言对应一个 `<语言代码>/translation.json`
 - **改进已有翻译**：直接编辑对应语言的 `translation.json`
@@ -78,21 +78,21 @@ ScriptCat 的翻译文件托管在 GitHub 上，欢迎通过 Pull Request 贡献
 
 ## 参与开发
 
-ScriptCat 使用 ESLint 来规范代码风格，使用 Vitest 来进行单元测试。你可以使用以下命令来运行：
+LBcat 使用 ESLint 来规范代码风格，使用 Vitest 来进行单元测试。你可以使用以下命令来运行：
 
 ```bash
 pnpm test
 pnpm run lint
 ```
 
-ScriptCat 的页面开发使用了以下技术：
+LBcat 的页面开发使用了以下技术：
 
 - [React](https://reactjs.org/)
 - UI 框架 [arco](https://arco.design)
 - CSS 框架 [unocss](https://unocss.dev/interactive/)
 - RsPack 打包工具 [rspack](https://rspack.dev/)
 
-如果你想在本地运行 ScriptCat，可以使用以下命令：
+如果你想在本地运行 LBcat，可以使用以下命令：
 
 ```bash
 pnpm run dev

@@ -3,13 +3,13 @@
     "message": "i18n"
   },
   "scriptcat": {
-    "message": "ScriptCat"
+    "message": "LBcat"
   },
   "scriptcat_beta": {
-    "message": "ScriptCat Beta"
+    "message": "LBcat Beta"
   },
   "scriptcat_az": {
-    "message": "ScriptCat-az"
+    "message": "LBcat-az"
   },
   "scriptcat_description": {
     "message": "Everything can be scripted, allowing your browser to do more!"

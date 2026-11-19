@@ -1,5 +1,5 @@
 // ============================================================================
-// scriptcat.zh-CN.d.ts — ScriptCat 全量中文类型声明
+// scriptcat.zh-CN.d.ts — LBcat 全量中文类型声明
 // 此文件为 scriptcat.d.ts 的中文翻译版本，包含所有 GM_*/CAT_*/CAT.agent API。
 // 如需接入，请在 tsconfig.json 中替换或追加此文件。
 // ============================================================================
@@ -40,11 +40,11 @@ declare type UserConfig = { [key: string]: { [key: string]: Config } };
 
 /** 脚本及环境元数据，兼容 Tampermonkey 的 `GM_info`。 */
 declare const GM_info: {
-  /** ScriptCat 版本号。 */
+  /** LBcat 版本号。 */
   version: string;
   /** 脚本是否已启用自动更新。 */
   scriptWillUpdate: boolean;
-  /** 始终为 `"ScriptCat"`。 */
+  /** 始终为 `"LBcat"`。 */
   scriptHandler: "ScriptCat";
   scriptUpdateURL?: string;
   scriptMetaStr?: string;
@@ -52,7 +52,7 @@ declare const GM_info: {
   userConfigStr?: string;
   /** 是否在隐私/无痕窗口中运行。 */
   isIncognito: boolean;
-  /** 沙箱模式（ScriptCat 始终使用 `"raw"`）。 */
+  /** 沙箱模式（LBcat 始终使用 `"raw"`）。 */
   sandboxMode: "raw";
   userAgentData: {
     brands?: { brand: string; version: string }[];
@@ -61,7 +61,7 @@ declare const GM_info: {
     architecture?: string;
     bitness?: string;
   };
-  /** 下载模式（ScriptCat 使用 `"native"`）。 */
+  /** 下载模式（LBcat 使用 `"native"`）。 */
   downloadMode: "native";
   /** 从脚本头部解析的元数据。 */
   script: {
@@ -128,7 +128,7 @@ declare function GM_getResourceText(name: string): string | undefined;
 /** 根据名称获取 `@resource` 的 URL（data: 或 blob:）。 */
 declare function GM_getResourceURL(name: string, isBlobUrl?: boolean): string | undefined;
 
-/** 在 ScriptCat 弹出面板中注册菜单命令。 */
+/** 在 LBcat 弹出面板中注册菜单命令。 */
 declare function GM_registerMenuCommand(
   name: string,
   listener?: (inputValue?: any) => void,
@@ -184,7 +184,7 @@ declare const CAT_unregisterMenuInput: typeof GM_unregisterMenuCommand;
 /** 等待脚本完全加载。配合 `@early-start` 使用。 */
 declare function CAT_scriptLoaded(): Promise<void>;
 
-/** 从 Blob 对象创建 blob URL。ScriptCat 管理 URL 生命周期。 */
+/** 从 Blob 对象创建 blob URL。LBcat 管理 URL 生命周期。 */
 declare function CAT_createBlobUrl(blob: Blob): Promise<string>;
 
 /** 获取 blob URL 并返回 Blob 数据。用于 `GM_xmlhttpRequest` stream 响应的辅助函数。 */
@@ -374,7 +374,7 @@ declare const GM: {
 };
 
 // ===========================================================================
-// CAT_* 函数（ScriptCat 专有扩展）
+// CAT_* 函数（LBcat 专有扩展）
 // ===========================================================================
 
 /**
@@ -450,7 +450,7 @@ declare function CAT_fileStorage(
 declare function CAT_fileStorage(action: "config"): void;
 
 /**
- * 后台脚本重试错误。抛出此错误可让 ScriptCat 稍后重试。
+ * 后台脚本重试错误。抛出此错误可让 LBcat 稍后重试。
  * 最小重试间隔为 5 秒。避免与脚本自身的调度重叠。
  */
 declare class CATRetryError {
@@ -461,7 +461,7 @@ declare class CATRetryError {
 }
 
 // ===========================================================================
-// CATType 命名空间（ScriptCat 专有类型）
+// CATType 命名空间（LBcat 专有类型）
 // ===========================================================================
 
 declare namespace CATType {
@@ -593,7 +593,7 @@ declare namespace GMTypes {
 
     /**
      * 在隐私/无痕窗口中打开。
-     * 注意：ScriptCat 使用 `"incognito": "split"` — 在普通窗口中，
+     * 注意：LBcat 使用 `"incognito": "split"` — 在普通窗口中，
      * tabId/windowId 将不可用。
      * @default false
      */
@@ -799,7 +799,7 @@ declare namespace GMTypes {
 }
 
 // ===========================================================================
-// CAT.agent — ScriptCat Agent API
+// CAT.agent — LBcat Agent API
 // @grant CAT.agent.conversation / CAT.agent.dom /
 //        CAT.agent.task / CAT.agent.skills
 // ===========================================================================
@@ -1577,7 +1577,7 @@ declare namespace CATAgentOPFS {
 // ---- CAT 全局对象 ----
 
 /**
- * ScriptCat Agent 全局对象 — 提供对话、工具、DOM、任务、Skill、模型和文件系统 API 的访问。
+ * LBcat Agent 全局对象 — 提供对话、工具、DOM、任务、Skill、模型和文件系统 API 的访问。
  * 每个子 API 需要各自的 `@grant` 声明。
  */
 declare const CAT: {

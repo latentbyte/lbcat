@@ -7,7 +7,7 @@ import { withTimeout } from "@App/pkg/utils/with_timeout";
 import { requireString, optionalNumber } from "./param_utils";
 
 // Agent User-Agent 字符串
-const AGENT_USER_AGENT = "Mozilla/5.0 (compatible; ScriptCat Agent)";
+const AGENT_USER_AGENT = "Mozilla/5.0 (compatible; LBcat Agent)";
 // 搜索超时时间（毫秒）
 const SEARCH_TIMEOUT_MS = 15_000;
 

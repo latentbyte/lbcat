@@ -1,6 +1,6 @@
 # 日本語（ja-JP）用語・UI 文言ガイドライン
 
-本書は、ScriptCat の日本語（`ja-JP`）UI およびドキュメントで使用する用語と UI 文言の基準です。日本語の文言を翻訳または修正する際は、日本語として自然で、製品 UI として一貫した表現を使用します。
+本書は、LBcat の日本語（`ja-JP`）UI およびドキュメントで使用する用語と UI 文言の基準です。日本語の文言を翻訳または修正する際は、日本語として自然で、製品 UI として一貫した表現を使用します。
 
 用例の参照元：`src/locales/ja-JP/translation.json`、`docs/README_ja.md`
 
@@ -47,7 +47,7 @@
 | page script | `ページスクリプト` | `page_script`, `guide_script_list_enable_content` | ページ上で動作するスクリプト種別です。 |
 | background script | `バックグラウンドスクリプト` | `create_background_script`, `background_script`, `enable_background.description` | 実行方式を示す製品用語です。 |
 | scheduled script | `スケジュールスクリプト` | `create_scheduled_script`, `scheduled_script`, `scheduled_script_description_title` | 定時実行のスクリプト種別です。 |
-| ScriptCat extension | `ScriptCat拡張機能` | `start_guide_title`, `ext_update_notification` | locale ファイルの現行表記を基準とします。 |
+| LBcat extension | `LBcat拡張機能` | `start_guide_title`, `ext_update_notification` | locale ファイルの現行表記を基準とします。 |
 | script center | `スクリプトセンター` | `guide_script_list_title`, `guide_script_list_content` | README にも使用例があります。 |
 | sync deletion state | `削除状態を同期` / `スクリプトの削除状態を同期` | `sync_delete`, `notification.script_sync_delete` | 削除操作そのものではなく、削除済み状態を同期する機能です。 |
 

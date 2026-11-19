@@ -1,6 +1,6 @@
 // native messaging bridge for browser-control
 // connects to com.latentbyte.browser_control via chrome.runtime.connectNative and
-// dispatches incoming commands to LBCat APIs and browser APIs
+// dispatches incoming commands to LBcat APIs and browser APIs
 
 import { ScriptDAO, ScriptCodeDAO, SCRIPT_STATUS_ENABLE, type Script } from "@App/app/repo/scripts";
 import {
@@ -135,10 +135,10 @@ function setNativeBadge(state: NativeMessagingConnectionState) {
   if (!actionApi) return;
 
   const badgeByState: Record<NativeMessagingConnectionState, { text: string; color: string; title: string }> = {
-    connected: { text: "●", color: "#4CAF50", title: "LBCat Browser Control connected" },
-    connecting: { text: "○", color: "#FF9800", title: "LBCat Browser Control connecting" },
-    disconnected: { text: "×", color: "#F44336", title: "LBCat Browser Control disconnected" },
-    error: { text: "!", color: "#9C27B0", title: "LBCat Browser Control connection error" },
+    connected: { text: "●", color: "#4CAF50", title: "LBcat Browser Control connected" },
+    connecting: { text: "○", color: "#FF9800", title: "LBcat Browser Control connecting" },
+    disconnected: { text: "×", color: "#F44336", title: "LBcat Browser Control disconnected" },
+    error: { text: "!", color: "#9C27B0", title: "LBcat Browser Control connection error" },
     not_installed: { text: "", color: "#9E9E9E", title: "LBcat (agent tools not installed)" },
   };
   const badge = badgeByState[state];

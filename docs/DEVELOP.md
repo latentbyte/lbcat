@@ -1,4 +1,4 @@
-# ScriptCat Development Guide (开发规范)
+# LBcat Development Guide (开发规范)
 
 > **Read this before writing code.** [`AGENTS.md`](../AGENTS.md) holds the non-negotiable engineering
 > principles (SOLID / high cohesion & low coupling, TDD/BDD-first, root-cause fixes, scope discipline) and the
@@ -103,6 +103,14 @@ dev and beta builds keep it, and `SC_ENABLE_AGENT=true` turns it on for a stable
 keeps `debugger` either way, for Browser Control screenshots and viewport emulation. The displayed
 extension name is LBcat. Keep upstream identifiers for compatibility. The Firefox add-on ID is
 `lbcat@latentbyte.com` since 4.35.6.
+
+Branding: user-facing copy says LBcat, in `src/locales/*/translation.json`, `src/assets/_locales/*/messages.json`
+(the beta and `-az` display names), page titles, the built-in agent prompt, issue templates and contributor docs.
+Upstream identifiers stay as they are, because scripts and stored data depend on them: `scriptHandler: "ScriptCat"`
+in GM_info and its type docs, `external.Scriptcat`, `scriptcat-*` userscript and bootstrap ids, the Dexie database
+name, the `ScriptCat` cloud-sync directory and backup filenames, and upstream links (`scriptcat.org`,
+`docs.scriptcat.org`, `learn.scriptcat.org`, `github.com/scriptscat/scriptcat`). `src/pages/branding.test.ts`
+rejects the upstream name in locale copy, extension display names and the agent prompt.
 
 LBcat's AMO listing is https://addons.mozilla.org/firefox/addon/lbcat/; 4.35.15 is the first version sent to the
 listed channel (earlier versions were unlisted only, so the page is not public until it is approved). Listing metadata (slug,

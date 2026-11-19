@@ -1,6 +1,6 @@
 # de-DE Terminologie- und UI-Text-Richtlinien
 
-Dieses Dokument definiert die Terminologie für die deutsche (`de-DE`) Benutzeroberfläche und Dokumentation von ScriptCat. Es dient dazu, Produktkonzepte eindeutig zu benennen, UI-Texte natürlich zu formulieren und technische Bezeichner bei künftigen Übersetzungen unverändert zu erhalten.
+Dieses Dokument definiert die Terminologie für die deutsche (`de-DE`) Benutzeroberfläche und Dokumentation von LBcat. Es dient dazu, Produktkonzepte eindeutig zu benennen, UI-Texte natürlich zu formulieren und technische Bezeichner bei künftigen Übersetzungen unverändert zu erhalten.
 
 Geprüfte Verwendungsquelle: `src/locales/de-DE/translation.json`
 
@@ -17,7 +17,7 @@ Geprüfte Verwendungsquelle: `src/locales/de-DE/translation.json`
 
 | Kategorie | Verwendung |
 | --- | --- |
-| **A. Produkt- und Funktionsbegriffe** | Namen für ScriptCat-Funktionen und Skripttypen. |
+| **A. Produkt- und Funktionsbegriffe** | Namen für LBcat-Funktionen und Skripttypen. |
 | **B. UI-Aktionen und Zustände** | Bevorzugte Formulierungen für Bedienelemente und Statusmeldungen. |
 | **C. Kontextabhängige Begriffe** | Begriffe, deren beste Formulierung vom konkreten UI-Kontext abhängt. |
 | **D. Technische Begriffe beibehalten** | Bezeichner und Fachbegriffe, deren technische Bedeutung erhalten bleiben muss. |
@@ -27,7 +27,7 @@ Geprüfte Verwendungsquelle: `src/locales/de-DE/translation.json`
 
 | Konzept | Bevorzugte Formulierung | Aktuelle Beispiel-Keys | Hinweise |
 | --- | --- | --- | --- |
-| ScriptCat browser extension | `ScriptCat-Erweiterung` | `start_guide_title`, `ext_update_notification` | Produktname als `ScriptCat` schreiben. |
+| LBcat browser extension | `LBcat-Erweiterung` | `start_guide_title`, `ext_update_notification` | Produktname als `LBcat` schreiben. |
 | generic user script | `Benutzerskript` | `create_user_script`, `guide_script_list_content` | Allgemeine Bezeichnung für ein Userscript. |
 | Tampermonkey-compatible script type | `Tampermonkey-Skript` | `script_status_tooltip` | Nicht zu einem allgemeinen Skripttyp verkürzen. |
 | page script | `Seitenskript` | `page_script`, `foreground_page_script_tooltip` | Skript, das auf angegebenen Seiten ausgeführt wird. |
@@ -82,7 +82,7 @@ Die folgenden Einträge beschreiben bereits vorhandene Auffälligkeiten. Dieses 
 | --- | --- | --- | --- |
 | browser tabs | Die Ausführungsumgebung enthält `Alle Bezeichnungen`, während Schließen-Aktionen `Tab` verwenden. | Falls `script_run_env` Browser-Tabs bezeichnet, durchgängig `Alle Tabs`, `Normale Tabs`, `Inkognito-Tabs` verwenden. | `script_run_env.all`, `close_current_tab` |
 | scheduled script expression label | `Geplante Aufgaben-Ausdruck` ist grammatisch unklar. | Nach Bestätigung der Funktion etwa `Ausdruck für geplante Aufgabe` verwenden. | `scheduled_script_description_description_expr` |
-| ScriptCat capitalization | Einige Einstiegstexte können eine abweichende Produkt-Schreibung enthalten. | Produktnamen stets als `ScriptCat` schreiben. | `start_guide_title`, `ext_update_notification` |
+| LBcat capitalization | Einige Einstiegstexte können eine abweichende Produkt-Schreibung enthalten. | Produktnamen stets als `LBcat` schreiben. | `start_guide_title`, `ext_update_notification` |
 | documentation link locale | Deutsche UI-Texte verweisen teilweise auf `/en/`-Dokumentation. | Nur ändern, wenn ein entsprechendes deutsches Ziel verfügbar ist. | `guide_script_list_content`, `develop_mode_guide` |
 
 ## Checkliste für AI und Mitwirkende

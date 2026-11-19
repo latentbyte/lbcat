@@ -4,7 +4,7 @@ Status: possible feature, not committed
 
 ## Goal
 
-Let users run ScriptCat-managed userscripts on mobile devices and receive remotely managed script installs, updates,
+Let users run LBcat-managed userscripts on mobile devices and receive remotely managed script installs, updates,
 disables, and removals.
 
 Desktop, Android, and iOS clients should share one authenticated management protocol. Browser integration remains
@@ -70,7 +70,7 @@ Safari installations cannot install or invoke our desktop native messaging host.
 
 ### Existing cloud-sync path
 
-Cloud sync can provide an initial Android proof of concept. ScriptCat already synchronizes scripts through supported
+Cloud sync can provide an initial Android proof of concept. LBcat already synchronizes scripts through supported
 remote filesystems and installs scripts pulled from them. Current automatic sync runs once per hour.
 
 Advantages:
