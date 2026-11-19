@@ -41,9 +41,9 @@ LBcat 是 [ScriptCat](https://github.com/scriptscat/scriptcat) 的分支,因此�
 - **Chrome 和其他 Chromium 瀏覽器:** Chrome 線上應用程式商店的上架正在準備中。在此之前,請自行建置並將 `dist/ext/chrome` 以未封裝擴充功能載入:
 
   ```sh
-pnpm install
-pnpm run build
-```
+  pnpm install
+  pnpm run build
+  ```
 
 ### 2. 命令列、常駐程式和原生宿主
 
@@ -64,15 +64,15 @@ Chromium 瀏覽器信任 LBcat 的 Chrome 線上應用程式商店 ID。使用�
 git clone https://github.com/latentbyte/lbcat
 cd lbcat
 just browser-control-install
-brew install terminal-notifier   # macOS only
+brew install terminal-notifier   # 僅限 macOS:點擊即可核准的通知
 ```
 
 ## 快速開始
 
 ```sh
-bctl browsers
-bctl --browser zen agent-window create
-bctl --browser zen session begin --label "demo"
+bctl browsers                                   # 已連線的瀏覽器,例如 zen-01
+bctl --browser zen agent-window create          # 代理可以使用的視窗
+bctl --browser zen session begin --label "demo" # 輸出工作階段控制代碼,例如 zen:ab12cd34
 bctl --session zen:ab12cd34 tabs create https://example.com --active=false
 bctl --session zen:ab12cd34 page content <tab-id>
 bctl --session zen:ab12cd34 page screenshot <tab-id> --output /tmp/page.png
@@ -94,8 +94,8 @@ ScriptCat 的所有功能依然可用:相容 Tampermonkey 的腳本、背景與�
 如果想在磁碟上而不是內建編輯器裡開發腳本,把建置輸出指向一個資料夾並監看它:
 
 ```sh
-bctl script watch ~/my-scripts
-bctl script push dist/my-script.user.js
+bctl script watch ~/my-scripts                  # 每個 .user.js 一有變動就安裝
+bctl script push dist/my-script.user.js         # 一次性建立或更新
 bctl script push-all ~/my-scripts --all-browsers
 ```
 
@@ -104,9 +104,9 @@ bctl script push-all ~/my-scripts --all-browsers
 參見 [DEVELOP.md](./DEVELOP.md) 和 [ARCHITECTURE.md](./ARCHITECTURE.md)。常用指令:
 
 ```sh
-just check
-just test
-just browser-control-test
+just check                  # tsc 和 eslint
+just test                   # 擴充功能測試
+just browser-control-test   # Go 測試
 ```
 
 ## 授權與致謝

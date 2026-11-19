@@ -41,9 +41,9 @@ LBcat は [ScriptCat](https://github.com/scriptscat/scriptcat) のフォーク�
 - **Chrome とその他の Chromium 系ブラウザー：** Chrome ウェブストアでの公開を準備中です。それまでは、ビルドして `dist/ext/chrome` をパッケージ化されていない拡張機能として読み込んでください。
 
   ```sh
-pnpm install
-pnpm run build
-```
+  pnpm install
+  pnpm run build
+  ```
 
 ### 2. CLI、デーモン、ネイティブホスト
 
@@ -64,15 +64,15 @@ Linux、または macOS でソースからビルドする場合は、Go 1.25 以
 git clone https://github.com/latentbyte/lbcat
 cd lbcat
 just browser-control-install
-brew install terminal-notifier   # macOS only
+brew install terminal-notifier   # macOS のみ：クリックで承認する通知
 ```
 
 ## クイックスタート
 
 ```sh
-bctl browsers
-bctl --browser zen agent-window create
-bctl --browser zen session begin --label "demo"
+bctl browsers                                   # 接続中のブラウザー（例：zen-01）
+bctl --browser zen agent-window create          # エージェントが使えるウィンドウ
+bctl --browser zen session begin --label "demo" # zen:ab12cd34 のようなハンドルを出力
 bctl --session zen:ab12cd34 tabs create https://example.com --active=false
 bctl --session zen:ab12cd34 page content <tab-id>
 bctl --session zen:ab12cd34 page screenshot <tab-id> --output /tmp/page.png
@@ -94,8 +94,8 @@ ScriptCat の機能はすべてそのまま使えます。Tampermonkey 互換ス
 内蔵エディターではなくディスク上でスクリプトを開発するには、ビルド出力先をフォルダーに向けて監視します。
 
 ```sh
-bctl script watch ~/my-scripts
-bctl script push dist/my-script.user.js
+bctl script watch ~/my-scripts                  # 変更された .user.js を即座にインストール
+bctl script push dist/my-script.user.js         # 1 回限りの作成または更新
 bctl script push-all ~/my-scripts --all-browsers
 ```
 
@@ -104,9 +104,9 @@ bctl script push-all ~/my-scripts --all-browsers
 [DEVELOP.md](./DEVELOP.md) と [ARCHITECTURE.md](./ARCHITECTURE.md) を参照してください。主なコマンド：
 
 ```sh
-just check
-just test
-just browser-control-test
+just check                  # tsc と eslint
+just test                   # 拡張機能のテスト
+just browser-control-test   # Go のテスト
 ```
 
 ## ライセンスとクレジット

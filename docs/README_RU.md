@@ -41,9 +41,9 @@ LBcat это форк [ScriptCat](https://github.com/scriptscat/scriptcat), по
 - **Chrome и другие браузеры на Chromium:** страница в Chrome Web Store готовится. Пока соберите расширение и загрузите `dist/ext/chrome` как распакованное:
 
   ```sh
-pnpm install
-pnpm run build
-```
+  pnpm install
+  pnpm run build
+  ```
 
 ### 2. CLI, демон и нативный хост
 
@@ -64,15 +64,15 @@ browser-control install
 git clone https://github.com/latentbyte/lbcat
 cd lbcat
 just browser-control-install
-brew install terminal-notifier   # macOS only
+brew install terminal-notifier   # только macOS: уведомления с подтверждением по клику
 ```
 
 ## Быстрый старт
 
 ```sh
-bctl browsers
-bctl --browser zen agent-window create
-bctl --browser zen session begin --label "demo"
+bctl browsers                                   # подключённые браузеры, например zen-01
+bctl --browser zen agent-window create          # окно, которым могут пользоваться агенты
+bctl --browser zen session begin --label "demo" # выводит дескриптор вида zen:ab12cd34
 bctl --session zen:ab12cd34 tabs create https://example.com --active=false
 bctl --session zen:ab12cd34 page content <tab-id>
 bctl --session zen:ab12cd34 page screenshot <tab-id> --output /tmp/page.png
@@ -94,8 +94,8 @@ bctl --session zen:ab12cd34 session end --close-tabs
 Чтобы разрабатывать скрипты на диске, а не во встроенном редакторе, направьте вывод сборки в папку и следите за ней:
 
 ```sh
-bctl script watch ~/my-scripts
-bctl script push dist/my-script.user.js
+bctl script watch ~/my-scripts                  # устанавливать каждый .user.js сразу после изменения
+bctl script push dist/my-script.user.js         # разовое создание или обновление
 bctl script push-all ~/my-scripts --all-browsers
 ```
 
@@ -104,9 +104,9 @@ bctl script push-all ~/my-scripts --all-browsers
 См. [DEVELOP.md](./DEVELOP.md) и [ARCHITECTURE.md](./ARCHITECTURE.md). Основные команды:
 
 ```sh
-just check
-just test
-just browser-control-test
+just check                  # tsc и eslint
+just test                   # тесты расширения
+just browser-control-test   # тесты на Go
 ```
 
 ## Лицензия и благодарности
