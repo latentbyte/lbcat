@@ -204,8 +204,8 @@ function PopupWarnings({ isBlacklist, nativeStatus }: PopupWarningsProps) {
           content={
             <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
               <div>
-                <div>{"在手机上使用脚本猫"}</div>
-                <div style={{ fontSize: "12px", marginTop: "4px" }}>{"扫描二维码在手机上安装脚本猫"}</div>
+                <div>{"在手机上使用LBcat"}</div>
+                <div style={{ fontSize: "12px", marginTop: "4px" }}>{"扫描二维码在手机上安装LBcat"}</div>
               </div>
               <img src={edgeMobileQrCode} alt="qrcode" style={{ width: "80px", height: "80px" }} />
             </div>

@@ -3,13 +3,13 @@
     "message": "i18n"
   },
   "scriptcat": {
-    "message": "腳本貓"
+    "message": "LBcat"
   },
   "scriptcat_beta": {
-    "message": "腳本貓 Beta"
+    "message": "LBcat Beta"
   },
   "scriptcat_az": {
-    "message": "腳本貓-az"
+    "message": "LBcat-az"
   },
   "scriptcat_description": {
     "message": "萬物皆可腳本化，讓你的瀏覽器可以做更多的事情！"

@@ -38,7 +38,7 @@ declare const GM_info: {
   version: string;
   /** Whether auto-update is enabled for this script. */
   scriptWillUpdate: boolean;
-  /** Always `"LBcat"`. */
+  /** Always `"ScriptCat"`. */
   scriptHandler: "ScriptCat";
   scriptUpdateURL?: string;
   scriptMetaStr?: string;

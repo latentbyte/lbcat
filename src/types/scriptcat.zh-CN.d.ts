@@ -44,7 +44,7 @@ declare const GM_info: {
   version: string;
   /** 脚本是否已启用自动更新。 */
   scriptWillUpdate: boolean;
-  /** 始终为 `"LBcat"`。 */
+  /** 始终为 `"ScriptCat"`。 */
   scriptHandler: "ScriptCat";
   scriptUpdateURL?: string;
   scriptMetaStr?: string;

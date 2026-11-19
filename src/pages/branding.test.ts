@@ -18,7 +18,7 @@ const filesUnder = (dir: string, pattern: RegExp): string[] =>
 
 // 用户可见文案里的产品名是 LBcat。上游标识符（`scriptHandler: "ScriptCat"`、GM_info 兼容值）、
 // scriptcat.org / docs.scriptcat.org 链接、云同步目录 ScriptCat 和 backup 文件名保留不动。
-const upstreamBrand = /Script(C|c)at/;
+const upstreamBrand = /Script(C|c)at|脚本猫|腳本貓/;
 
 describe("页面标题品牌", () => {
   it("扩展页面标题使用 LBcat 而不是上游名称 ScriptCat", () => {
