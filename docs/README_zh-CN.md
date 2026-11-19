@@ -4,147 +4,113 @@
 
 <h1 align="center">
 <img src="../src/assets/logo.png"/><br/>
-ScriptCat
+LBcat
 </h1>
 
-<p align="center">脚本猫，一个可以执行用户脚本的浏览器扩展，万物皆可脚本化，让你的浏览器可以做更多的事情！</p>
+<p align="center">面向编码代理的浏览器控制、面向标签页的命令行,以及从编辑器直达浏览器的用户脚本开发循环。</p>
 
-<p align="center">
-<a href="https://docs.scriptcat.org/">文档</a> ·
-<a href="https://bbs.tampermonkey.net.cn/">社区（油猴中文网）</a> ·
-<a href="https://scriptcat.org/search">脚本站</a>
-</p>
+LBcat 是一个浏览器扩展,加上一个名为 `bctl` 的本地命令行工具。它在你日常使用的浏览器里、带着你的登录状态完成三件事:
 
-![GitHub stars](https://img.shields.io/github/stars/scriptscat/scriptcat.svg)
-[![Build Status](https://github.com/scriptscat/scriptcat/actions/workflows/build.yaml/badge.svg?branch=main)](https://github.com/scriptscat/scriptcat)
-[![codecov](https://codecov.io/gh/scriptscat/scriptcat/branch/main/graph/badge.svg?token=G1A6ZGDQTY)](https://codecov.io/gh/scriptscat/scriptcat)
-![GitHub tag (latest SemVer)](https://img.shields.io/github/tag/scriptscat/scriptcat.svg?label=version)
-[![Chrome](https://img.shields.io/badge/chrome-success-brightgreen?logo=google%20chrome)](https://chromewebstore.google.com/detail/scriptcat/ndcooeababalnlpkfedmmbbbgkljhpjf)
-[![Edge](https://img.shields.io/badge/edge-success-brightgreen?logo=microsoft%20edge)](https://microsoftedge.microsoft.com/addons/detail/scriptcat/liilgpjgabokdklappibcjfablkpcekh)
-[![FireFox](https://img.shields.io/badge/firefox-success-brightgreen?logo=firefox)](https://addons.mozilla.org/zh-CN/firefox/addon/scriptcat/)
+- **面向代理的浏览器控制。** Claude Code、Codex 或任何能运行 shell 命令的工具,都可以用 `bctl` 在你交给它的一个代理窗口里打开标签页、读取页面、点击、输入和截图。你的其他标签页不会被触及。
+- **标签页命令行。** `bctl human tabs` 可跨所有窗口列出、聚焦和关闭标签页,输出纯文本或 JSON,适合脚本、启动器和标签切换器。
+- **从磁盘加载用户脚本。** 用 TypeScript 或纯 JavaScript 编写脚本,构建为 `.user.js`,`bctl script watch` 会在保存后立即把每次构建安装到浏览器。无需复制粘贴,也没有安装对话框,更新同样如此。
 
-## ❤️ 赞助商
+LBcat 是 [ScriptCat](https://github.com/scriptscat/scriptcat) 的分支,因此它同时是一个完整的、兼容 Tampermonkey 的用户脚本管理器。这三件事都需要本地程序与扩展之间的原生桥接,上游 ScriptCat 不包含这部分,所以我们自行添加,并发布自己签名的构建。
 
-> [想出现在这里？](mailto:codfrm@gmail.com)
+状态:免费开源。已在 macOS 上测试。Linux 理论上可用:工具可以从源码构建和安装,但我们还没有在 Linux 上测试过,桌面通知目前仅支持 macOS。暂不支持 Windows。
 
-<details open>
-<summary>点击折叠</summary>
+## 为什么用它
 
-[![OpenModel](./assets/sponsors/openmodel-banner-1.jpg)](https://www.openmodel.ai?ref=pyGPw93M)
+- **你真实的浏览器。** 不需要单独的配置文件,也不用重新登录。代理看到的站点和你看到的一样。
+- **限定范围的代理窗口。** 你指定一个窗口给代理使用。命令不会回退到你的个人窗口,只有在你授权具体某个标签页时,才能访问个人标签页。
+- **任务会话与标签页租约。** 每个任务有自己的会话,并拥有它打开的标签页,多个代理可以共用一个浏览器而互不干扰。你可以随时暂停任务并收回标签页。
+- **真正的用户脚本开发循环。** `bctl script push` 按 `@name` 和 `@namespace` 匹配已安装的脚本,每次推送都原地更新。`push-all` 可安装整个文件夹,可面向一个或所有浏览器。
+- **不止 Chromium,还支持 Firefox 和 Zen。** 可检测 Chrome、Brave、Edge、Vivaldi、Firefox、Zen 及其他衍生浏览器。
+- **为代理而设计。** 默认输出紧凑文本,按需输出 JSON,以降低 token 消耗。
+- **仅本地。** 命令行通过 Unix socket 和 Native Messaging 与扩展通信,不会向任何服务器发送数据。
 
-**DeepSeek-V4-Flash 在 OpenModel 上限时免费！**
+这是命令定位与任务归属,不是沙箱。Cookie 和站点状态与你的浏览器配置文件共享,请只让你信任的代理使用。
 
-一个 API，用遍所有顶级 AI 模型。
+## 安装
 
-OpenModel 是一个高可用、高可靠的 AI 模型调用平台，让你的应用快速稳定运行：自动故障转移、重试不重复扣费、每个 Key 可单独设额度与限频。换模型只改一个参数，新模型发布当天即可用，还能直接对接 Claude Code、Codex 和 Gemini CLI。
+需要两部分:扩展和本地工具。
 
-[点此链接注册](https://www.openmodel.ai?ref=pyGPw93M)，立即开始使用！
+### 1. 扩展
 
----
+- **Firefox 和 Zen:** 从 [Firefox 附加组件商店安装 LBcat](https://addons.mozilla.org/firefox/addon/lbcat/)。
+- **Chrome 和其他 Chromium 浏览器:** Chrome 网上应用店的上架正在准备中。在此之前,请自行构建并将 `dist/ext/chrome` 作为已解压的扩展程序加载:
 
-<table>
-<tr>
-<td width="180"><a href="https://www.packyapi.com/register?aff=BOKa"><img src="./assets/sponsors/packycode-banner.png" alt="PackyCode" width="150"></a></td>
-<td>PackyCode 是一家稳定、高效的 API 中转服务商，提供 Claude Code、Codex、Gemini 等多种中转服务。具备自动故障转移、智能路由和无限并发等多种功能，让 AI 编程成为真正的生产力工具。<a href="https://www.packyapi.com/register?aff=BOKa">点此链接注册</a>，立即开始使用！</td>
-</tr>
-<tr>
-<td width="180"><a href="https://enncy.cn/"><img src="./assets/sponsors/yanxi-tech-logo.png" alt="言溪科技" width="150"></a></td>
-<td>言溪科技专注脚本软件定制、网页程序设计开发，提供高度个性化定制服务，项目方案稳定可靠，同步分享行业前沿资讯，一站式满足各类程序开发定制需求。官网：<a href="https://enncy.cn/">https://enncy.cn/</a></td>
-</tr>
-</table>
+  ```sh
+pnpm install
+pnpm run build
+```
 
-</details>
+### 2. 命令行、守护进程和原生宿主
 
-## 关于
+在 macOS 上:
 
-ScriptCat（脚本猫）是一个功能强大的用户脚本管理器，基于油猴的设计理念，完全兼容油猴脚本。它不仅支持传统的用户脚本，还创新性地实现了后台脚本运行框架，提供丰富的API扩展，让脚本能够完成更多强大的功能。内置优秀的代码编辑器，支持智能补全和语法检查，让脚本开发更加高效流畅。
+```sh
+brew install latentbyte/tap/lbcat
+browser-control install
+```
 
-**如果觉得好用，请给我们一个 Star ⭐ 这是对我们最大的支持！**
+第一条命令安装 `browser-control`(也链接为 `bctl`)、`browser-control-daemon` 和 `lbcat-shim`。第二条为它发现的每个浏览器注册 Native Messaging 宿主。完成后请重启浏览器。
 
-## ✨ 核心特性
+Chromium 浏览器信任 LBcat 的 Chrome 应用店 ID。使用未打包的构建时,请传入 `chrome://extensions` 中显示的 ID:`browser-control install --extension-id <id>`。
 
-### 🔄 云端同步
+在 Linux 上,或在 macOS 上从源码构建,需要 Go 1.25 或更高版本以及 [just](https://github.com/casey/just)。以下命令会把工具放入 `~/.local/bin`(请将其加入 `PATH`)并注册 Native Messaging 宿主:
 
-- **脚本云同步**：跨设备同步脚本，更换浏览器或重装系统后轻松恢复
-- **脚本订阅**：创建和管理脚本合集，支持团队协作和脚本组合使用
+```sh
+git clone https://github.com/latentbyte/lbcat
+cd lbcat
+just browser-control-install
+brew install terminal-notifier   # macOS only
+```
 
-### 🔧 强大功能
+## 快速开始
 
-- **完全兼容油猴**：无缝迁移现有油猴脚本，零学习成本
-- **后台脚本**：独创后台运行机制，让脚本持续运行不受页面限制
-- **定时脚本**：支持定时执行任务，实现自动签到、定时提醒等功能
-- **丰富 API**：相比油猴提供更多强大 API，解锁更多可能性
+```sh
+bctl browsers
+bctl --browser zen agent-window create
+bctl --browser zen session begin --label "demo"
+bctl --session zen:ab12cd34 tabs create https://example.com --active=false
+bctl --session zen:ab12cd34 page content <tab-id>
+bctl --session zen:ab12cd34 page screenshot <tab-id> --output /tmp/page.png
+bctl --session zen:ab12cd34 session end --close-tabs
+```
 
-### 🛡️ 安全可靠
+完整的命令参考见 [backend/browser-control/README.md](../backend/browser-control/README.md)。
 
-- **沙盒机制**：脚本运行在隔离环境中，防止恶意代码影响脚本
-- **权限管理**：脚本需明确申请所需权限，敏感操作需要额外确认
+## 在代理中使用
 
-### 💻 开发体验
+把 [backend/browser-control/skills/browser-control](../backend/browser-control/skills/browser-control) 复制到代理的 skills 目录,例如 `~/.claude/skills/browser-control`。该 skill 会教代理会话流程、停止条件,以及如何向你申请访问权限。
 
-- **智能编辑器**：内置代码编辑器支持语法高亮、智能补全和 ESLint
-- **调试工具**：完善的调试功能，快速定位和解决问题
-- **美观界面**：现代化 UI 设计，操作简洁直观
+Go 程序可以使用 `backend/browser-control/pkg/browsercontrol` 中的 SDK。
 
-> 🚀 更多功能持续开发中...
+## 用户脚本
 
-## 🚀 快速开始
+ScriptCat 的所有功能依然可用:兼容 Tampermonkey 的脚本、后台和定时脚本、云同步以及内置编辑器。编写脚本请参阅 [ScriptCat 文档](https://docs.scriptcat.org/)。
 
-### 📦 安装扩展
+如果想在磁盘上而不是内置编辑器里开发脚本,把构建输出指向一个文件夹并监听它:
 
-#### 扩展商店（推荐）
+```sh
+bctl script watch ~/my-scripts
+bctl script push dist/my-script.user.js
+bctl script push-all ~/my-scripts --all-browsers
+```
 
-| 浏览器 | 商店链接 | 状态 |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| Chrome  | [正式版本](https://chromewebstore.google.com/detail/scriptcat/ndcooeababalnlpkfedmmbbbgkljhpjf) [Beta版本](https://chromewebstore.google.com/detail/scriptcat-beta/jaehimmlecjmebpekkipmpmbpfhdacom) | ✅ 可用 |
-| Edge    | [正式版本](https://microsoftedge.microsoft.com/addons/detail/scriptcat/liilgpjgabokdklappibcjfablkpcekh) [Beta版本](https://microsoftedge.microsoft.com/addons/detail/scriptcat-beta/nimmbghgpcjmeniofmpdfkofcedcjpfi) | ✅ 可用 |
-| Firefox | [正式版本](https://addons.mozilla.org/zh-CN/firefox/addon/scriptcat/) [Beta版本](https://addons.mozilla.org/zh-CN/firefox/addon/scriptcat-pre/) | ✅ MV2 |
+## 开发
 
-#### 手动安装
+参见 [DEVELOP.md](./DEVELOP.md) 和 [ARCHITECTURE.md](./ARCHITECTURE.md)。常用命令:
 
-如果无法访问扩展商店，可以在 [GitHub Releases](https://github.com/scriptscat/scriptcat/releases)
-下载最新版本的 ZIP 包进行手动安装。
+```sh
+just check
+just test
+just browser-control-test
+```
 
-### 📝 使用指南
+## 许可与致谢
 
-#### 安装脚本
+扩展采用 [GPLv3](../LICENSE) 许可,与其所基于的 ScriptCat 相同。感谢 ScriptCat 的作者和贡献者提供用户脚本引擎。
 
-1. **从脚本市场获取**：访问 [ScriptCat 脚本站](https://scriptcat.org/search) 或其他用户脚本市场
-2. **后台脚本专区**：体验独有的 [后台脚本](https://scriptcat.org/zh-CN/search?script_type=3)
-3. **兼容性**：支持绝大部分油猴脚本，可直接安装使用，如果遇到不兼容的脚本，欢迎通过
-   [issue](https://github.com/scriptscat/scriptcat/issues) 反馈给我们。
-
-#### 开发脚本
-
-查看我们的 [开发文档](https://docs.scriptcat.org/docs/dev/)与[开发指南](https://learn.scriptcat.org/)
-学习如何编写脚本。文档涵盖了从基础到高级的所有内容，让你在编写脚本时得心应手。
-
-如果发现文档有错误或希望贡献内容，可以点击文档页面的"编辑此页"进行修改。
-
----
-
-## 🤝 参与贡献
-
-我们欢迎所有形式的贡献！请查看 [贡献指南](./CONTRIBUTING_ZH.md) 了解如何开始。
-
-### 💬 社区交流
-
-加入我们的社区，与其他用户和开发者交流：
-
-- [Telegram](https://t.me/scriptscat)
-- [Discord](https://discord.gg/JF76nHCCM7)
-- [社区（油猴中文网）](https://bbs.tampermonkey.net.cn/)
-
-### 🙏 鸣谢
-
-感谢以下开发者对 ScriptCat 作出的贡献，有你们 ScriptCat 才能变得更好！
-
-[![Contributors](https://contrib.rocks/image?repo=scriptscat/scriptcat&max=1000)](https://github.com/scriptscat/scriptcat/graphs/contributors)
-
----
-
-## 📄 开源许可
-
-本项目基于 [GPLv3](../LICENSE) 协议开源，请遵守相关协议条款。
-
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fscriptscat%2Fscriptcat.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fscriptscat%2Fscriptcat?ref=badge_large)
+`backend/browser-control/` 中的 Go 命令行、守护进程和 SDK 是原创作品,采用 [Apache-2.0](../backend/browser-control/LICENSE) 许可。

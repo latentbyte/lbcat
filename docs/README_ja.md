@@ -4,120 +4,113 @@
 
 <h1 align="center">
 <img src="../src/assets/logo.png"/><br/>
-ScriptCat
+LBcat
 </h1>
 
-<p align="center">ScriptCat は、ユーザースクリプトを実行できるブラウザ拡張機能です。すべてをスクリプト化し、ブラウザにもっと多くのことをさせましょう！</p>
+<p align="center">コーディングエージェント向けのブラウザー操作、タブのためのコマンドライン、そしてエディターからブラウザーへ直接つながるユーザースクリプト開発ループ。</p>
 
-<p align="center">
-<a href="https://docs.scriptcat.org/">ドキュメント</a> ·
-<a href="https://discord.gg/JF76nHCCM7">Discord</a> ·
-<a href="https://scriptcat.org/ja/search">ScriptCat スクリプト</a>
-</p>
+LBcat は、ブラウザー拡張機能と、`bctl` という小さなローカル CLI の組み合わせです。普段使っているブラウザーで、ログイン状態のまま次の 3 つを行います。
 
-![GitHub stars](https://img.shields.io/github/stars/scriptscat/scriptcat.svg)
-[![Build Status](https://github.com/scriptscat/scriptcat/actions/workflows/build.yaml/badge.svg?branch=main)](https://github.com/scriptscat/scriptcat)
-[![codecov](https://codecov.io/gh/scriptscat/scriptcat/branch/main/graph/badge.svg?token=G1A6ZGDQTY)](https://codecov.io/gh/scriptscat/scriptcat)
-![GitHub tag (latest SemVer)](https://img.shields.io/github/tag/scriptscat/scriptcat.svg?label=version)
-[![Chrome](https://img.shields.io/badge/chrome-success-brightgreen?logo=google%20chrome)](https://chromewebstore.google.com/detail/scriptcat/ndcooeababalnlpkfedmmbbbgkljhpjf)
-[![Edge](https://img.shields.io/badge/edge-success-brightgreen?logo=microsoft%20edge)](https://microsoftedge.microsoft.com/addons/detail/scriptcat/liilgpjgabokdklappibcjfablkpcekh)
-[![FireFox](https://img.shields.io/badge/firefox-success-brightgreen?logo=firefox)](https://addons.mozilla.org/ja/firefox/addon/scriptcat/)
+- **エージェント向けのブラウザー操作。** Claude Code、Codex など、シェルコマンドを実行できるツールが `bctl` を使い、あなたが渡した 1 つのエージェント用ウィンドウの中で、タブを開く、ページを読む、クリックする、入力する、スクリーンショットを撮る、といった操作ができます。ほかのタブには触れません。
+- **タブのための CLI。** `bctl human tabs` は、すべてのウィンドウのタブを一覧表示、フォーカス、閉じる操作ができ、出力はプレーンテキストまたは JSON です。スクリプト、ランチャー、タブスイッチャー向けです。
+- **ディスクからのユーザースクリプト。** TypeScript または JavaScript でスクリプトを書き、`.user.js` にビルドすると、`bctl script watch` が保存と同時にブラウザーへインストールします。コピー＆ペーストもインストールダイアログも不要で、更新も同じ流れです。
 
-## ScriptCat について
+LBcat は [ScriptCat](https://github.com/scriptscat/scriptcat) のフォークで、Tampermonkey 互換のユーザースクリプトマネージャーとしてもそのまま使えます。この 3 つにはローカルプログラムと拡張機能をつなぐネイティブブリッジが必要ですが、上流の ScriptCat には含まれていません。そのため私たちが追加し、署名済みビルドを独自に配布しています。
 
-ScriptCat は、Tampermonkey の設計思想に基づく強力なユーザースクリプトマネージャーで、Tampermonkey のスクリプトと完全な互換性を持ちます。  
-従来のユーザースクリプトをサポートするだけでなく、豊富な API 拡張を備えたバックグラウンドスクリプト実行フレームワークを革新的に実装し、スクリプトでより強力な機能を実現できます。  
-また、優れた内蔵コードエディタを搭載し、インテリジェント補完や構文チェックに対応しており、スクリプト開発をより効率的かつスムーズに行えます。
+状況：無料のオープンソースです。macOS で動作確認しています。Linux でも動くはずで、ソースからビルドとインストールはできますが、まだ Linux では検証しておらず、デスクトップ通知は今のところ macOS のみです。Windows は未対応です。
 
-**便利だと感じたら、ぜひ Star ⭐ を付けて応援してください！**
+## 特長
 
-## ✨ 主な機能
+- **普段のブラウザーをそのまま使えます。** 別プロファイルも再ログインも不要で、エージェントはあなたと同じようにサイトを見ます。
+- **範囲を限定したエージェントウィンドウ。** エージェント用に 1 つのウィンドウを指定します。コマンドが個人のウィンドウに切り替わることはなく、個人のタブは、そのタブを明示的に許可した場合にのみ操作できます。
+- **タスクセッションとタブのリース。** 各タスクは専用のセッションを持ち、自分が開いたタブを所有します。複数のエージェントが 1 つのブラウザーを干渉なく共有できます。タスクの一時停止やタブの取り戻しはいつでも可能です。
+- **本格的なユーザースクリプト開発ループ。** `bctl script push` は `@name` と `@namespace` でインストール済みスクリプトを照合し、push のたびにその場で更新します。`push-all` はフォルダー全体を、1 つまたはすべてのブラウザーにインストールします。
+- **Chromium だけでなく Firefox と Zen にも対応。** Chrome、Brave、Edge、Vivaldi、Firefox、Zen などのフォークを検出します。
+- **エージェント向けの設計。** 出力は既定でコンパクトなテキスト、必要に応じて JSON で、トークン消費を抑えます。
+- **ローカルのみ。** CLI は Unix ソケットと Native Messaging で拡張機能と通信します。サーバーには何も送信されません。
 
-### 🔄 クラウド同期
+これはコマンドの対象指定とタスクの所有権であり、サンドボックスではありません。Cookie やサイトの状態はプロファイルと共有されるため、信頼できるエージェントにのみ使わせてください。
 
-- **スクリプトのクラウド同期**：デバイス間でスクリプトを同期し、ブラウザ変更やシステム再インストール時も簡単に復元
-- **スクリプトサブスクライブ機能**：スクリプトコレクションを作成・管理し、チーム協力やスクリプトの組み合わせをサポート
+## インストール
 
-### 🔧 強力な機能
+拡張機能とローカルツールの 2 つが必要です。
 
-- **Tampermonkey と完全互換**：既存の Tampermonkey スクリプトを学習コストなしでそのまま移行可能
-- **バックグラウンドスクリプト**：ページに依存せず連続実行できる革新的なバックグラウンド実行機構
-- **スケジュールスクリプト**：自動チェックイン、リマインダーなどの定時実行をサポート
-- **豊富な API**：Tampermonkey 以上の強力な API 群を提供
+### 1. 拡張機能
 
-### 🛡️ セキュリティと信頼性
+- **Firefox と Zen：** [Firefox アドオンの LBcat](https://addons.mozilla.org/firefox/addon/lbcat/) をインストールします。
+- **Chrome とその他の Chromium 系ブラウザー：** Chrome ウェブストアでの公開を準備中です。それまでは、ビルドして `dist/ext/chrome` をパッケージ化されていない拡張機能として読み込んでください。
 
-- **サンドボックス機構**：スクリプトを隔離環境で実行し、悪意あるコードの影響を防止
-- **権限管理**：スクリプトは必要な権限を明確に要求し、機密操作には追加確認が必要
+  ```sh
+pnpm install
+pnpm run build
+```
 
-### 💻 開発体験
+### 2. CLI、デーモン、ネイティブホスト
 
-- **スマートエディタ**：構文ハイライト、インテリジェント補完、ESLint を備えた内蔵エディタ
-- **デバッグツール**：問題を迅速に特定して解決できる包括的なデバッグ機能
-- **美しい UI**：モダンで直感的なクリーンデザイン
+macOS の場合：
 
-> 🚀 続々と新機能を開発中…
+```sh
+brew install latentbyte/tap/lbcat
+browser-control install
+```
 
-## 🚀 クイックスタート
+1 つ目のコマンドで `browser-control`（`bctl` としてもリンクされます）、`browser-control-daemon`、`lbcat-shim` をインストールします。2 つ目のコマンドは、見つかったすべてのブラウザーに Native Messaging ホストを登録します。その後、ブラウザーを再起動してください。
 
-### 📦 拡張機能のインストール
+Chromium 系ブラウザーは LBcat の Chrome ウェブストア ID を信頼します。パッケージ化されていないビルドでは、`chrome://extensions` に表示される ID を渡します：`browser-control install --extension-id <id>`。
 
-#### 拡張ストア（推奨）
+Linux、または macOS でソースからビルドする場合は、Go 1.25 以降と [just](https://github.com/casey/just) が必要です。次のコマンドでツールを `~/.local/bin`（`PATH` に追加してください）に置き、Native Messaging ホストを登録します。
 
-| ブラウザ | ストアリンク | ステータス |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| Chrome   | [安定版](https://chromewebstore.google.com/detail/scriptcat/ndcooeababalnlpkfedmmbbbgkljhpjf) [Beta 版](https://chromewebstore.google.com/detail/scriptcat-beta/jaehimmlecjmebpekkipmpmbpfhdacom) | ✅ 利用可能 |
-| Edge     | [安定版](https://microsoftedge.microsoft.com/addons/detail/scriptcat/liilgpjgabokdklappibcjfablkpcekh) [Beta 版](https://microsoftedge.microsoft.com/addons/detail/scriptcat-beta/nimmbghgpcjmeniofmpdfkofcedcjpfi) | ✅ 利用可能 |
-| Firefox  | [安定版](https://addons.mozilla.org/ja/firefox/addon/scriptcat/) [Beta 版](https://addons.mozilla.org/ja/firefox/addon/scriptcat-pre/) | ✅ MV2 |
+```sh
+git clone https://github.com/latentbyte/lbcat
+cd lbcat
+just browser-control-install
+brew install terminal-notifier   # macOS only
+```
 
-#### 手動インストール
+## クイックスタート
 
-拡張ストアにアクセスできない場合は、  
-[GitHub Releases](https://github.com/scriptscat/scriptcat/releases) から最新の ZIP パッケージをダウンロードして手動インストールできます。
+```sh
+bctl browsers
+bctl --browser zen agent-window create
+bctl --browser zen session begin --label "demo"
+bctl --session zen:ab12cd34 tabs create https://example.com --active=false
+bctl --session zen:ab12cd34 page content <tab-id>
+bctl --session zen:ab12cd34 page screenshot <tab-id> --output /tmp/page.png
+bctl --session zen:ab12cd34 session end --close-tabs
+```
 
-### 📝 使用ガイド
+コマンドの完全なリファレンスは [backend/browser-control/README.md](../backend/browser-control/README.md) にあります。
 
-#### スクリプトのインストール
+## エージェントから使う
 
-1. **スクリプトセンターから取得**： [ScriptCat スクリプトセンター](https://scriptcat.org/ja/search) またはその他のユーザースクリプトセンターへアクセス
-2. **バックグラウンドスクリプトセンター**：ユニークな [バックグラウンドスクリプト](https://scriptcat.org/ja/search?script_type=3) を体験
-3. **互換性**：多くの Tampermonkey スクリプトをサポートしており、そのままインストール可能。不具合があれば  
-   [issues](https://github.com/scriptscat/scriptcat/issues) にてご報告ください。
+[backend/browser-control/skills/browser-control](../backend/browser-control/skills/browser-control) をエージェントの skills ディレクトリ（例：`~/.claude/skills/browser-control`）にコピーします。この skill は、エージェントにセッションの流れ、停止条件、アクセスの依頼方法を教えます。
 
-#### スクリプト開発
+Go プログラムからは `backend/browser-control/pkg/browsercontrol` の SDK を使えます。
 
-[開発ドキュメント](https://docs.scriptcat.org/docs/dev/) と  
-[開発者ガイド](https://learn.scriptcat.org/) を参照して、スクリプトの書き方を学べます。  
-基礎から応用まで幅広くカバーし、スムーズに開発を始められます。
+## ユーザースクリプト
 
-ドキュメントの誤りや改善案があれば、ページ上の「Edit this page」から編集できます。
+ScriptCat の機能はすべてそのまま使えます。Tampermonkey 互換スクリプト、バックグラウンドスクリプトとスケジュールスクリプト、クラウド同期、内蔵エディターです。スクリプトの書き方は [ScriptCat のドキュメント](https://docs.scriptcat.org/) を参照してください。
 
----
+内蔵エディターではなくディスク上でスクリプトを開発するには、ビルド出力先をフォルダーに向けて監視します。
 
-## 🤝 コントリビューション
+```sh
+bctl script watch ~/my-scripts
+bctl script push dist/my-script.user.js
+bctl script push-all ~/my-scripts --all-browsers
+```
 
-あらゆる形式の貢献を歓迎します！  
-まずは [Contributing Guide](../CONTRIBUTING.md) をご覧ください。
+## 開発
 
-### 💬 コミュニティ
+[DEVELOP.md](./DEVELOP.md) と [ARCHITECTURE.md](./ARCHITECTURE.md) を参照してください。主なコマンド：
 
-ユーザーや開発者と交流するには、以下のコミュニティへ参加してください：
+```sh
+just check
+just test
+just browser-control-test
+```
 
-- [Telegram](https://t.me/scriptscat)
-- [Discord](https://discord.gg/JF76nHCCM7)
+## ライセンスとクレジット
 
-### 🙏 謝辞
+拡張機能は、ベースにした ScriptCat と同じ [GPLv3](../LICENSE) でライセンスされています。ユーザースクリプトエンジンを作った ScriptCat の作者とコントリビューターに感謝します。
 
-ScriptCat に貢献してくださった開発者の皆様に感謝します。  
-あなたの協力によって ScriptCat はより良いものになっています！
-
-[![Contributors](https://contrib.rocks/image?repo=scriptscat/scriptcat&max=1000)](https://github.com/scriptscat/scriptcat/graphs/contributors)
-
----
-
-## 📄 オープンソースライセンス
-
-このプロジェクトは [GPLv3](../LICENSE) ライセンスのもとで公開されています。  
-関連するライセンス条項を遵守してください。
-
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fscriptscat%2Fscriptcat.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fscriptscat%2Fscriptcat?ref=badge_large)
+`backend/browser-control/` の Go CLI、デーモン、SDK は独自の成果物で、[Apache-2.0](../backend/browser-control/LICENSE) でライセンスされています。
