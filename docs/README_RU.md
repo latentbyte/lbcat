@@ -38,7 +38,7 @@ LBcat это форк [ScriptCat](https://github.com/scriptscat/scriptcat), по
 ### 1. Расширение
 
 - **Firefox и Zen:** установите [LBcat из Firefox Add-ons](https://addons.mozilla.org/firefox/addon/lbcat/).
-- **Chrome и другие браузеры на Chromium:** страница в Chrome Web Store готовится. Пока соберите расширение и загрузите `dist/ext/chrome` как распакованное:
+- **Chrome и другие браузеры на Chromium:** установите [LBcat из Chrome Web Store](https://chromewebstore.google.com/detail/lbcat/kahoajflpencacfboacdkmhldlehmbpa). Чтобы использовать свою сборку, соберите расширение и загрузите `dist/ext/chrome` как распакованное:
 
   ```sh
   pnpm install

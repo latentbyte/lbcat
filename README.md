@@ -48,8 +48,8 @@ You need two parts: the extension and the local tools.
 ### 1. Extension
 
 - **Firefox and Zen:** install [LBcat from Firefox Add-ons](https://addons.mozilla.org/firefox/addon/lbcat/).
-- **Chrome and other Chromium browsers:** a Chrome Web Store listing is on the way. Until then, build it and load
-  `dist/ext/chrome` as an unpacked extension:
+- **Chrome and other Chromium browsers:** install [LBcat from the Chrome Web Store](https://chromewebstore.google.com/detail/lbcat/kahoajflpencacfboacdkmhldlehmbpa). To run your own build
+  instead, build it and load `dist/ext/chrome` as an unpacked extension:
 
   ```sh
   pnpm install

@@ -38,7 +38,7 @@ LBcat は [ScriptCat](https://github.com/scriptscat/scriptcat) のフォーク�
 ### 1. 拡張機能
 
 - **Firefox と Zen：** [Firefox アドオンの LBcat](https://addons.mozilla.org/firefox/addon/lbcat/) をインストールします。
-- **Chrome とその他の Chromium 系ブラウザー：** Chrome ウェブストアでの公開を準備中です。それまでは、ビルドして `dist/ext/chrome` をパッケージ化されていない拡張機能として読み込んでください。
+- **Chrome とその他の Chromium 系ブラウザー：** [Chrome ウェブストアの LBcat](https://chromewebstore.google.com/detail/lbcat/kahoajflpencacfboacdkmhldlehmbpa) をインストールします。自分でビルドしたものを使う場合は、ビルドして `dist/ext/chrome` をパッケージ化されていない拡張機能として読み込んでください。
 
   ```sh
   pnpm install

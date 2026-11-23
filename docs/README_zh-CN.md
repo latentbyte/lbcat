@@ -38,7 +38,7 @@ LBcat 是 [ScriptCat](https://github.com/scriptscat/scriptcat) 的分支,因此�
 ### 1. 扩展
 
 - **Firefox 和 Zen:** 从 [Firefox 附加组件商店安装 LBcat](https://addons.mozilla.org/firefox/addon/lbcat/)。
-- **Chrome 和其他 Chromium 浏览器:** Chrome 网上应用店的上架正在准备中。在此之前,请自行构建并将 `dist/ext/chrome` 作为已解压的扩展程序加载:
+- **Chrome 和其他 Chromium 浏览器:** 从 [Chrome 网上应用店安装 LBcat](https://chromewebstore.google.com/detail/lbcat/kahoajflpencacfboacdkmhldlehmbpa)。如需使用自己的构建,请自行构建并将 `dist/ext/chrome` 作为已解压的扩展程序加载:
 
   ```sh
   pnpm install
