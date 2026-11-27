@@ -1,6 +1,8 @@
 import { Button, Card, Select, Space, Typography } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
 import type { AgentSessionView, TabAccessView, TabGrant } from "@App/pkg/browser-control/agent-window";
+import { resolveBrowserControlIdentity } from "@App/pkg/browser-control/identity";
+import { agentTabHandoff, grantForHandoff } from "@App/pkg/browser-control/tab-handoff";
 import { presentIndicator } from "@App/pkg/browser-control/tab-indicator";
 import {
   AGENT_TAB_ACCESS_MESSAGE,
@@ -38,6 +40,9 @@ function grantFromValue(value: string): TabGrant | undefined {
 function AgentAccessCard() {
   const [view, setView] = useState<TabAccessView>();
   const [error, setError] = useState("");
+  const [tab, setTab] = useState<chrome.tabs.Tab>();
+  const [browserName, setBrowserName] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const run = useCallback((body: TabAccessAction) => {
     requestTabAccess(body).then(
@@ -51,13 +56,35 @@ function AgentAccessCard() {
 
   useEffect(() => {
     void getCurrentTab().then((tab) => {
-      if (tab?.id !== undefined) run({ action: "get", tabId: tab.id });
+      if (tab?.id === undefined) return;
+      setTab(tab);
+      run({ action: "get", tabId: tab.id });
     });
+    void resolveBrowserControlIdentity().then((identity) => setBrowserName(identity.browserName));
   }, [run]);
 
   if (!view) return null;
   const { tabId, owner } = view;
   const ownerStyle = owner ? presentIndicator({ kind: "owned", ...owner }) : undefined;
+  const handoffGrant = grantForHandoff(view);
+
+  // 先写剪贴板（需在用户手势内），再补上授权
+  const copyForAgent = () => {
+    const text = agentTabHandoff({
+      browserName,
+      tabId,
+      title: tab?.title,
+      url: tab?.url,
+      sessionId: view.grant?.mode === "session" ? view.grant.sessionId : undefined,
+    });
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(true);
+        if (handoffGrant) run({ action: "grant", tabId, grant: handoffGrant });
+      },
+      (err: Error) => setError(err.message)
+    );
+  };
 
   return (
     <Card
@@ -108,6 +135,16 @@ function AgentAccessCard() {
           </Select.Option>
         ))}
       </Select>
+      <Space size="mini">
+        <Button size="mini" type="primary" disabled={!browserName} onClick={copyForAgent}>
+          {handoffGrant ? "Allow and copy for agent" : "Copy for agent"}
+        </Button>
+        {copied && (
+          <Typography.Text type="success" style={{ fontSize: 12 }}>
+            {"Copied"}
+          </Typography.Text>
+        )}
+      </Space>
       {error && (
         <Typography.Text type="error" style={{ fontSize: 12 }}>
           {error}

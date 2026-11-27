@@ -191,6 +191,13 @@ task; stop using that tab and do not ask for a workaround. A tab the user set to
 "allow all agents" or reserved for your session can be used like a work tab,
 including personal tabs outside the agent window.
 
+The popup's "Copy for agent" button grants access to the current tab and copies
+a handoff naming its browser, tab ID, title, and URL. When the user pastes one,
+begin (or reuse) a session on that browser and pass that tab ID directly. Do not
+open the URL in a new tab or window, or navigate another tab there; no
+`--personal-tab` flag is needed. Leave the tab open when done. If the ID no
+longer resolves, ask for a fresh copy instead of opening the URL yourself.
+
 ## Notes for the human operator
 
 Leave a page note when the human needs to act on or know about a specific page.
