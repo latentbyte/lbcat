@@ -141,7 +141,18 @@ func (c *Client) request(ctx context.Context, target string, payload any, timeou
 
 func (c *Client) requestScoped(ctx context.Context, target string, payload any, timeout time.Duration) (json.RawMessage, error) {
 	if command, ok := payload.(ExtCommand); ok && scoped(command.Cmd) {
+		// a session command naming a tab may target one the user granted from the popup, which needs no agent
+		// window. AGENT_WINDOW_MISSING proves the extension enforces scope, so it decides, and only its reply to
+		// the real command notifies
+		grantable := c.SessionID != "" && targetsTab(command)
+		notify := c.NotifyMissingWindow
+		c.NotifyMissingWindow = notify && !grantable
 		status, err := c.requestLocked(ctx, target, ExtCommand{Cmd: "agentWindow.status"}, timeout)
+		c.NotifyMissingWindow = notify
+		var commandError *CommandError
+		if grantable && errors.As(err, &commandError) && commandError.Code == "AGENT_WINDOW_MISSING" {
+			return c.requestLocked(ctx, target, payload, timeout)
+		}
 		if err != nil {
 			return status, fmt.Errorf("agent window safety check failed: %w", err)
 		}

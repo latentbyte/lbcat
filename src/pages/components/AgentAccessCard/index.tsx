@@ -11,15 +11,25 @@ import {
 } from "@App/pkg/browser-control/tab-access-message";
 import { getCurrentTab } from "@App/pkg/utils/utils";
 
-function requestTabAccess(body: TabAccessAction): Promise<TabAccessView> {
+type TabAccessResult = Extract<TabAccessResponse, { ok: true }>;
+
+function sendTabAccess(body: TabAccessAction): Promise<TabAccessResult> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({ type: AGENT_TAB_ACCESS_MESSAGE, ...body }, (response: TabAccessResponse) => {
       const lastError = chrome.runtime.lastError;
       if (lastError) return reject(new Error(lastError.message));
       if (!response.ok) return reject(new Error(response.error));
-      resolve(response.data);
+      resolve(response);
     });
   });
+}
+
+const requestTabAccess = (body: TabAccessAction) => sendTabAccess(body).then((response) => response.data);
+
+async function requestHandoff(tabId: number): Promise<{ data: TabAccessView; sessionId: string }> {
+  const { data, sessionId } = await sendTabAccess({ action: "handoff", tabId });
+  if (!sessionId) throw new Error("Handoff returned no session");
+  return { data, sessionId };
 }
 
 function sessionName(session: AgentSessionView): string {
@@ -68,22 +78,23 @@ function AgentAccessCard() {
   const ownerStyle = owner ? presentIndicator({ kind: "owned", ...owner }) : undefined;
   const handoffGrant = grantForHandoff(view);
 
-  // 先写剪贴板（需在用户手势内），再补上授权
+  // 后台补上授权并准备好任务，再把说明写入剪贴板
   const copyForAgent = () => {
-    const text = agentTabHandoff({
-      browserName,
-      tabId,
-      title: tab?.title,
-      url: tab?.url,
-      sessionId: view.grant?.mode === "session" ? view.grant.sessionId : undefined,
-    });
-    navigator.clipboard.writeText(text).then(
-      () => {
-        setCopied(true);
-        if (handoffGrant) run({ action: "grant", tabId, grant: handoffGrant });
-      },
-      (err: Error) => setError(err.message)
-    );
+    setCopied(false);
+    requestHandoff(tabId)
+      .then(({ data, sessionId }) => {
+        setView(data);
+        return navigator.clipboard.writeText(
+          agentTabHandoff({ browserName, sessionId, tabId, title: tab?.title, url: tab?.url })
+        );
+      })
+      .then(
+        () => {
+          setCopied(true);
+          setError("");
+        },
+        (err: Error) => setError(err.message)
+      );
   };
 
   return (

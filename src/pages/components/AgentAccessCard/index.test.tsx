@@ -22,7 +22,10 @@ describe("弹出页代理访问卡片的复制按钮", () => {
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     vi.spyOn(chrome.runtime, "sendMessage").mockImplementation(((message: Record<string, unknown>, callback: any) => {
       sent.push(message);
-      if (message.action === "grant") view = { ...view, grant: message.grant as TabAccessView["grant"] };
+      if (message.action === "handoff") {
+        view = { ...view, grant: view.grant ?? { mode: "all" } };
+        return callback({ ok: true, data: view, sessionId: "ab12cd34" });
+      }
       callback({ ok: true, data: view });
     }) as any);
   });
@@ -36,20 +39,20 @@ describe("弹出页代理访问卡片的复制按钮", () => {
     const { findByText } = render(<AgentAccessCard />);
     fireEvent.click(await findByText("Allow and copy for agent"));
 
-    await waitFor(() => expect(sent.some((message) => message.action === "grant")).toBe(true));
-    expect(sent.find((message) => message.action === "grant")).toMatchObject({ tabId: 116, grant: { mode: "all" } });
-    expect(writeText).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(sent.find((message) => message.action === "handoff")).toMatchObject({ tabId: 116 });
     expect(writeText.mock.calls[0][0]).toContain("Tab ID: 116");
-    expect(writeText.mock.calls[0][0]).toContain("Browser: zen");
+    expect(writeText.mock.calls[0][0]).toContain("bctl --session zen:ab12cd34 page content 116");
     await findByText("Copied");
+    await findByText("Copy for agent");
   });
 
-  it("已授权的标签只复制，不改授权", async () => {
+  it("已授权的标签显示复制按钮并复制任务句柄", async () => {
     view = { ...view, grant: { mode: "all" } };
     const { findByText } = render(<AgentAccessCard />);
     fireEvent.click(await findByText("Copy for agent"));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    expect(sent.some((message) => message.action === "grant")).toBe(false);
+    expect(writeText.mock.calls[0][0]).toContain("zen:ab12cd34");
   });
 });

@@ -192,11 +192,15 @@ task; stop using that tab and do not ask for a workaround. A tab the user set to
 including personal tabs outside the agent window.
 
 The popup's "Copy for agent" button grants access to the current tab and copies
-a handoff naming its browser, tab ID, title, and URL. When the user pastes one,
-begin (or reuse) a session on that browser and pass that tab ID directly. Do not
-open the URL in a new tab or window, or navigate another tab there; no
-`--personal-tab` flag is needed. Leave the tab open when done. If the ID no
-longer resolves, ask for a fresh copy instead of opening the URL yourself.
+a handoff naming its browser, tab ID, title, URL, and a ready session handle.
+When the user pastes one, pass that `--session` handle and tab ID directly. Do
+not run `session begin`, create or designate an agent window, open the URL in a
+new tab or window, or navigate another tab there; no `--personal-tab` flag is
+needed. A granted tab works with no registered agent window (LBcat and bctl
+4.35.26+); `tabs list`, `tabs create`, viewport changes, and other tabs still
+need one. The handle expires after 4 hours unused. Leave the tab open when done.
+If the handle or ID stops working, ask for a fresh copy instead of opening the
+URL yourself.
 
 ## Notes for the human operator
 

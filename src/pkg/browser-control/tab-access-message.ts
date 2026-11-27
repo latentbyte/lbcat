@@ -10,12 +10,13 @@ export const AGENT_GUIDE_MESSAGE = "browserControl.GUIDE_EVENT";
 export type TabAccessAction =
   | { action: "get"; tabId: number }
   | { action: "grant"; tabId: number; grant?: TabGrant }
-  | { action: "release"; tabId: number }
+  | { action: "release" | "handoff"; tabId: number }
   | { action: "pause" | "resume" | "end"; tabId: number; sessionId: string };
 
 export type TabAccessRequest = { type: typeof AGENT_TAB_ACCESS_MESSAGE } & TabAccessAction;
 
-export type TabAccessResponse = { ok: true; data: TabAccessView } | { ok: false; error: string };
+// sessionId 仅在 handoff 时返回：可直接交给代理使用的任务
+export type TabAccessResponse = { ok: true; data: TabAccessView; sessionId?: string } | { ok: false; error: string };
 
 // 弹出页处理代理便签；只接受扩展页面发送
 export const AGENT_NOTES_MESSAGE = "browserControl.NOTES";

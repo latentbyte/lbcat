@@ -30,6 +30,20 @@ func scoped(cmd string) bool {
 		strings.HasPrefix(cmd, "guide.")
 }
 
+// targetsTab reports whether the command names a tab ID
+func targetsTab(command ExtCommand) bool {
+	encoded, err := json.Marshal(command.Args)
+	if err != nil {
+		return false
+	}
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &args); err != nil {
+		return false
+	}
+	_, ok := args["tabId"]
+	return ok
+}
+
 func (c *Client) scopedCommand(command ExtCommand) (ExtCommand, error) {
 	if !scoped(command.Cmd) {
 		return command, nil

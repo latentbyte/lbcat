@@ -1,4 +1,5 @@
 import { BrowserControlError } from "./errors";
+import { grantForHandoff } from "./tab-handoff";
 
 const STATE_KEY = "browserControl.agentWindow";
 // 标签 ID 仅在本次浏览器运行内有效，授权放在会话存储中随浏览器重启清除
@@ -7,6 +8,8 @@ const GRANTS_KEY = "browserControl.tabGrants";
 const VERIFIED_KEY = "browserControl.verifiedMarkerUrl";
 const DEFAULT_TTL = 15 * 60 * 1000;
 const MAX_TTL = 24 * 60 * 60 * 1000;
+// 交接任务由用户稍后粘贴给代理，空闲期限放宽
+const HANDOFF_TTL = 4 * 60 * 60 * 1000;
 const MAX_LABEL = 60;
 
 export type AgentWindowStatus = { windowId: number; markerTabId: number };
@@ -18,6 +21,8 @@ type Session = {
   ttlMs: number;
   paused: boolean;
   tabIds: number[];
+  // 弹出页为该标签交接而创建的任务
+  handoffTabId?: number;
 };
 // 用户在标签上设置的代理访问：关闭、允许所有任务或仅允许指定任务
 export type TabGrant = { mode: "off" } | { mode: "all" } | { mode: "session"; sessionId: string };
@@ -310,6 +315,24 @@ export class AgentWindowService implements AgentWindowScope {
     });
   }
 
+  // 用户从弹出页把标签交给代理：补上授权并返回可直接使用的任务，无需专用窗口
+  async handoffTab(tabId: number): Promise<{ sessionId: string }> {
+    return this.withState(async (state) => {
+      const grant = this.grant(state, tabId);
+      if (grant?.mode === "session") return { sessionId: grant.sessionId };
+      const inAgentWindow = !!state.registration?.eligibleTabIds?.includes(tabId);
+      const needed = grantForHandoff({ grant, inAgentWindow });
+      if (needed) (state.tabGrants ??= {})[tabId] = needed;
+      const existing = state.sessions.find(
+        (item) => item.handoffTabId === tabId && !item.paused && item.expiresAt > this.deps.now()
+      );
+      if (existing) return { sessionId: existing.sessionId };
+      const { sessionId } = this.startSession(state, HANDOFF_TTL, "Tab handoff");
+      state.sessions.find((item) => item.sessionId === sessionId)!.handoffTabId = tabId;
+      return { sessionId };
+    });
+  }
+
   async renewSession(sessionId: string): Promise<{ expiresAt: number }> {
     return this.withState(async (state) => {
       await this.registration(state);
@@ -415,23 +438,21 @@ export class AgentWindowService implements AgentWindowScope {
     personalTabId?: number,
     sessionId?: string
   ): Promise<chrome.tabs.Tab> {
-    const registration = await this.registration(state);
-    if (tabId === registration.markerTabId) {
+    const granted = this.grantAllows(this.grant(state, tabId), sessionId);
+    // 用户明确授权的标签不依赖专用窗口登记
+    const registration = granted ? state.registration : await this.registration(state);
+    if (tabId === registration?.markerTabId) {
       throw new BrowserControlScopeError("AGENT_MARKER_PROTECTED", "Agent window marker is not a work tab");
     }
     const tab = await this.deps.getTab(tabId);
     if (this.isMarker(tab)) {
       throw new BrowserControlScopeError("AGENT_MARKER_PROTECTED", "Agent window marker is not a work tab");
     }
-    const granted = this.grantAllows(this.grant(state, tabId), sessionId);
     if (granted === false) {
       throw new BrowserControlScopeError("TAB_ACCESS_DENIED", "Agent access to this tab is turned off for this task");
     }
-    if (
-      (tab.windowId !== registration.windowId || !registration.eligibleTabIds?.includes(tabId)) &&
-      personalTabId !== tabId &&
-      !granted
-    ) {
+    const inAgentWindow = tab.windowId === registration?.windowId && registration.eligibleTabIds?.includes(tabId);
+    if (!granted && !inAgentWindow && personalTabId !== tabId) {
       throw new BrowserControlScopeError(
         "PERSONAL_TAB_DENIED",
         "Tab lacks an agent-window grant; explicit per-tab permission required"
@@ -451,7 +472,7 @@ export class AgentWindowService implements AgentWindowScope {
 
   async assertTabAccess(tabId: number, sessionId?: string, personalTabId?: number): Promise<chrome.tabs.Tab> {
     return this.withState(async (state) => {
-      await this.registration(state);
+      if (!this.grantAllows(this.grant(state, tabId), sessionId)) await this.registration(state);
       const session = this.session(state, sessionId);
       const tab = await this.windowTab(state, tabId, personalTabId, sessionId);
       const owner = this.owner(state, tabId);

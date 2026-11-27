@@ -638,6 +638,38 @@ describe("代理专用窗口与标签租约", () => {
     await expect(service.assertTabAccess(inside.id!, second)).resolves.toEqual(inside);
   });
 
+  it("未登记专用窗口时交接的标签可直接由交接任务访问", async () => {
+    tabs.set(1, mockTab({ id: 1, windowId: 8, url: "https://personal.example" }));
+    tabs.set(2, mockTab({ id: 2, windowId: 8, url: "https://other.example" }));
+    const { sessionId } = await service.handoffTab(1);
+    expect((await service.tabAccess(1)).grant).toEqual({ mode: "all" });
+    await expect(service.assertTabAccess(1, sessionId)).resolves.toMatchObject({ id: 1 });
+    await expect(service.assertTabAccess(2, sessionId)).rejects.toMatchObject({ code: "AGENT_WINDOW_MISSING" });
+    await expect(service.assertTabAccess(1, "missing")).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
+  });
+
+  it("重复交接同一标签复用交接任务，任务结束后另开", async () => {
+    tabs.set(1, mockTab({ id: 1, windowId: 8, url: "https://personal.example" }));
+    tabs.set(2, mockTab({ id: 2, windowId: 8, url: "https://other.example" }));
+    const first = (await service.handoffTab(1)).sessionId;
+    expect((await service.handoffTab(1)).sessionId).toBe(first);
+    expect((await service.handoffTab(2)).sessionId).not.toBe(first);
+    await service.closeSession(first);
+    expect((await service.handoffTab(1)).sessionId).not.toBe(first);
+  });
+
+  it("交接已关闭访问的标签时改为允许，已限定任务的标签沿用该任务", async () => {
+    await service.designate(7);
+    const owner = (await service.openSession()).sessionId;
+    tabs.set(1, mockTab({ id: 1, windowId: 8, url: "https://personal.example" }));
+    await service.setTabGrant(1, { mode: "off" });
+    await service.handoffTab(1);
+    expect((await service.tabAccess(1)).grant).toEqual({ mode: "all" });
+    await service.setTabGrant(1, { mode: "session", sessionId: owner });
+    expect((await service.handoffTab(1)).sessionId).toBe(owner);
+    expect((await service.tabAccess(1)).grant).toEqual({ mode: "session", sessionId: owner });
+  });
+
   it("授权给不存在的任务时应拒绝保存", async () => {
     await service.designate(7);
     await expect(service.setTabGrant(1, { mode: "session", sessionId: "missing" })).rejects.toMatchObject({

@@ -67,6 +67,10 @@ function scheduleExpiryRefresh() {
 }
 
 async function handleTabAccess(request: TabAccessRequest): Promise<TabAccessResponse> {
+  if (request.action === "handoff") {
+    const { sessionId } = await agentWindowService.handoffTab(request.tabId);
+    return { ok: true, data: await agentWindowService.tabAccess(request.tabId), sessionId };
+  }
   switch (request.action) {
     case "grant":
       await agentWindowService.setTabGrant(request.tabId, request.grant);

@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { agentTabHandoff, grantForHandoff } from "./tab-handoff";
 
 describe("交给代理的标签说明", () => {
-  const tab = { browserName: "zen", tabId: 116, title: "Create app", url: "https://example.com/apps/new" };
+  const tab = {
+    browserName: "zen",
+    sessionId: "ab12cd34",
+    tabId: 116,
+    title: "Create app",
+    url: "https://example.com/apps/new",
+  };
 
   it("应包含浏览器名、标签 ID、标题与网址", () => {
     const text = agentTabHandoff(tab);
@@ -12,22 +18,15 @@ describe("交给代理的标签说明", () => {
     expect(text).toContain("URL: https://example.com/apps/new");
   });
 
-  it("应给出直接使用该标签的命令，并禁止新开窗口或标签", () => {
+  it("应给出带任务句柄的命令，无需新建任务、窗口或标签", () => {
     const text = agentTabHandoff(tab);
-    expect(text).toContain('bctl --browser zen session begin --label "<agent>: <task>"');
-    expect(text).toContain("bctl --session <s> page content 116");
+    expect(text).toContain("bctl --session zen:ab12cd34 page content 116");
+    expect(text).toMatch(/Do not run `session begin`/);
     expect(text).toMatch(/Do not open this URL in a new tab or window/);
   });
 
   it("标题中的换行应压成单行", () => {
     expect(agentTabHandoff({ ...tab, title: "a\n  b" })).toContain("Title: a b");
-  });
-
-  it("仅限某任务时应写明任务句柄，不再提示新建任务", () => {
-    const text = agentTabHandoff({ ...tab, sessionId: "ab12cd34" });
-    expect(text).toContain("zen:ab12cd34");
-    expect(text).toContain("bctl --session zen:ab12cd34 page content 116");
-    expect(text).not.toContain("session begin");
   });
 });
 

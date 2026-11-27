@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,6 +171,72 @@ func TestInvalidWindowStatusFailsClosed(t *testing.T) {
 		}()
 		if _, err := client.Request("zen-01", ExtCommand{Cmd: "tabs.get", Args: map[string]any{"tabId": 42}}); err == nil {
 			t.Fatal("invalid registration allowed page command")
+		}
+	})
+}
+
+func TestGrantedTabWithoutAgentWindow(t *testing.T) {
+	t.Run("未登记专用窗口时仍把命令交给扩展按标签授权裁决", func(t *testing.T) {
+		local, remote := net.Pipe()
+		defer local.Close()
+		defer remote.Close()
+		client := &Client{conn: local, SessionID: "ab12cd34"}
+		go func() {
+			preflight, err := protocol.ReadEnvelope(remote)
+			if err != nil {
+				return
+			}
+			_ = protocol.WriteEnvelope(remote, &protocol.Envelope{ID: preflight.ID, Type: protocol.MsgResponse, Payload: json.RawMessage(`{"cmd":"error","error":{"code":"AGENT_WINDOW_MISSING","message":"No agent window is registered"}}`)})
+			request, err := protocol.ReadEnvelope(remote)
+			if err != nil {
+				return
+			}
+			_ = protocol.WriteEnvelope(remote, &protocol.Envelope{ID: request.ID, Type: protocol.MsgResponse, Payload: json.RawMessage(`{"cmd":"page.content","data":{"text":"granted"}}`)})
+		}()
+		response, err := client.Request("zen-01", ExtCommand{Cmd: "page.content", Args: map[string]any{"tabId": 42}})
+		if err != nil {
+			t.Fatalf("error = %v", err)
+		}
+		if !strings.Contains(string(response), "granted") {
+			t.Fatalf("response = %s", response)
+		}
+	})
+	t.Run("没有任务或不针对标签的命令在窗口缺失时仍被拦下", func(t *testing.T) {
+		for _, tc := range []struct {
+			session string
+			command ExtCommand
+		}{
+			{"", ExtCommand{Cmd: "page.content", Args: map[string]any{"tabId": 42}}},
+			{"ab12cd34", ExtCommand{Cmd: "tabs.list"}},
+		} {
+			local, remote := net.Pipe()
+			client := &Client{conn: local, SessionID: tc.session}
+			received := make(chan string, 2)
+			go func() {
+				for {
+					request, err := protocol.ReadEnvelope(remote)
+					if err != nil {
+						close(received)
+						return
+					}
+					var command ExtCommand
+					_ = json.Unmarshal(request.Payload, &command)
+					received <- command.Cmd
+					_ = protocol.WriteEnvelope(remote, &protocol.Envelope{ID: request.ID, Type: protocol.MsgResponse, Payload: json.RawMessage(`{"cmd":"error","error":{"code":"AGENT_WINDOW_MISSING","message":"No agent window is registered"}}`)})
+				}
+			}()
+			if _, err := client.Request("zen-01", tc.command); err == nil {
+				t.Fatalf("%s passed without an agent window", tc.command.Cmd)
+			}
+			local.Close()
+			remote.Close()
+			var commands []string
+			for command := range received {
+				commands = append(commands, command)
+			}
+			if len(commands) != 1 || commands[0] != "agentWindow.status" {
+				t.Fatalf("commands = %v", commands)
+			}
 		}
 	})
 }
